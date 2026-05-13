@@ -12,10 +12,10 @@ export const ROUTES = {
   home: '/',
   login: '/login',
   agent: '/agent',
-  agentStudio: '/agent-studio',
-  agentHistory: '/agent-history',
+  agentStudio: '/agent',
+  agentHistory: '/agent/history',
   contentEdit: '/content/:id',
-  contentManagement: '/contents',
+  contentManagement: '/content',
   settings: '/settings',
   templates: '/templates',
 } as const;

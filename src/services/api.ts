@@ -24,7 +24,7 @@ import type {
 } from '../types';
 import { useAuthStore } from '../stores/useAuthStore';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8400';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
 const apiClient: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
@@ -70,6 +70,7 @@ apiClient.interceptors.response.use(
           }
         } catch {
           useAuthStore.getState().logout();
+          window.location.href = '/login';
         }
       }
     }
@@ -279,6 +280,7 @@ agentApiClient.interceptors.response.use(
           }
         } catch {
           useAuthStore.getState().logout();
+          window.location.href = '/login';
         }
       }
     }
@@ -309,7 +311,7 @@ export const agentApi = {
     agentApiClient.delete<{ success: boolean }>(`/api/v1/agent/async/${taskId}`),
 
   wsUrl: (taskId: string) => {
-    const base = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8400';
+    const base = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
     const wsBase = base.replace(/^http/, 'ws');
     return `${wsBase}/api/v1/agent/ws/${taskId}`;
   },

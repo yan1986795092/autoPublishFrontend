@@ -4,18 +4,22 @@ import Markdown from 'react-markdown';
 export function StreamingOutput({ text }: { text: string }) {
   const [displayedText, setDisplayedText] = useState('');
   const textRef = useRef(text);
+  const indexRef = useRef(0);
   const intervalRef = useRef<ReturnType<typeof setInterval>>();
 
   useEffect(() => {
     textRef.current = text;
-    let i = displayedText.length;
+    // Reset index when text changes to a completely different value
+    if (indexRef.current > text.length) {
+      indexRef.current = 0;
+    }
     intervalRef.current = setInterval(() => {
-      i += 5;
-      if (i >= textRef.current.length) {
+      indexRef.current += 5;
+      if (indexRef.current >= textRef.current.length) {
         setDisplayedText(textRef.current);
         clearInterval(intervalRef.current);
       } else {
-        setDisplayedText(textRef.current.slice(0, i));
+        setDisplayedText(textRef.current.slice(0, indexRef.current));
       }
     }, 15);
     return () => clearInterval(intervalRef.current);

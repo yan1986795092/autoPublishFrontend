@@ -90,6 +90,7 @@ export function AgentPage() {
   useEffect(() => {
     if (!currentTaskId || !isRunning) return;
 
+    let mounted = true;
     let reconnectAttempt = 0;
     let ws: WebSocket | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout>;
@@ -101,6 +102,7 @@ export function AgentPage() {
       ws.onopen = () => { reconnectAttempt = 0; };
 
       ws.onclose = () => {
+        if (!mounted) return;
         if (reconnectAttempt < 5 && useAgentStore.getState().isRunning) {
           const delay = Math.min(1000 * 2 ** reconnectAttempt, 30000);
           reconnectTimer = setTimeout(() => {
@@ -155,6 +157,7 @@ export function AgentPage() {
     connect();
 
     return () => {
+      mounted = false;
       clearTimeout(reconnectTimer);
       disconnectWebSocket();
     };

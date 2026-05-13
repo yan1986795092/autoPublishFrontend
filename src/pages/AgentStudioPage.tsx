@@ -63,13 +63,12 @@ export function AgentStudioPage() {
     runAsync, runStreaming,
     submitDecision, clearDecision, cancelTask,
     connectWebSocket, disconnectWebSocket,
-    previewPlan, setCurrentPlan,
+    previewPlan,
   } = useAgentStore();
 
   const showToast = useUIStore((s) => s.showToast);
 
   const [prompt, setPrompt] = useState('');
-  const [currentPlan, setCurrentPlanState] = useState<ExecutionPlan | null>(null);
   const [showPlanEditor, setShowPlanEditor] = useState(false);
   const [runningTime, setRunningTime] = useState(0);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -115,7 +114,6 @@ export function AgentStudioPage() {
     showToast('正在生成执行计划...', 'info');
     const plan = await previewPlan(prompt.trim());
     if (plan) {
-      setCurrentPlanState(plan);
       setShowPlanEditor(true);
       showToast(`计划包含 ${plan.tasks.length} 个步骤`, 'info');
     } else {
@@ -126,7 +124,6 @@ export function AgentStudioPage() {
   // Confirm plan → execute
   const handleConfirmPlan = useCallback(async (adjustedPlan: ExecutionPlan) => {
     setShowPlanEditor(false);
-    setCurrentPlanState(adjustedPlan);
     showToast(`执行计划已确认，共 ${adjustedPlan.tasks.length} 个步骤`, 'info');
 
     const userMsg: ChatMessage = {
@@ -176,7 +173,6 @@ export function AgentStudioPage() {
   const handleNewSession = useCallback(() => {
     clearMessages();
     setPrompt('');
-    setCurrentPlanState(null);
     setActiveRightTab('preview');
     inputRef.current?.focus();
   }, [clearMessages]);

@@ -31,14 +31,15 @@ export const usePresetStore = create<PresetState>()((set) => ({
   },
 
   savePreset: async (name, description, parameters, platformCode, templateId) => {
-    const res = await presetsApi.create({ name, description, parameters, platform_code: platformCode, template_id: templateId });
-    if (res.data.success) {
-      // Refresh list
-      const listRes = await presetsApi.list();
-      if (listRes.data.success && listRes.data.data) {
-        set({ presets: listRes.data.data });
+    try {
+      const res = await presetsApi.create({ name, description, parameters, platform_code: platformCode, template_id: templateId });
+      if (res.data.success) {
+        const listRes = await presetsApi.list();
+        if (listRes.data.success && listRes.data.data) {
+          set({ presets: listRes.data.data });
+        }
       }
-    }
+    } catch { /* ignore */ }
   },
 
   loadPreset: async (id: string) => {

@@ -55,7 +55,7 @@ export function AgentHistoryPage() {
         <ScrollArea className="h-[calc(100vh-140px)]">
           <div className="space-y-3">
             {taskHistory.map((task) => (
-              <TaskCard key={task.id} task={task} onClick={() => navigate(`/agent/history/${task.id}`)} />
+              <TaskCard key={task.id} task={task} onClick={() => navigate('/agent')} />
             ))}
           </div>
         </ScrollArea>

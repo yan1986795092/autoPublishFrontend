@@ -69,18 +69,36 @@ export function BannedWordHighlighter({ editor }: Props) {
   if (bannedWords.length === 0 && !loading) return null;
 
   const handleReplace = (bw: typeof bannedWords[0]) => {
-    const { from, to } = editor.state.selection;
-    const pos = editor.state.doc.textContent.indexOf(bw.word, bw.position);
-    if (pos === -1) return;
+    // Walk the ProseMirror document to find the word at the correct character offset,
+    // using proper node positions (not textContent char indices) for deleteRange.
+    let from: number | null = null;
+    let to: number | null = null;
+    let charOffset = 0;
 
-    // Find the exact position in the document
-    const resolvedPos = editor.state.doc.resolve(Math.min(pos, editor.state.doc.content.size - 1));
-    const wordEnd = Math.min(pos + bw.word.length, editor.state.doc.content.size);
+    editor.state.doc.descendants((node, pos) => {
+      if (from !== null) return false;
+      if (node.isText) {
+        const text = node.text ?? '';
+        if (charOffset <= bw.position && bw.position < charOffset + text.length) {
+          const localIdx = bw.position - charOffset;
+          if (text.slice(localIdx).startsWith(bw.word)) {
+            from = pos + localIdx;
+            to = from + bw.word.length;
+          }
+        }
+        charOffset += text.length;
+      } else if (node.isBlock) {
+        charOffset += 1; // \n in textContent
+      }
+      return true;
+    });
+
+    if (from === null || to === null) return;
 
     editor
       .chain()
       .focus()
-      .deleteRange({ from: resolvedPos.pos, to: wordEnd })
+      .deleteRange({ from, to })
       .insertContent(bw.suggestion || '')
       .run();
   };

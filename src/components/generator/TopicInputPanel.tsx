@@ -64,7 +64,7 @@ export function TopicInputPanel() {
     };
     window.addEventListener('app:generate', listener);
     return () => window.removeEventListener('app:generate', listener);
-  });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleGenerate = async () => {
     if (!draft.topic.trim()) {

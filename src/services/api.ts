@@ -24,7 +24,7 @@ import type {
 } from '../types';
 import { useAuthStore } from '../stores/useAuthStore';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
 const apiClient: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
@@ -311,9 +311,9 @@ export const agentApi = {
     agentApiClient.delete<{ success: boolean }>(`/api/v1/agent/async/${taskId}`),
 
   wsUrl: (taskId: string) => {
-    const base = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+    const base = import.meta.env.VITE_API_BASE_URL || '';
     const wsBase = base.replace(/^http/, 'ws');
-    return `${wsBase}/api/v1/agent/ws/${taskId}`;
+    return `${wsBase || 'ws://localhost:8000'}/api/v1/agent/ws/${taskId}`;
   },
 
   /** SSE 流式执行：通过 fetch + ReadableStream 接收实时事件 */
@@ -358,6 +358,7 @@ export const generateStream = (
       if (done) break;
 
       buffer += decoder.decode(value, { stream: true });
+      buffer = buffer.replace(/\r\n/g, '\n');
       const events = buffer.split('\n\n');
       buffer = events.pop() || '';
 

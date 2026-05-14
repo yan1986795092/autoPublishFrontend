@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { useParams, useNavigate } from 'react-router-dom';
 import { contentsApi } from '../services/api';
@@ -86,6 +86,13 @@ export function ContentEditPage() {
       setLoading(false);
     }
   };
+
+  // Listen for Ctrl+S keyboard shortcut
+  useEffect(() => {
+    const handler = () => { if (isDirty) handleSave(); };
+    window.addEventListener('shortcut:save', handler);
+    return () => window.removeEventListener('shortcut:save', handler);
+  }, [isDirty]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSave = async () => {
     if (!id) return;

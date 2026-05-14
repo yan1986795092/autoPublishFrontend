@@ -1,15 +1,25 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { contentsApi } from '../services/api';
 import type { Content, ContentVersion } from '../types';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
+import { Input } from '../components/ui/input';
 import { SkeletonList } from '../components/ui/Skeleton';
-import { formatRelativeTime, cn } from '../utils/helpers';
+import { Pagination } from '../components/ui/pagination';
+import { EmptyState } from '../components/ui/empty-state';
+import { ViewDensitySwitcher } from '../components/ui/view-density-switcher';
+import { BulkActionBar } from '../components/ui/bulk-action-bar';
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from '../components/ui/dropdown-menu';
+import { formatRelativeTime, debounce, cn } from '../utils/helpers';
 import { ContentCalendar } from '../components/content/ContentCalendar';
 import { useNavigate } from 'react-router-dom';
 import { useUIStore } from '../stores/useUIStore';
-import { PenLine, Trash2, ExternalLink, Plus, History, Clock, FileText, CalendarDays, List, RotateCcw } from 'lucide-react';
+import {
+  FileText, PenLine, Trash2, ExternalLink, Plus, History, Clock,
+  CalendarDays, List, Search, MoreHorizontal, ChevronUp, ChevronDown,
+  Check, AlertTriangle, Archive
+} from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
@@ -26,12 +36,33 @@ const platformConfig: Record<string, { label: string; emoji: string }> = {
   zhihu: { label: '知乎', emoji: '💡' },
 };
 
+type SortKey = 'title' | 'status' | 'updated_at';
+type SortDir = 'asc' | 'desc';
+
 export function ContentManagementPage() {
   const [contents, setContents] = useState<Content[]>([]);
   const [loading, setLoading] = useState(true);
+  const [operationLoading, setOperationLoading] = useState(false);
   const [filter, setFilter] = useState<string>('all');
   const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [view, setView] = useState<'list' | 'calendar'>('list');
+
+  // Search
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+
+  // Sort
+  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: 'updated_at', dir: 'desc' });
+
+  // Selection
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  // Pagination
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
+
+  const navigate = useNavigate();
+  const { showToast, viewDensity, setViewDensity } = useUIStore();
 
   // Version history dialog
   const [historyContent, setHistoryContent] = useState<Content | null>(null);
@@ -39,8 +70,8 @@ export function ContentManagementPage() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
 
-  const navigate = useNavigate();
-  const { showToast } = useUIStore();
+  const densityClass = viewDensity === 'compact' ? 'py-2' : viewDensity === 'comfortable' ? 'py-4' : 'py-3';
+  const showDescription = viewDensity !== 'compact';
 
   useEffect(() => {
     contentsApi.list({ page: 1, page_size: 50 })
@@ -53,6 +84,141 @@ export function ContentManagementPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  // Debounced search
+  const debouncedSearch = useMemo(() => debounce((val: string) => setSearchQuery(val), 300), []);
+  const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchInput(e.target.value);
+    debouncedSearch(e.target.value);
+    setPage(1);
+  }, [debouncedSearch]);
+
+  // Filtered + searched + sorted
+  const processedContents = useMemo(() => {
+    let items = [...contents];
+
+    if (filter !== 'all') items = items.filter((c) => c.status === filter);
+    if (tagFilter) items = items.filter((c) => (c.tags || []).includes(tagFilter));
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      items = items.filter((c) =>
+        (c.title || '').toLowerCase().includes(q) ||
+        (c.content_md || '').slice(0, 200).toLowerCase().includes(q)
+      );
+    }
+
+    items.sort((a, b) => {
+      let cmp = 0;
+      if (sort.key === 'title') cmp = (a.title || '').localeCompare(b.title || '');
+      else if (sort.key === 'status') cmp = a.status.localeCompare(b.status);
+      else cmp = new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime();
+      return sort.dir === 'asc' ? cmp : -cmp;
+    });
+
+    return items;
+  }, [contents, filter, tagFilter, searchQuery, sort]);
+
+  const totalPages = Math.max(1, Math.ceil(processedContents.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const pagedContents = useMemo(() =>
+    processedContents.slice((safePage - 1) * pageSize, safePage * pageSize),
+    [processedContents, safePage]
+  );
+
+  // Stats
+  const stats = useMemo(() => ({
+    all: contents.length,
+    draft: contents.filter((c) => c.status === 'draft').length,
+    published: contents.filter((c) => c.status === 'published').length,
+    archived: contents.filter((c) => c.status === 'archived').length,
+  }), [contents]);
+
+  const allTags = useMemo(() =>
+    [...new Set(contents.flatMap((c) => c.tags || []))],
+    [contents]
+  );
+
+  const filters = [
+    { value: 'all', label: '全部', count: stats.all },
+    { value: 'draft', label: '草稿', count: stats.draft },
+    { value: 'published', label: '已发布', count: stats.published },
+    { value: 'archived', label: '已归档', count: stats.archived },
+  ];
+
+  // Selection
+  const allVisibleSelected = pagedContents.length > 0 && pagedContents.every((c) => selectedIds.has(c.id));
+  const toggleSelectAll = () => {
+    if (allVisibleSelected) {
+      setSelectedIds(new Set([...selectedIds].filter((id) => !pagedContents.some((c) => c.id === id))));
+    } else {
+      const next = new Set(selectedIds);
+      pagedContents.forEach((c) => next.add(c.id));
+      setSelectedIds(next);
+    }
+  };
+  const toggleSelect = (id: string) => {
+    const next = new Set(selectedIds);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    setSelectedIds(next);
+  };
+
+  const handleBulkDelete = async () => {
+    if (!confirm(`确定要删除选中的 ${selectedIds.size} 条内容吗？`)) return;
+    setOperationLoading(true);
+    let success = 0, failed = 0;
+    for (const id of selectedIds) {
+      try { await contentsApi.delete(id); success++; } catch { failed++; }
+    }
+    setContents((prev) => prev.filter((c) => !selectedIds.has(c.id)));
+    setSelectedIds(new Set());
+    setOperationLoading(false);
+    if (failed === 0) {
+      showToast(`已删除 ${success} 条内容`, 'success');
+    } else {
+      showToast(`成功 ${success} 条，失败 ${failed} 条`, failed > success / 2 ? 'error' : 'info');
+    }
+  };
+
+  const handleBulkArchive = async () => {
+    if (!confirm(`确定要归档选中的 ${selectedIds.size} 条内容吗？`)) return;
+    setOperationLoading(true);
+    let success = 0, failed = 0;
+    for (const id of selectedIds) {
+      try { await contentsApi.update(id, { status: 'archived' }); success++; } catch { failed++; }
+    }
+    setContents((prev) =>
+      prev.map((c) =>
+        selectedIds.has(c.id) ? { ...c, status: 'archived' as const } : c
+      )
+    );
+    setSelectedIds(new Set());
+    setOperationLoading(false);
+    if (failed === 0) {
+      showToast(`已归档 ${success} 条内容`, 'success');
+    } else {
+      showToast(`成功 ${success} 条，失败 ${failed} 条`, failed > success / 2 ? 'error' : 'info');
+    }
+  };
+
+  // Sort toggle — first click is DESC (most recent first), then toggle
+  const toggleSort = (key: SortKey) => {
+    setSort((prev) => prev.key === key
+      ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
+      : { key, dir: 'desc' }
+    );
+  };
+
+  const SortHeader = ({ k, children }: { k: SortKey; children: React.ReactNode }) => (
+    <button onClick={() => toggleSort(k)} className="flex items-center gap-1 text-[10px] font-medium text-app-text-tertiary hover:text-app-text-secondary transition-colors uppercase tracking-wider">
+      {children}
+      {sort.key === k ? (
+        sort.dir === 'asc' ? <ChevronUp className="w-3 h-3 text-primary-400" /> : <ChevronDown className="w-3 h-3 text-primary-400" />
+      ) : (
+        <ChevronUp className="w-3 h-3 opacity-20" />
+      )}
+    </button>
+  );
+
+  // Delete single
   const handleDelete = async (id: string) => {
     if (!confirm('确定要删除这条内容吗？')) return;
     try {
@@ -81,25 +247,15 @@ export function ContentManagementPage() {
     }
   };
 
-  const allTags = [...new Set(contents.flatMap((c) => c.tags || []))];
-  const filteredContents = (filter === 'all'
-    ? contents
-    : contents.filter((c) => c.status === filter)
-  ).filter((c) => !tagFilter || (c.tags || []).includes(tagFilter));
+  const getWordCount = (md?: string) => {
+    if (!md) return 0;
+    return md.replace(/[#*`\n]/g, '').length;
+  };
 
-  const filters = [
-    { value: 'all', label: '全部' },
-    { value: 'draft', label: '草稿' },
-    { value: 'published', label: '已发布' },
-    { value: 'archived', label: '已归档' },
-  ];
-
-  if (loading) {
-    return <SkeletonList count={5} />;
-  }
+  if (loading) return <SkeletonList count={5} />;
 
   return (
-    <div className="space-y-5 max-w-4xl mx-auto">
+    <div className="space-y-4 max-w-[1400px] mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -108,82 +264,57 @@ export function ContentManagementPage() {
           </div>
           <div>
             <h1 className="text-sm font-semibold text-app-text">内容管理</h1>
-            <p className="text-[11px] text-app-text-secondary">
-              共 {filteredContents.length} 条内容
-            </p>
+            <p className="text-[11px] text-app-text-secondary">管理你的所有创作内容</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {/* View toggle */}
-          <div className="flex items-center rounded-md border border-app-border bg-app-surface p-0.5">
-            <button
-              onClick={() => setView('list')}
-              className={cn('p-1.5 rounded text-[11px]', view === 'list' ? 'bg-app-elevated text-app-text' : 'text-app-text-tertiary')}
-            >
-              <List className="w-3.5 h-3.5" />
-            </button>
-            <button
-              onClick={() => setView('calendar')}
-              className={cn('p-1.5 rounded text-[11px]', view === 'calendar' ? 'bg-app-elevated text-app-text' : 'text-app-text-tertiary')}
-            >
-              <CalendarDays className="w-3.5 h-3.5" />
-            </button>
-          </div>
+          <ViewDensitySwitcher value={viewDensity} onChange={setViewDensity} />
           <Button size="sm" onClick={() => navigate('/')} className="h-8 px-3 text-xs bg-primary-600 hover:bg-primary-500">
-            <Plus className="h-3.5 w-3.5 mr-1" />
-            新建内容
+            <Plus className="h-3.5 w-3.5 mr-1" />新建内容
           </Button>
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="flex items-center gap-1.5 bg-app-surface rounded-lg p-1 border border-app-border w-fit">
+      {/* Stats bar */}
+      <div className="flex items-center gap-2">
         {filters.map((f) => (
           <button
             key={f.value}
-            onClick={() => setFilter(f.value)}
+            onClick={() => { setFilter(f.value); setPage(1); }}
             className={cn(
-              'px-3 py-1.5 rounded-lg text-xs font-medium transition-colors',
+              'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
               filter === f.value
-                ? 'bg-app-elevated text-app-text'
+                ? 'bg-primary-600/15 text-primary-400'
                 : 'text-app-text-tertiary hover:text-app-text-secondary'
             )}
+            aria-pressed={filter === f.value}
           >
-            {f.label}
+            {f.label} <span className="tabular-nums opacity-70">{f.count}</span>
           </button>
         ))}
       </div>
 
-      {/* Tag filter */}
-      {allTags.length > 0 && (
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <button
-            onClick={() => setTagFilter(null)}
-            className={cn(
-              'px-2 py-1 rounded-lg text-[10px] font-medium transition-colors border',
-              !tagFilter
-                ? 'bg-primary-600/20 text-primary-400 border-primary-500/30'
-                : 'bg-app-surface text-app-text-tertiary border-app-border hover:text-app-text-secondary'
-            )}
-          >
-            全部标签
-          </button>
-          {allTags.map((tag) => (
-            <button
-              key={tag}
-              onClick={() => setTagFilter(tag)}
-              className={cn(
-                'px-2 py-1 rounded-lg text-[10px] font-medium transition-colors border',
-                tagFilter === tag
-                  ? 'bg-primary-600/20 text-primary-400 border-primary-500/30'
-                  : 'bg-app-surface text-app-text-tertiary border-app-border hover:text-app-text-secondary'
-              )}
-            >
-              {tag}
-            </button>
-          ))}
+      {/* Search + tags */}
+      <div className="flex items-center gap-3">
+        <div className="relative flex-1 max-w-xs">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-app-text-tertiary pointer-events-none" />
+          <Input
+            value={searchInput}
+            onChange={handleSearchChange}
+            placeholder="搜索标题或内容..."
+            className="h-8 pl-8 text-xs"
+            aria-label="搜索内容"
+          />
         </div>
-      )}
+        {allTags.length > 0 && (
+          <div className="flex items-center gap-1 flex-wrap">
+            <button onClick={() => setTagFilter(null)} className={cn('px-2 py-1 rounded text-[10px] font-medium transition-colors border', !tagFilter ? 'bg-primary-600/20 text-primary-400 border-primary-500/30' : 'bg-app-surface text-app-text-tertiary border-app-border hover:text-app-text-secondary')}>全部</button>
+            {allTags.map((tag) => (
+              <button key={tag} onClick={() => setTagFilter(tag)} className={cn('px-2 py-1 rounded text-[10px] font-medium transition-colors border', tagFilter === tag ? 'bg-primary-600/20 text-primary-400 border-primary-500/30' : 'bg-app-surface text-app-text-tertiary border-app-border hover:text-app-text-secondary')}>{tag}</button>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Calendar View */}
       {view === 'calendar' && (
@@ -195,107 +326,155 @@ export function ContentManagementPage() {
       {/* List View */}
       {view === 'list' && (
         <AnimatePresence mode="wait">
-          {filteredContents.length === 0 ? (
-            <motion.div
-              key="empty"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="flex flex-col items-center justify-center py-20 text-center"
-            >
-              <div className="w-12 h-12 rounded-xl bg-app-surface border border-app-border flex items-center justify-center mb-4">
-                <PenLine className="w-6 h-6 text-app-text-tertiary" />
-              </div>
-              <h3 className="text-sm font-medium text-app-text-secondary mb-1">暂无内容</h3>
-              <p className="text-xs text-app-text-tertiary mb-4">开始创作你的第一篇内容吧</p>
-              <Button size="sm" onClick={() => navigate('/')} className="bg-primary-600 hover:bg-primary-500 text-xs">
-                去生成
-              </Button>
-            </motion.div>
+          {pagedContents.length === 0 ? (
+            <EmptyState
+              icon={<PenLine className="w-6 h-6 text-app-text-tertiary" />}
+              title={searchQuery ? '未找到匹配内容' : '暂无内容'}
+              description={searchQuery ? '尝试更换搜索关键词' : '开始创作你的第一篇内容吧'}
+              action={!searchQuery ? { label: '去生成', onClick: () => navigate('/') } : undefined}
+            />
           ) : (
-            <motion.div
-              key="list"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="space-y-2"
-            >
-              {filteredContents.map((content, index) => {
-                const status = statusConfig[content.status as keyof typeof statusConfig] || statusConfig.draft;
-                const platform = platformConfig[content.platform_code as keyof typeof platformConfig];
+            <motion.div key="table" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+              {/* Bulk actions bar */}
+              {selectedIds.size > 0 && (
+                <BulkActionBar
+                  selectedCount={selectedIds.size}
+                  onBulkDelete={handleBulkDelete}
+                  onBulkArchive={handleBulkArchive}
+                  onClearSelection={() => setSelectedIds(new Set())}
+                  loading={operationLoading}
+                />
+              )}
 
-                return (
-                  <motion.div
-                    key={content.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.03 }}
-                    className="rounded-lg border border-app-border bg-app-elevated p-4 transition-colors hover:bg-app-hover"
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <h3
-                            className="text-sm font-medium text-app-text truncate cursor-pointer hover:text-primary-400 transition-colors"
-                            onClick={() => navigate(`/content/${content.id}`)}
-                          >
-                            {content.title || '无标题'}
-                          </h3>
-                        </div>
-
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          {platform && (
-                            <Badge variant={content.platform_code === 'xiaohongshu' ? 'xhs' : content.platform_code === 'wechat' ? 'wechat' : 'zhihu'} size="sm">
-                              {platform.emoji} {platform.label}
-                            </Badge>
+              {/* Table */}
+              <div className="rounded-lg border border-app-border bg-app-elevated overflow-hidden">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-app-border bg-app-surface/50">
+                      <th className="w-10 px-2 py-3">
+                        <input type="checkbox" checked={allVisibleSelected}
+                          onChange={toggleSelectAll}
+                          className="rounded border-app-border bg-app-surface accent-primary-500" />
+                      </th>
+                      <th className="group px-3 py-3 text-left">
+                        <SortHeader k="title">标题</SortHeader>
+                      </th>
+                      <th className="px-3 py-3 text-left w-20">
+                        <span className="text-[10px] font-medium text-app-text-tertiary uppercase tracking-wider">平台</span>
+                      </th>
+                      <th className="group px-3 py-3 text-left w-16">
+                        <SortHeader k="status">状态</SortHeader>
+                      </th>
+                      <th className="px-3 py-3 text-left w-28 hidden md:table-cell">
+                        <span className="text-[10px] font-medium text-app-text-tertiary uppercase tracking-wider">标签</span>
+                      </th>
+                      <th className="group px-3 py-3 text-left w-24">
+                        <SortHeader k="updated_at">更新</SortHeader>
+                      </th>
+                      <th className="w-12 px-2 py-3" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pagedContents.map((content, idx) => {
+                      const status = statusConfig[content.status as keyof typeof statusConfig] || statusConfig.draft;
+                      const platform = platformConfig[content.platform_code as keyof typeof platformConfig];
+                      const wordCount = getWordCount(content.content_md);
+                      return (
+                        <motion.tr key={content.id}
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          transition={{ delay: idx * 0.02 }}
+                          className={cn(
+                            `border-b border-app-border/50 last:border-b-0 transition-colors ${densityClass}`,
+                            selectedIds.has(content.id) ? 'bg-primary-600/5' : 'hover:bg-app-hover/30'
                           )}
-                          <Badge variant={status.variant} size="sm">
-                            {status.label}
-                          </Badge>
-                          <span className="text-[10px] text-app-text-tertiary">
-                            {formatRelativeTime(content.created_at)}
-                          </span>
-                        </div>
+                        >
+                          <td className="px-2">
+                            <input type="checkbox" checked={selectedIds.has(content.id)}
+                              onChange={() => toggleSelect(content.id)}
+                              className="rounded border-app-border bg-app-surface accent-primary-500" />
+                          </td>
+                          <td className="px-3">
+                            <button onClick={() => navigate(`/content/${content.id}`)}
+                              className="text-sm font-medium text-app-text hover:text-primary-400 transition-colors text-left">
+                              {content.title || '无标题'}
+                            </button>
+                            {showDescription && (
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <p className="text-[10px] text-app-text-tertiary leading-relaxed line-clamp-1">
+                                  {(content.content_md || '').replace(/[#*`\n]/g, '').slice(0, 80) || '空内容'}
+                                </p>
+                                {wordCount > 0 && (
+                                  <span className="text-[9px] text-app-text-tertiary shrink-0 tabular-nums">{wordCount} 字</span>
+                                )}
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-3">
+                            {platform ? (
+                              <Badge variant={content.platform_code === 'xiaohongshu' ? 'xhs' : content.platform_code === 'wechat' ? 'wechat' : 'zhihu'} size="sm">
+                                {platform.emoji} {platform.label}
+                              </Badge>
+                            ) : (
+                              <span className="text-[10px] text-app-text-tertiary">--</span>
+                            )}
+                          </td>
+                          <td className="px-3">
+                            <Badge variant={status.variant} size="sm">{status.label}</Badge>
+                          </td>
+                          <td className="px-3 hidden md:table-cell">
+                            <div className="flex items-center gap-1 flex-wrap">
+                              {content.tags && content.tags.length > 0 ? (
+                                content.tags.slice(0, 2).map((tag) => (
+                                  <span key={tag} className="px-1.5 py-0.5 rounded-md bg-primary-600/10 text-primary-400 text-[9px] font-medium">{tag}</span>
+                                ))
+                              ) : (
+                                <span className="text-[9px] text-app-text-tertiary">--</span>
+                              )}
+                              {(content.tags?.length || 0) > 2 && (
+                                <span className="text-[9px] text-app-text-tertiary">+{content.tags!.length - 2}</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-3">
+                            <span className="text-[10px] text-app-text-secondary tabular-nums">{formatRelativeTime(content.updated_at)}</span>
+                          </td>
+                          <td className="px-2">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <button className="flex items-center justify-center w-7 h-7 rounded-md text-app-text-tertiary hover:text-app-text hover:bg-app-hover/50 transition-colors">
+                                  <MoreHorizontal className="w-3.5 h-3.5" />
+                                </button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" sideOffset={2}>
+                                <DropdownMenuItem onClick={() => navigate(`/content/${content.id}`)}>
+                                  <ExternalLink className="w-3.5 h-3.5" /> 编辑
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => handleViewHistory(content)}>
+                                  <History className="w-3.5 h-3.5" /> 版本历史
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem destructive onClick={() => handleDelete(content.id)}>
+                                  <Trash2 className="w-3.5 h-3.5" /> 删除
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </td>
+                        </motion.tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
 
-                        {content.tags && content.tags.length > 0 && (
-                          <div className="flex items-center gap-1 mt-1.5 flex-wrap">
-                            {content.tags.map((tag) => (
-                              <span key={tag} className="px-1.5 py-0.5 rounded-md bg-primary-600/10 text-primary-400 text-[9px] font-medium">
-                                {tag}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Actions */}
-                      <div className="flex items-center gap-0.5 flex-shrink-0">
-                        <button
-                          onClick={() => navigate(`/content/${content.id}`)}
-                          className="p-1.5 rounded text-app-text-tertiary hover:text-app-text-secondary hover:bg-app-hover/50 transition-colors"
-                          title="编辑"
-                        >
-                          <ExternalLink className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => handleViewHistory(content)}
-                          className="p-1.5 rounded text-app-text-tertiary hover:text-app-text-secondary hover:bg-app-hover/50 transition-colors"
-                          title="版本历史"
-                        >
-                          <Clock className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(content.id)}
-                          className="p-1.5 rounded text-app-text-tertiary hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                          title="删除"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  </motion.div>
-                );
-              })}
+              {/* Pagination */}
+              <div className="mt-3">
+                <Pagination
+                  page={safePage}
+                  totalPages={totalPages}
+                  onPageChange={setPage}
+                />
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
@@ -312,9 +491,7 @@ export function ContentManagementPage() {
             </DialogTitle>
           </DialogHeader>
           {historyLoading ? (
-            <div className="flex-1 flex items-center justify-center py-8">
-              <SkeletonList count={3} />
-            </div>
+            <div className="flex-1 flex items-center justify-center py-8"><SkeletonList count={3} /></div>
           ) : versions.length > 0 ? (
             <div className="flex-1 overflow-auto space-y-2 pr-1">
               {versions.map((version, idx) => (
@@ -324,13 +501,9 @@ export function ContentManagementPage() {
                       <Badge variant={idx === 0 ? 'primary' : 'outline'} size="sm">v{version.version_number}</Badge>
                       <span className="text-[10px] text-app-text-tertiary">{formatRelativeTime(version.created_at)}</span>
                     </div>
-                    {idx === 0 && (
-                      <span className="text-[9px] px-1.5 py-0.5 bg-primary-600/20 text-primary-400 rounded font-medium">当前版本</span>
-                    )}
+                    {idx === 0 && <span className="text-[9px] px-1.5 py-0.5 bg-primary-600/20 text-primary-400 rounded font-medium">当前版本</span>}
                   </div>
-                  {version.change_summary && (
-                    <p className="text-[10px] text-app-text-secondary mb-2">{version.change_summary}</p>
-                  )}
+                  {version.change_summary && <p className="text-[10px] text-app-text-secondary mb-2">{version.change_summary}</p>}
                   {version.content_md && (
                     <div className="p-2 bg-app-elevated rounded max-h-20 overflow-auto text-[10px] text-app-text-secondary">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>

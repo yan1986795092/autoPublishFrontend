@@ -3,7 +3,7 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '../../utils/helpers';
 
 const cardVariants = cva(
-  `rounded-xl border border-app-border bg-app-elevated`,
+  `rounded-xl border border-app-border bg-app-elevated transition-all duration-200`,
   {
     variants: {
       variant: {
@@ -11,6 +11,7 @@ const cardVariants = cva(
         elevated: 'bg-app-surface',
         outline: 'border-app-border',
         glass: 'bg-[rgba(20,20,22,0.85)] backdrop-blur-xl border-white/[0.06]',
+        interactive: 'hover:translate-y-[-2px] hover:shadow-lg hover:shadow-black/20 hover:border-app-border-light cursor-pointer',
       },
       padding: {
         none: '',
@@ -28,16 +29,33 @@ const cardVariants = cva(
 
 export interface CardProps
   extends React.HTMLAttributes<HTMLDivElement>,
-    VariantProps<typeof cardVariants> {}
+    VariantProps<typeof cardVariants> {
+  interactive?: boolean;
+  clickable?: boolean;
+}
 
 const Card = React.forwardRef<HTMLDivElement, CardProps>(
-  ({ className, variant, padding, ...props }, ref) => (
-    <div
-      ref={ref}
-      className={cn(cardVariants({ variant, padding }), className)}
-      {...props}
-    />
-  )
+  ({ className, variant, padding, interactive, clickable, ...props }, ref) => {
+    const interactiveStyles = interactive
+      ? 'hover:-translate-y-0.5 hover:shadow-md hover:border-app-border-light'
+      : '';
+    const clickableStyles = clickable
+      ? 'cursor-pointer active:scale-[0.99]'
+      : '';
+
+    return (
+      <div
+        ref={ref}
+        className={cn(
+          cardVariants({ variant, padding }),
+          interactiveStyles,
+          clickableStyles,
+          className
+        )}
+        {...props}
+      />
+    );
+  }
 );
 Card.displayName = 'Card';
 

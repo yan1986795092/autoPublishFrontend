@@ -1,8 +1,8 @@
 import { useState } from 'react';
+import type { DragEndEvent } from '@dnd-kit/core';
 import {
   DndContext,
   closestCenter,
-  DragEndEvent,
   PointerSensor,
   useSensor,
   useSensors,
@@ -130,7 +130,7 @@ interface ExecutionPlanEditorProps {
 
 export function ExecutionPlanEditor({ plan, open, onConfirm, onCancel }: ExecutionPlanEditorProps) {
   const [localTasks, setLocalTasks] = useState<(AgentTask & { _skipped: boolean; _id: string })[]>(() =>
-    plan.tasks.map((t, i) => ({ ...t, _skipped: false, _id: t.id || `task-${i}` }))
+    (plan?.tasks ?? []).map((t, i) => ({ ...t, _skipped: false, _id: t.id || `task-${i}` }))
   );
 
   const sensors = useSensors(
@@ -177,7 +177,7 @@ export function ExecutionPlanEditor({ plan, open, onConfirm, onCancel }: Executi
 
         <div className="px-6 py-3 bg-app-surface/50 border-b border-app-border">
           <p className="text-xs text-app-text-secondary">
-            <span className="text-app-text-tertiary">目标:</span> {plan.goal}
+            <span className="text-app-text-tertiary">目标:</span> {plan?.goal}
           </p>
         </div>
 

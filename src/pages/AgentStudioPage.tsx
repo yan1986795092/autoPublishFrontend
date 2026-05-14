@@ -56,7 +56,7 @@ const AGENT_ICONS: Record<string, string> = {
 
 export function AgentStudioPage() {
   const {
-    currentTaskId, currentTask, currentResult,
+    currentTaskId, currentTask, currentResult, currentPlan,
     isRunning, error, pendingDecision,
     thinkingSteps,
     addMessage, clearMessages,
@@ -413,12 +413,14 @@ export function AgentStudioPage() {
         onClose={clearDecision}
       />
 
-      <ExecutionPlanEditor
-        plan={currentPlan!}
-        open={showPlanEditor}
-        onConfirm={handleConfirmPlan}
-        onCancel={() => setShowPlanEditor(false)}
-      />
+      {currentPlan && (
+        <ExecutionPlanEditor
+          plan={currentPlan}
+          open={showPlanEditor}
+          onConfirm={handleConfirmPlan}
+          onCancel={() => setShowPlanEditor(false)}
+        />
+      )}
     </div>
   );
 }

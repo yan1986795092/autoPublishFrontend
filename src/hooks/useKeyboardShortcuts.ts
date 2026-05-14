@@ -1,54 +1,44 @@
-import { useEffect } from 'react';
+import { useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useGeneratorStore } from '../stores/useGeneratorStore';
-import { useEditorStore } from '../stores/useEditorStore';
+import { useUIStore } from '../stores/useUIStore';
 
-interface ShortcutOptions {
-  /** Whether Ctrl+Enter should trigger generation */
-  enableGenerate?: boolean;
-  /** Callback when Ctrl+Enter is pressed */
-  onGenerate?: () => void;
-}
-
-export function useKeyboardShortcuts(options: ShortcutOptions = {}) {
+export function useKeyboardShortcuts() {
   const navigate = useNavigate();
-  const { draft } = useGeneratorStore();
-  const { isDirty } = useEditorStore();
+  const { showToast } = useUIStore();
+
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    const mod = e.metaKey || e.ctrlKey;
+
+    // Ctrl+S — Save (only on edit page)
+    if (mod && e.key === 's') {
+      e.preventDefault();
+      // Dispatch a custom event that ContentEditPage listens to
+      window.dispatchEvent(new CustomEvent('shortcut:save'));
+      return;
+    }
+
+    // Ctrl+N — New content (navigate to home)
+    if (mod && e.key === 'n') {
+      e.preventDefault();
+      navigate('/');
+      return;
+    }
+
+    // Ctrl+/ — Toggle shortcut help overlay
+    if (mod && e.key === '/') {
+      e.preventDefault();
+      window.dispatchEvent(new CustomEvent('shortcut:toggle-help'));
+      return;
+    }
+
+    // Escape — Close shortcut help
+    if (e.key === 'Escape') {
+      window.dispatchEvent(new CustomEvent('shortcut:close-help'));
+    }
+  }, [navigate, showToast]);
 
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const isCtrl = e.ctrlKey || e.metaKey;
-
-      // Ctrl+N: New content
-      if (isCtrl && e.key === 'n') {
-        e.preventDefault();
-        navigate('/');
-        return;
-      }
-
-      // Ctrl+S: Save (only if there's a draft and dirty content)
-      if (isCtrl && e.key === 's') {
-        e.preventDefault();
-        if (draft.id && isDirty) {
-          // Dispatch custom event that the save handler listens to
-          window.dispatchEvent(new CustomEvent('app:save'));
-        }
-        return;
-      }
-
-      // Ctrl+Enter: Generate
-      if (isCtrl && e.key === 'Enter') {
-        e.preventDefault();
-        if (options.enableGenerate && options.onGenerate) {
-          options.onGenerate();
-        }
-        return;
-      }
-
-      // Escape: Close modals (handled by dialog components)
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [navigate, draft.id, isDirty, options.enableGenerate, options.onGenerate]);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [handleKeyDown]);
 }

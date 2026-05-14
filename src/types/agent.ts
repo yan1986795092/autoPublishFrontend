@@ -96,5 +96,36 @@ export interface ChatMessage {
   plan?: ExecutionPlan;
 }
 
+// === Stream Event (for real-time agent thinking display) ===
+export interface StreamEvent {
+  id: string;
+  type: 'user_message' | 'plan' | 'thinking_step' | 'progress' | 'decision_required' | 'result' | 'error' | 'done' | 'llm_chunk' | 'reasoning';
+  timestamp: number;
+  data: any;
+  // thinking step 快捷字段
+  agent?: string;
+  agent_type?: string;
+  action?: string;
+  reasoning?: string;
+  status?: string;
+  output_summary?: string;
+  // llm_chunk / reasoning 快捷字段
+  content?: string;
+}
+
+// LLM 流式 token（用于打字机效果）
+export interface LLMChunk {
+  agent: string;
+  content: string;
+  timestamp: number;
+}
+
+// Reasoning chain（LLM 思考过程）
+export interface ReasoningChunk {
+  agent: string;
+  content: string;
+  timestamp: number;
+}
+
 export type ContentType = 'blog' | 'social_post' | 'copywriting' | 'script' | 'newsletter' | 'report' | 'auto';
 export type ContentStyle = '技术' | '种草' | '干货' | '幽默' | '深度' | '教程' | '';

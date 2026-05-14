@@ -22,10 +22,11 @@ export function AppShell() {
       <div
         className={cn(
           'flex flex-1 min-h-0 transition-all duration-200',
-          sidebarCollapsed ? 'ml-16' : 'ml-[220px]'
+          sidebarCollapsed ? 'ml-16' : 'ml-[220px]',
+          'max-md:ml-0 max-md:pt-14 max-md:px-3'
         )}
       >
-        <main className="flex-1 overflow-auto p-6">
+        <main className="flex-1 overflow-auto p-6 max-md:p-3" role="main" aria-label="主内容区域">
           <AnimatePresence mode="wait">
             <motion.div
               key={location.pathname}

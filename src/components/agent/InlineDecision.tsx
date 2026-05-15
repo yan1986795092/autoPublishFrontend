@@ -1,17 +1,19 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { cn } from '../../utils/helpers';
-import { HelpCircle, CheckCircle } from 'lucide-react';
+import { HelpCircle, CheckCircle, Loader2, X } from 'lucide-react';
 import type { StreamEvent, PendingDecision } from '../../types';
 
 interface InlineDecisionProps {
   event: StreamEvent;
   onSubmit: (decisionId: string, choice: string) => void;
+  onSkip?: () => void;
 }
 
-export function InlineDecision({ event, onSubmit }: InlineDecisionProps) {
+export function InlineDecision({ event, onSubmit, onSkip }: InlineDecisionProps) {
   const [selected, setSelected] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   const data = event.data as PendingDecision;
   const question = data?.question || '需要你的决定';
@@ -21,12 +23,31 @@ export function InlineDecision({ event, onSubmit }: InlineDecisionProps) {
 
   if (!options.length) return null;
 
-  const handleSelect = (value: string) => {
-    if (submitted) return;
+  const handleSelect = useCallback((value: string) => {
+    if (submitted || submitting) return;
     setSelected(value);
-    setSubmitted(true);
-    onSubmit(decisionId, value);
-  };
+    setSubmitting(true);
+    // Allow parent to handle async, then mark submitted
+    Promise.resolve().then(() => {
+      onSubmit(decisionId, value);
+      setSubmitted(true);
+      setSubmitting(false);
+    });
+  }, [submitted, submitting, onSubmit, decisionId]);
+
+  // Keyboard shortcuts: 1/2/3 to select options
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (submitted || submitting) return;
+      const num = parseInt(e.key);
+      if (num >= 1 && num <= options.length) {
+        e.preventDefault();
+        handleSelect(options[num - 1].value);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [options, submitted, submitting, handleSelect]);
 
   return (
     <motion.div
@@ -76,31 +97,53 @@ export function InlineDecision({ event, onSubmit }: InlineDecisionProps) {
 
           {/* Options */}
           <div className="flex flex-wrap gap-2">
-            {options.map((option: { value: string; label: string }) => {
+            {options.map((option: { value: string; label: string }, i: number) => {
               const isSelected = selected === option.value;
               return (
                 <motion.button
                   key={option.value}
-                  whileHover={submitted ? {} : { scale: 1.02 }}
-                  whileTap={submitted ? {} : { scale: 0.98 }}
+                  whileHover={!submitted && !submitting ? { scale: 1.02 } : {}}
+                  whileTap={!submitted && !submitting ? { scale: 0.98 } : {}}
                   onClick={() => handleSelect(option.value)}
-                  disabled={submitted}
+                  disabled={submitted || submitting}
                   className={cn(
                     'rounded-lg px-4 py-2 text-xs font-medium border transition-all',
                     isSelected
                       ? 'bg-green-500/20 text-green-400 border-green-500/40'
-                      : submitted
+                      : submitted || submitting
                         ? 'bg-app-surface/30 text-app-text-tertiary border-app-border/30 cursor-default'
                         : 'bg-app-surface text-app-text-secondary border-app-border hover:border-yellow-500/30 hover:text-yellow-400'
                   )}
                 >
-                  {option.label}
-                  {isSelected && submitted && (
-                    <CheckCircle className="w-3 h-3 ml-1.5 inline-block" />
+                  {submitting && isSelected ? (
+                    <>
+                      <Loader2 className="w-3 h-3 mr-1 inline-block animate-spin" />
+                      {option.label}
+                    </>
+                  ) : (
+                    <>
+                      {option.label}
+                      {isSelected && submitted && (
+                        <CheckCircle className="w-3 h-3 ml-1.5 inline-block" />
+                      )}
+                    </>
+                  )}
+                  {!submitted && !submitting && (
+                    <span className="ml-2 text-[9px] text-app-text-tertiary">[{i + 1}]</span>
                   )}
                 </motion.button>
               );
             })}
+            {/* Skip button */}
+            {!submitted && !submitting && onSkip && (
+              <button
+                onClick={onSkip}
+                className="rounded-lg px-3 py-2 text-xs font-medium border border-app-border/30 text-app-text-tertiary hover:text-app-text-secondary hover:bg-white/5 transition-all"
+              >
+                <X className="w-3 h-3 mr-1 inline-block" />
+                暂不决定
+              </button>
+            )}
           </div>
         </div>
       </div>

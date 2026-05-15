@@ -2,7 +2,7 @@ export const APP_CONFIG = {
   name: 'AutoPublish',
   version: '2.0.0',
   defaultPlatform: 'xiaohongshu' as const,
-  supportedPlatforms: ['xiaohongshu', 'wechat', 'zhihu'] as const,
+  supportedPlatforms: ['xiaohongshu', 'wechat', 'zhihu', 'fiction', 'storyboard', 'script', 'copywriting', 'newsletter', 'technical_doc', 'tutorial'] as const,
   contentTypes: ['blog', 'social_post', 'newsletter', 'report', 'copywriting', 'script'] as const,
   defaultModel: 'gpt-4o-mini',
   maxFreeGenerations: 10,

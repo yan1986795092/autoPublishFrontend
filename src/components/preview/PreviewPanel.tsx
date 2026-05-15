@@ -8,6 +8,7 @@ import { PlatformDiffView } from './PlatformDiffView';
 import { SmartTagPanel } from '../editor/SmartTagPanel';
 import { useEditorStore } from '../../stores/useEditorStore';
 import { useGeneratorStore } from '../../stores/useGeneratorStore';
+import { useUIStore } from '../../stores/useUIStore';
 import { contentsApi, aiEditApi } from '../../services/api';
 import { Button } from '../ui/button';
 import { cn } from '../../utils/helpers';
@@ -23,6 +24,7 @@ const platforms = [
 const SOURCE_PLATFORM = 'xiaohongshu';
 
 export function PreviewPanel() {
+  const { showToast } = useUIStore();
   const { activePlatform, setActivePlatform, content_md, editorInstance } = useEditorStore();
   const { draft } = useGeneratorStore();
   const [tags, setTags] = useState<string[]>([]);
@@ -47,7 +49,7 @@ export function PreviewPanel() {
         setBannedWords(res.data.data.words);
       }
     } catch {
-      // ignore
+      showToast('敏感词检查失败', 'error');
     } finally {
       setCheckingWords(false);
     }
@@ -63,7 +65,7 @@ export function PreviewPanel() {
         setAdaptedContent((prev) => ({ ...prev, [targetPlatform]: result }));
       }
     } catch {
-      // silently fail
+      showToast('内容适配失败', 'error');
     } finally {
       setAdapting(null);
     }

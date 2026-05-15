@@ -37,6 +37,35 @@ function getAgentColor(agent: string): string {
   return 'text-gray-400 border-gray-500/40 bg-gray-500/10';
 }
 
+/* ─── Agent Action Descriptions（人类可读的动作描述）── */
+const AGENT_ACTION_DESC: Record<string, { running: string; done: string }> = {
+  WebSearch: { running: '🔍 正在搜索相关文章...', done: '✓ 搜索完成' },
+  URLCrawler: { running: '🔗 正在抓取网页内容...', done: '✓ 抓取完成' },
+  WritingAgent: { running: '✍️ 正在根据素材撰写内容...', done: '✓ 内容撰写完成' },
+  SEOAgent: { running: '🔍 正在优化 SEO 关键词...', done: '✓ SEO 优化完成' },
+  ReviewAgent: { running: '✅ 正在审核内容质量...', done: '✓ 审核通过' },
+  ManagerAgent: { running: '🧠 正在规划任务...', done: '✓ 任务规划完成' },
+  DiagramAgent: { running: '📊 正在生成图表...', done: '✓ 图表生成完成' },
+  HotTopicAgent: { running: '🔥 正在分析热点话题...', done: '✓ 热点分析完成' },
+  ImageAgent: { running: '🎨 正在生成配图...', done: '✓ 配图生成完成' },
+  CodeAgent: { running: '💻 正在编写代码...', done: '✓ 代码编写完成' },
+  PlatformAdapter: { running: '📱 正在适配平台格式...', done: '✓ 平台适配完成' },
+  TranslationAgent: { running: '🌏 正在翻译内容...', done: '✓ 翻译完成' },
+};
+
+function getAgentActionDescription(agent: string, status: string): string {
+  for (const [key, desc] of Object.entries(AGENT_ACTION_DESC)) {
+    if (agent.includes(key)) {
+      if (status === 'done' || status === 'completed') return desc.done;
+      if (status === 'failed') return '✗ 执行失败';
+      return desc.running;
+    }
+  }
+  if (status === 'done' || status === 'completed') return '✓ 完成';
+  if (status === 'failed') return '✗ 失败';
+  return '⏳ 执行中...';
+}
+
 /* ─── LLM Chunk Line（打字机行，类似 Claude Code 终端行）── */
 function LLMTerminalLine({ agent, chunks }: { agent: string; chunks: LLMChunk[] }) {
   const accumulated = chunks.map(c => c.content).join('');
@@ -95,7 +124,7 @@ function ReasoningBlock({ agent, chunks }: { agent: string; chunks: ReasoningChu
         className="flex items-center gap-1.5 w-full text-yellow-400/70 hover:text-yellow-400 transition-colors"
       >
         <Lightbulb className="w-3 h-3" />
-        <span>💭 Reasoning ({chunks.length} chunks)</span>
+        <span>💭 思考过程 ({chunks.length} 片段)</span>
         <ChevronDown className={cn('w-3 h-3 ml-auto transition-transform', expanded && '-rotate-180')} />
       </button>
       <AnimatePresence>
@@ -114,44 +143,81 @@ function ReasoningBlock({ agent, chunks }: { agent: string; chunks: ReasoningChu
   );
 }
 
-/* ─── Thinking Step Line（终端风格一行）── */
-function ThinkingStepLine({ event }: { event: StreamEvent }) {
-  const isDone = event.status === 'done';
+/* ─── Rich Agent Line（DeepSeek 风格终端行）── */
+function RichAgentLine({ event }: { event: StreamEvent }) {
+  const isDone = event.status === 'done' || event.status === 'completed';
   const isFailed = event.status === 'failed';
+  const isRunning = event.status === 'running';
   const agent = event.agent || '';
+  const actionDesc = getAgentActionDescription(agent, event.status || 'running');
+  const inputSummary = (event.data?.input_summary as string) || '';
+  const outputSummary = (event.data?.output_summary as string) || '';
+  const reasoning = event.reasoning || (event.data?.reasoning as string) || '';
 
   return (
     <motion.div
       initial={{ opacity: 0, x: -8 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ duration: 0.2 }}
-      className="flex items-start gap-2 py-1 px-2 rounded hover:bg-white/5 transition-colors"
+      className="py-1.5 px-2 rounded hover:bg-white/5 transition-colors"
     >
-      <span className="flex-shrink-0 mt-0.5">
-        {isDone ? (
-          <CheckCircle className="w-3.5 h-3.5 text-green-400" />
-        ) : isFailed ? (
-          <AlertCircle className="w-3.5 h-3.5 text-red-400" />
-        ) : (
-          <Loader2 className="w-3.5 h-3.5 text-blue-400 animate-spin" />
-        )}
-      </span>
-      <div className="flex items-center gap-1.5 min-w-0 flex-1">
-        <span className={cn(
-          'inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium border flex-shrink-0',
-          getAgentColor(agent),
-        )}>
-          {getAgentIcon(agent)} {agent.replace('Agent', '')}
+      {/* ── Top line: status + agent + description ── */}
+      <div className="flex items-start gap-2 min-w-0">
+        <span className="flex-shrink-0 mt-0.5">
+          {isDone ? (
+            <CheckCircle className="w-3.5 h-3.5 text-green-400" />
+          ) : isFailed ? (
+            <AlertCircle className="w-3.5 h-3.5 text-red-400" />
+          ) : (
+            <motion.span
+              animate={{ scale: [1, 1.25, 1], opacity: [1, 0.6, 1] }}
+              transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
+            >
+              <Loader2 className="w-3.5 h-3.5 text-blue-400 animate-spin" />
+            </motion.span>
+          )}
         </span>
-        <span className="text-xs text-gray-300 truncate">
-          {event.action || '执行中...'}
-        </span>
-        {event.data?.time_elapsed && (
-          <span className="ml-auto text-[10px] text-gray-500 tabular-nums flex-shrink-0">
-            {(event.data.time_elapsed as number).toFixed(1)}s
+        <div className="flex items-center gap-1.5 min-w-0 flex-1">
+          <span className={cn(
+            'inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium border flex-shrink-0',
+            getAgentColor(agent),
+          )}>
+            {getAgentIcon(agent)} {agent.replace('Agent', '')}
           </span>
-        )}
+          <span className={cn(
+            'text-xs truncate',
+            isDone ? 'text-green-400/80' : isFailed ? 'text-red-400' : 'text-gray-300'
+          )}>
+            {actionDesc}
+          </span>
+          {event.data?.time_elapsed && (
+            <span className="ml-auto text-[10px] text-gray-500 tabular-nums flex-shrink-0">
+              {(event.data.time_elapsed as number).toFixed(1)}s
+            </span>
+          )}
+        </div>
       </div>
+
+      {/* ── Reasoning（默认可见） ── */}
+      {reasoning && (
+        <div className="ml-8 mt-1 text-[10px] text-yellow-400/50 font-mono leading-relaxed whitespace-pre-wrap">
+          {'// '}{reasoning}
+        </div>
+      )}
+
+      {/* ── Input summary（搜索词等） ── */}
+      {isRunning && inputSummary && (
+        <div className="ml-8 mt-0.5 text-[10px] text-gray-500 italic truncate">
+          &ldquo;{inputSummary.slice(0, 150)}&rdquo;
+        </div>
+      )}
+
+      {/* ── Output summary ── */}
+      {isDone && outputSummary && (
+        <div className="ml-8 mt-0.5 text-[10px] text-gray-500 leading-relaxed line-clamp-1">
+          {outputSummary.slice(0, 200)}
+        </div>
+      )}
     </motion.div>
   );
 }
@@ -169,9 +235,13 @@ function LiveProgressBar({ progress, message }: { progress: number; message: str
   );
 }
 
-/* ─── Plan Summary（终端风格）── */
-function PlanSummary({ event }: { event: StreamEvent }) {
+/* ─── Plan Summary with Step States（终端风格，带执行状态）── */
+interface StepState { agent_type: string; status: 'pending' | 'running' | 'done' | 'failed' }
+
+function PlanSummary({ event, stepStates }: { event: StreamEvent; stepStates: StepState[] }) {
   const tasks = (event.data?.tasks as any[]) || [];
+  if (tasks.length === 0) return null;
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 4 }}
@@ -181,19 +251,41 @@ function PlanSummary({ event }: { event: StreamEvent }) {
       <div className="flex items-center gap-1.5 mb-1">
         <Zap className="w-3 h-3 text-purple-400" />
         <span className="text-[10px] font-semibold text-purple-400 font-mono">
-          ▶ PLAN — {tasks.length} steps
+          ▶ 执行计划 — {tasks.length} 步
         </span>
       </div>
-      <div className="flex flex-wrap gap-1">
-        {tasks.map((task: any, i: number) => (
-          <span key={i} className={cn(
-            'inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-mono border',
-            getAgentColor(task.agent_type || ''),
-          )}>
-            <span className="text-gray-500">{i + 1}.</span>
-            {getAgentIcon(task.agent_type || '')} {task.agent_type?.replace('Agent', '') || '?'}
-          </span>
-        ))}
+      <div className="flex flex-col gap-1">
+        {tasks.map((task: any, i: number) => {
+          const state = stepStates[i];
+          const isCurrent = state?.status === 'running';
+          const isDone = state?.status === 'done' || state?.status === 'completed';
+          const isFailed = state?.status === 'failed';
+          return (
+            <motion.div
+              key={i}
+              animate={isCurrent ? { opacity: [1, 0.6, 1] } : {}}
+              transition={isCurrent ? { duration: 1.5, repeat: Infinity } : {}}
+              className={cn(
+                'flex items-center gap-2 px-1.5 py-1 rounded text-[10px] font-mono transition-all',
+                isCurrent ? 'bg-blue-500/10 text-blue-300 border-l-2 border-blue-400' :
+                isDone ? 'text-gray-400 border-l-2 border-green-500/40' :
+                isFailed ? 'text-red-400 border-l-2 border-red-500/40' :
+                'text-gray-600 border-l-2 border-transparent'
+              )}
+            >
+              <span className="w-4 text-center flex-shrink-0">
+                {isDone ? '✓' : isFailed ? '✗' : isCurrent ? '→' : '○'}
+              </span>
+              <span>{getAgentIcon(task.agent_type || '')}</span>
+              <span className="truncate">{task.agent_type?.replace('Agent', '') || '?'}</span>
+              {task.input?.query && (
+                <span className="text-[9px] text-gray-600 truncate ml-1 hidden sm:inline">
+                  &ldquo;{(task.input.query as string).slice(0, 40)}&rdquo;
+                </span>
+              )}
+            </motion.div>
+          );
+        })}
       </div>
       {event.data?.reasoning && (
         <p className="mt-1 text-[9px] text-gray-600 font-mono leading-relaxed">
@@ -209,7 +301,7 @@ export function AgentLiveView({ onEdit, onPublish }: {
   onEdit?: (contentId: string) => void;
   onPublish?: (contentId: string) => void;
 }) {
-  const { streamEvents, llmChunks, reasoningChunks, currentTask, isRunning } = useAgentStore();
+  const { streamEvents, llmChunks, reasoningChunks, currentTask, isRunning, wsConnectionState } = useAgentStore();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
   const [paused, setPaused] = useState(false);
@@ -228,6 +320,34 @@ export function AgentLiveView({ onEdit, onPublish }: {
     setAutoScroll(nearBottom);
   }, []);
 
+  // Track plan tasks and their execution states
+  const [planTasks, setPlanTasks] = useState<StepState[]>([]);
+  const planEvent = streamEvents.find(e => e.type === 'plan');
+
+  // Update step states from thinking_step events
+  useEffect(() => {
+    if (!planEvent) { setPlanTasks([]); return; }
+    const tasks = (planEvent.data?.tasks as any[]) || [];
+    const stepStates: StepState[] = tasks.map((t: any) => ({
+      agent_type: t.agent_type || '',
+      status: 'pending' as const,
+    }));
+
+    // Process thinking_step events to update states
+    for (const evt of streamEvents) {
+      if (evt.type !== 'thinking_step' || !evt.agent) continue;
+      const agentName = evt.agent;
+      const idx = stepStates.findIndex(s => agentName.includes(s.agent_type.replace('Agent', '')) || s.agent_type === agentName);
+      if (idx === -1) continue;
+      const status = evt.status || 'running';
+      if (status === 'done' || status === 'completed') stepStates[idx].status = 'done';
+      else if (status === 'failed') stepStates[idx].status = 'failed';
+      else if (stepStates[idx].status === 'pending') stepStates[idx].status = 'running';
+    }
+
+    setPlanTasks(stepStates);
+  }, [streamEvents, planEvent]);
+
   // Group events for rendering
   const renderItems: Array<{
     id: string; type: string; agent?: string;
@@ -235,18 +355,25 @@ export function AgentLiveView({ onEdit, onPublish }: {
     event?: StreamEvent;
   }> = [];
   let lastAgent: string | null = null;
+  let flushCounter = 0;
+  let planRendered = false;
 
   for (const evt of streamEvents) {
     if (evt.type === 'thinking_step') {
       const agent = evt.agent || '';
+      // Emit plan first if not yet rendered and we have it
+      if (planEvent && !planRendered) {
+        renderItems.push({ id: 'plan-summary', type: 'plan', event: planEvent });
+        planRendered = true;
+      }
       // Flush pending chunks for previous agent
       if (lastAgent && (llmChunks[lastAgent]?.length || reasoningChunks[lastAgent]?.length)) {
         renderItems.push({
-          id: `flush-${lastAgent}`,
+          id: `flush-${flushCounter++}`,
           type: 'flush',
           agent: lastAgent,
-          llmChunks: llmChunks[lastAgent],
-          reasoningChunks: reasoningChunks[lastAgent],
+          llmChunks: [...(llmChunks[lastAgent] || [])],
+          reasoningChunks: [...(reasoningChunks[lastAgent] || [])],
         });
       }
       renderItems.push({ id: evt.id, type: 'step', agent, event: evt });
@@ -254,27 +381,17 @@ export function AgentLiveView({ onEdit, onPublish }: {
     } else if (evt.type === 'llm_chunk' || evt.type === 'reasoning') {
       // Skip individual, will be grouped
     } else if (evt.type === 'plan') {
-      if (lastAgent) {
-        renderItems.push({
-          id: `flush-${lastAgent}`,
-          type: 'flush',
-          agent: lastAgent,
-          llmChunks: llmChunks[lastAgent],
-          reasoningChunks: reasoningChunks[lastAgent],
-        });
-        lastAgent = null;
-      }
-      renderItems.push({ id: evt.id, type: 'plan', event: evt });
+      // Don't emit here; emit before first thinking_step
     } else if (evt.type === 'progress') {
       renderItems.push({ id: evt.id, type: 'progress', event: evt });
     } else if (evt.type === 'result' || evt.type === 'error' || evt.type === 'done') {
       if (lastAgent) {
         renderItems.push({
-          id: `flush-${lastAgent}`,
+          id: `flush-${flushCounter++}`,
           type: 'flush',
           agent: lastAgent,
-          llmChunks: llmChunks[lastAgent],
-          reasoningChunks: reasoningChunks[lastAgent],
+          llmChunks: [...(llmChunks[lastAgent] || [])],
+          reasoningChunks: [...(reasoningChunks[lastAgent] || [])],
         });
         lastAgent = null;
       }
@@ -285,15 +402,18 @@ export function AgentLiveView({ onEdit, onPublish }: {
   // Flush remaining
   if (lastAgent && (llmChunks[lastAgent]?.length || reasoningChunks[lastAgent]?.length)) {
     renderItems.push({
-      id: `flush-${lastAgent}`,
+      id: `flush-${flushCounter++}`,
       type: 'flush',
       agent: lastAgent,
-      llmChunks: llmChunks[lastAgent],
-      reasoningChunks: reasoningChunks[lastAgent],
+      llmChunks: [...(llmChunks[lastAgent] || [])],
+      reasoningChunks: [...(reasoningChunks[lastAgent] || [])],
     });
   }
 
   const progress = currentTask?.progress || 0;
+  const totalSteps = planTasks.length;
+  const doneSteps = planTasks.filter(s => s.status === 'done' || s.status === 'completed').length;
+  const failedSteps = planTasks.filter(s => s.status === 'failed').length;
   const message = currentTask?.progress_message || '';
 
   return (
@@ -303,12 +423,24 @@ export function AgentLiveView({ onEdit, onPublish }: {
         <div className="flex items-center gap-2">
           <Terminal className="w-3.5 h-3.5 text-green-400" />
           <span className="text-xs font-mono font-semibold text-gray-300">
-            Agent Live View
+            Agent 实时视图
           </span>
           {isRunning && (
             <span className="flex items-center gap-1">
               <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-              <span className="text-[10px] text-gray-500 font-mono">running</span>
+              <span className="text-[10px] text-gray-500 font-mono">运行中</span>
+            </span>
+          )}
+          {/* WebSocket Connection Status */}
+          {wsConnectionState && wsConnectionState !== 'connected' && (
+            <span className="flex items-center gap-1 ml-1">
+              <span className={cn(
+                'w-1.5 h-1.5 rounded-full',
+                wsConnectionState === 'connecting' ? 'bg-yellow-400 animate-pulse' : 'bg-red-500'
+              )} />
+              <span className="text-[10px] font-mono text-gray-500">
+                {wsConnectionState === 'connecting' ? '连接中...' : '已断开'}
+              </span>
             </span>
           )}
         </div>
@@ -321,7 +453,7 @@ export function AgentLiveView({ onEdit, onPublish }: {
           <button
             onClick={() => setPaused(!paused)}
             className="p-1 rounded hover:bg-white/10 transition-colors"
-            title={paused ? 'Resume auto-scroll' : 'Pause auto-scroll'}
+            title={paused ? '恢复自动滚动' : '暂停自动滚动'}
           >
             {paused
               ? <Play className="w-3 h-3 text-gray-500" />
@@ -333,7 +465,7 @@ export function AgentLiveView({ onEdit, onPublish }: {
               onClick={() => { setAutoScroll(true); setPaused(false); }}
               className="text-[10px] font-mono text-blue-400 hover:text-blue-300 transition-colors"
             >
-              ↓ scroll
+              ↓ 滚动
             </button>
           )}
         </div>
@@ -345,6 +477,27 @@ export function AgentLiveView({ onEdit, onPublish }: {
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto min-h-0 px-2 py-2 space-y-0.5"
       >
+        {/* ── Overall progress bar（step summary）── */}
+        {totalSteps > 0 && (
+          <div className="px-2 py-1.5 border-b border-[#30363d]/50 mb-1">
+            <div className="flex items-center justify-between text-[10px] font-mono text-gray-500 mb-1">
+              <span>步骤进度</span>
+              <span>{doneSteps + failedSteps}/{totalSteps} {failedSteps > 0 ? `(${failedSteps} 失败)` : ''}</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-[#30363d] overflow-hidden">
+              <motion.div
+                className={cn(
+                  'h-full rounded-full transition-colors',
+                  failedSteps > 0 ? 'bg-orange-400' : 'bg-green-500'
+                )}
+                initial={{ width: 0 }}
+                animate={{ width: `${((doneSteps + failedSteps) / totalSteps) * 100}%` }}
+                transition={{ duration: 0.4, ease: 'easeOut' }}
+              />
+            </div>
+          </div>
+        )}
+
         <AnimatePresence>
           {renderItems.map((item) => (
             <motion.div
@@ -354,7 +507,7 @@ export function AgentLiveView({ onEdit, onPublish }: {
               transition={{ duration: 0.15 }}
             >
               {item.type === 'plan' && item.event && (
-                <PlanSummary event={item.event} />
+                <PlanSummary event={item.event} stepStates={planTasks} />
               )}
               {item.type === 'progress' && item.event && (
                 <LiveProgressBar
@@ -363,15 +516,15 @@ export function AgentLiveView({ onEdit, onPublish }: {
                 />
               )}
               {item.type === 'step' && item.event && (
-                <ThinkingStepLine event={item.event} />
+                <RichAgentLine event={item.event} />
               )}
               {(item.type === 'flush') && item.agent && (
                 <div className="pl-2">
-                  {reasoningChunks[item.agent]?.length > 0 && (
-                    <ReasoningBlock agent={item.agent} chunks={reasoningChunks[item.agent]} />
+                  {item.reasoningChunks && item.reasoningChunks.length > 0 && (
+                    <ReasoningBlock agent={item.agent} chunks={item.reasoningChunks} />
                   )}
-                  {llmChunks[item.agent]?.length > 0 && (
-                    <LLMTerminalLine agent={item.agent} chunks={llmChunks[item.agent]} />
+                  {item.llmChunks && item.llmChunks.length > 0 && (
+                    <LLMTerminalLine agent={item.agent} chunks={item.llmChunks} />
                   )}
                 </div>
               )}
@@ -380,7 +533,7 @@ export function AgentLiveView({ onEdit, onPublish }: {
                   <div className="flex items-center gap-1.5">
                     <CheckCircle className="w-3 h-3 text-green-400" />
                     <span className="text-[10px] font-mono text-green-400">
-                      Done — {(item.event.data as any)?.status || 'completed'}
+                      完成 — {(item.event.data as any)?.status === 'partial' ? '部分完成' : '已完成'}
                     </span>
                   </div>
                   {onEdit && (
@@ -388,7 +541,7 @@ export function AgentLiveView({ onEdit, onPublish }: {
                       onClick={() => onEdit((item.event!.data as any)?.output?._content_id || '')}
                       className="mt-1 text-[9px] font-mono text-blue-400 hover:text-blue-300 transition-colors ml-4"
                     >
-                      → edit content
+                      → 编辑内容
                     </button>
                   )}
                 </div>
@@ -398,7 +551,7 @@ export function AgentLiveView({ onEdit, onPublish }: {
                   <div className="flex items-center gap-1.5">
                     <AlertCircle className="w-3 h-3 text-red-400" />
                     <span className="text-[10px] font-mono text-red-400">
-                      ✗ Error: {(item.event.data as any)?.message || 'unknown'}
+                      ✗ 错误: {(item.event.data as any)?.message || '未知'}
                     </span>
                   </div>
                 </div>
@@ -407,12 +560,20 @@ export function AgentLiveView({ onEdit, onPublish }: {
           ))}
         </AnimatePresence>
 
+        {/* Connecting state before first event */}
+        {isRunning && streamEvents.length === 0 && (
+          <div className="flex items-center gap-2 py-3 px-2">
+            <span className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
+            <span className="text-[10px] font-mono text-gray-500">正在连接 Agent...</span>
+          </div>
+        )}
+
         {/* Cursor at bottom when running */}
-        {isRunning && (
+        {isRunning && streamEvents.length > 0 && (
           <div className="flex items-center gap-1 py-0.5">
             <span className="text-gray-500 font-mono text-xs">›</span>
             <motion.span
-              className="text-blue-400 font-mono text-xs"
+              className="text-green-400 font-mono text-xs"
               animate={{ opacity: [1, 0] }}
               transition={{ duration: 0.8, repeat: Infinity, ease: 'easeInOut' }}
             >

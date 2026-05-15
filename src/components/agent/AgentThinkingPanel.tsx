@@ -174,7 +174,7 @@ function StepCard({ step, index }: { step: ThinkingStep; index: number }) {
                 animate={{ opacity: 1 }}
                 className="mt-1 flex gap-3 text-[10px] text-app-text-secondary"
               >
-                <span>Tokens: {step.tokens_used}</span>
+                <span>Token 数: {step.tokens_used}</span>
                 {step.time_elapsed > 0 && <span>耗时: {step.time_elapsed.toFixed(1)}s</span>}
               </motion.div>
             )}

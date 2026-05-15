@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { AsyncTask, AgentResult, ExecutionPlan, PendingDecision, DecisionSubmitRequest, ChatMessage, ThinkingStep, StreamEvent, LLMChunk, ReasoningChunk } from '../types';
+import type { AsyncTask, AgentResult, ExecutionPlan, PendingDecision, DecisionSubmitRequest, ChatMessage, ThinkingStep, StreamEvent, LLMChunk, ReasoningChunk, PreviousGeneration } from '../types';
 import { agentApi } from '../services/api';
 import { useAuthStore } from './useAuthStore';
 
@@ -32,11 +32,15 @@ interface AgentState {
   // 任务历史
   taskHistory: AsyncTask[];
 
+  // 历史生成记录（多次执行的结果存档）
+  previousGenerations: PreviousGeneration[];
+
   // 消息列表（Chat 式界面）
   messages: ChatMessage[];
   addMessage: (msg: ChatMessage) => void;
   updateMessage: (id: string, updates: Partial<ChatMessage>) => void;
   clearMessages: () => void;
+  clearHistory: () => void;
 
   // Actions
   previewPlan: (prompt: string) => Promise<ExecutionPlan | null>;
@@ -51,6 +55,7 @@ interface AgentState {
   submitDecision: (taskId: string, data: DecisionSubmitRequest) => Promise<boolean>;
   clearDecision: () => void;
   cancelTask: (taskId: string) => Promise<boolean>;
+  _abortController: AbortController | null;
   clearCurrent: () => void;
 
   // Stream events
@@ -77,6 +82,8 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
   wsConnectionState: 'disconnected',
   _ws: null,
   taskHistory: [],
+  _abortController: null,
+  previousGenerations: [],
   messages: [],
 
   addMessage: (msg) => set((state) => ({ messages: [...state.messages, msg] })),
@@ -84,6 +91,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     messages: state.messages.map((m) => (m.id === id ? { ...m, ...updates } : m)),
   })),
   clearMessages: () => set({ messages: [] }),
+  clearHistory: () => set({ previousGenerations: [] }),
   addStreamEvent: (event) => set((state) => ({ streamEvents: [...state.streamEvents, event] })),
 
   setWsConnectionState: (wsConnectionState) => set({ wsConnectionState }),
@@ -170,7 +178,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
         set({ currentPlan: plan, isRunning: false });
         return plan;
       }
-      set({ isRunning: false, error: 'Failed to generate plan' });
+      set({ isRunning: false, error: '生成计划失败' });
       return null;
     } catch (e) {
       set({ isRunning: false, error: String(e) });
@@ -187,7 +195,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
         set({ currentResult: result, isRunning: false });
         return result;
       }
-      set({ isRunning: false, error: 'Agent execution failed' });
+      set({ isRunning: false, error: 'Agent 执行失败' });
       return null;
     } catch (e) {
       set({ isRunning: false, error: String(e) });
@@ -214,7 +222,23 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
 
   runStreaming: async (prompt: string) => {
     const token = useAuthStore.getState().accessToken;
-    set({ isRunning: true, error: null, thinkingSteps: [], currentResult: null, streamEvents: [] });
+    const controller = new AbortController();
+
+    // Archive previous generation before clearing for new run
+    const prevState = useAgentStore.getState();
+    if (prevState.streamEvents.length > 0) {
+      const gen: PreviousGeneration = {
+        id: crypto.randomUUID(),
+        prompt: prevState.streamEvents.find(e => e.type === 'user_message')?.data?.content || '',
+        result: prevState.currentResult,
+        events: prevState.streamEvents,
+        timestamp: Date.now(),
+        plan: prevState.currentPlan || undefined,
+      };
+      set((s) => ({ previousGenerations: [...s.previousGenerations, gen] }));
+    }
+
+    set({ isRunning: true, error: null, thinkingSteps: [], currentResult: null, streamEvents: [], llmChunks: {}, reasoningChunks: {}, _abortController: controller });
 
     // 添加用户消息事件
     const userEvent: StreamEvent = {
@@ -233,6 +257,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ prompt }),
+        signal: controller.signal,
       });
 
       if (!response.ok) {
@@ -423,12 +448,16 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
               });
               break;
             case 'done':
-              set({ isRunning: false, currentTaskId: null });
+              set({ isRunning: false, currentTaskId: null, _abortController: null });
               break;
           }
         }
       }
     } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') {
+        set({ isRunning: false, currentTaskId: null, _abortController: null });
+        return;
+      }
       const errorMsg = String(e);
       set((s) => ({
         streamEvents: [...s.streamEvents, {
@@ -492,6 +521,12 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
   clearDecision: () => set({ pendingDecision: null }),
 
   cancelTask: async (taskId: string) => {
+    // 先 abort 前端 fetch stream
+    const { _abortController } = useAgentStore.getState();
+    if (_abortController) {
+      _abortController.abort();
+      set({ _abortController: null });
+    }
     try {
       const response = await agentApi.cancelTask(taskId);
       if (response.data.success) {
@@ -508,7 +543,22 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     }
   },
 
-  clearCurrent: () => set({
+  clearCurrent: () => {
+    const s = useAgentStore.getState();
+    if (s._abortController) s._abortController.abort();
+    // Archive current generation before clearing
+    if (s.streamEvents.length > 0) {
+      const gen: PreviousGeneration = {
+        id: crypto.randomUUID(),
+        prompt: s.streamEvents.find(e => e.type === 'user_message')?.data?.content || '',
+        result: s.currentResult,
+        events: s.streamEvents,
+        timestamp: Date.now(),
+        plan: s.currentPlan || undefined,
+      };
+      set((state) => ({ previousGenerations: [...state.previousGenerations, gen] }));
+    }
+    set({
     currentTaskId: null,
     currentTask: null,
     currentResult: null,
@@ -521,5 +571,6 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     llmChunks: {},
     reasoningChunks: {},
     messages: [],
-  }),
+    _abortController: null,
+  })},
 }));

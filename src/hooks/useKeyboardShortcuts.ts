@@ -1,10 +1,8 @@
 import { useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useUIStore } from '../stores/useUIStore';
 
 export function useKeyboardShortcuts() {
   const navigate = useNavigate();
-  const { showToast } = useUIStore();
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     const mod = e.metaKey || e.ctrlKey;
@@ -31,11 +29,19 @@ export function useKeyboardShortcuts() {
       return;
     }
 
-    // Escape — Close shortcut help
+    // Escape — Stop running agent task
     if (e.key === 'Escape') {
-      window.dispatchEvent(new CustomEvent('shortcut:close-help'));
+      window.dispatchEvent(new CustomEvent('shortcut:stop-agent'));
+      return;
     }
-  }, [navigate, showToast]);
+
+    // Ctrl+B — Toggle sidebar
+    if (mod && e.key === 'b') {
+      e.preventDefault();
+      window.dispatchEvent(new CustomEvent('shortcut:toggle-sidebar'));
+      return;
+    }
+  }, [navigate]);
 
   useEffect(() => {
     document.addEventListener('keydown', handleKeyDown);

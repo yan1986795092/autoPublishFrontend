@@ -46,7 +46,7 @@ export function AgentDebugView({ result, className }: AgentDebugViewProps) {
                   tab === t ? 'bg-app-elevated text-app-text shadow-sm' : 'text-app-text-secondary hover:text-app-text'
                 )}
               >
-                {t === 'trace' ? 'Trace' : t === 'prompt' ? 'Prompt' : 'Raw JSON'}
+                {t === 'trace' ? '追踪' : t === 'prompt' ? '提示词' : '原始 JSON'}
               </button>
             ))}
           </div>
@@ -62,9 +62,9 @@ export function AgentDebugView({ result, className }: AgentDebugViewProps) {
               <span>|</span>
               <span>总耗时: {trace?.total_elapsed?.toFixed(1) || '?'}s</span>
               <span>|</span>
-              <span>Token: {result.usage?.tokens_used || 0}</span>
+              <span>Token 数: {result.usage?.tokens_used || 0}</span>
               <span>|</span>
-              <span>模型: {result.usage?.model || 'N/A'}</span>
+              <span>模型: {result.usage?.model || '未知'}</span>
             </div>
 
             {/* 火焰图风格的时间线 */}
@@ -73,7 +73,7 @@ export function AgentDebugView({ result, className }: AgentDebugViewProps) {
                 {/* 时间线头部 */}
                 <div className="grid grid-cols-[80px_1fr_60px] gap-2 border-b border-app-border/50 bg-app-surface px-3 py-1.5 text-[10px] font-medium text-app-text-secondary">
                   <span>Agent</span>
-                  <span>Action</span>
+                  <span>操作</span>
                   <span className="text-right">耗时</span>
                 </div>
                 {/* 时间线行 */}
@@ -116,7 +116,7 @@ export function AgentDebugView({ result, className }: AgentDebugViewProps) {
                         key={i}
                         className={cn(colors[i % colors.length], 'h-full transition-all')}
                         style={{ width: `${(step.tokens_used / total) * 100}%` }}
-                        title={`${step.agent}: ${step.tokens_used} tokens`}
+                        title={`${step.agent}: ${step.tokens_used} token`}
                       />
                     ));
                   })()}
@@ -153,21 +153,21 @@ export function AgentDebugView({ result, className }: AgentDebugViewProps) {
                 </div>
                 {step.reasoning && (
                   <div className="mb-1 text-[10px] text-app-text-secondary">
-                    <span className="text-blue-400">REASONING:</span> {step.reasoning}
+                    <span className="text-blue-400">推理过程:</span> {step.reasoning}
                   </div>
                 )}
                 {step.output_summary && (
                   <div className="text-[10px] text-app-text-secondary">
-                    <span className="text-green-400">OUTPUT:</span> {step.output_summary}
+                    <span className="text-green-400">输出摘要:</span> {step.output_summary}
                   </div>
                 )}
                 {step.prompt_used && (
                   <div className="mt-1 space-y-1">
-                    <div className="text-[10px] text-blue-400 font-medium">System Prompt:</div>
+                    <div className="text-[10px] text-blue-400 font-medium">系统提示词:</div>
                     <pre className="overflow-auto rounded bg-app-surface p-2 text-[9px] text-app-text-secondary max-h-20">
                       {step.prompt_used.split('\n\n')[0]}
                     </pre>
-                    <div className="text-[10px] text-green-400 font-medium">User Prompt:</div>
+                    <div className="text-[10px] text-green-400 font-medium">用户提示词:</div>
                     <pre className="overflow-auto rounded bg-app-surface p-2 text-[9px] text-app-text-secondary max-h-20">
                       {step.prompt_used.split('\n\n').slice(1).join('\n\n')}
                     </pre>
@@ -175,7 +175,7 @@ export function AgentDebugView({ result, className }: AgentDebugViewProps) {
                 )}
                 {step.response_used && (
                   <div className="mt-1">
-                    <div className="text-[10px] text-green-400 font-medium">Response:</div>
+                    <div className="text-[10px] text-green-400 font-medium">响应:</div>
                     <pre className="overflow-auto rounded bg-app-surface p-2 text-[9px] text-app-text-secondary max-h-20">
                       {step.response_used}
                     </pre>

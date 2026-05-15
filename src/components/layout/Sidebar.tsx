@@ -4,7 +4,7 @@ import { useAuthStore } from '../../stores/useAuthStore';
 import { useUIStore } from '../../stores/useUIStore';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { cn } from '../../utils/helpers';
-import { PenLine, FileText, Settings, ChevronLeft, Menu, X } from 'lucide-react';
+import { PenLine, FileText, Settings, ChevronLeft, Menu, X, LogOut } from 'lucide-react';
 
 const MOBILE_BREAKPOINT = 768;
 
@@ -145,17 +145,28 @@ export function Sidebar() {
         <div className="border-t border-sidebar-border py-2 px-2 space-y-1">
           {user && (
             <div className={cn(
-              'flex items-center gap-2 rounded-md px-2.5 py-2',
+              'flex items-center gap-2 rounded-md px-2.5 py-2 group',
               sidebarCollapsed ? 'justify-center' : ''
             )}>
               <div className="flex-shrink-0 w-7 h-7 rounded-md bg-primary-600/20 border border-primary-500/30 flex items-center justify-center text-xs font-semibold text-primary-400">
                 {(user.nickname || user.email || 'U').charAt(0).toUpperCase()}
               </div>
               {!sidebarCollapsed && (
-                <span className="text-xs text-sidebar-text-secondary truncate">
+                <span className="text-xs text-sidebar-text-secondary truncate flex-1">
                   {user.nickname || user.email}
                 </span>
               )}
+              {/* Logout button — appears on hover */}
+              <button
+                onClick={() => { useAuthStore.getState().logout(); navigate('/login'); }}
+                className={cn(
+                  'flex-shrink-0 rounded-md p-1 text-sidebar-text-tertiary hover:text-red-400 hover:bg-red-500/10 transition-all',
+                  sidebarCollapsed ? 'opacity-0 group-hover:opacity-100 absolute -right-1' : 'opacity-0 group-hover:opacity-100'
+                )}
+                title="退出登录"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+              </button>
             </div>
           )}
           {!isMobile && (

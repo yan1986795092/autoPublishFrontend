@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGeneratorStore } from '../../stores/useGeneratorStore';
 import { useUIStore } from '../../stores/useUIStore';
@@ -10,9 +10,9 @@ import { PresetManager } from './PresetManager';
 import { PersonaEditor } from './PersonaEditor';
 import { HotTopicsPanel } from './HotTopicsPanel';
 import { Sparkles, Loader2, RefreshCw, SlidersHorizontal, Wand2, Layers } from 'lucide-react';
-import { generateStream, contentsApi } from '../../services/api';
+import { generateStream, contentsApi, platformsApi } from '../../services/api';
 import { cn } from '../../utils/helpers';
-import type { GenerateParams } from '../../types';
+import type { GenerateParams, Platform } from '../../types';
 
 const exampleTopics = [
   '如何高效学习编程？',
@@ -20,16 +20,33 @@ const exampleTopics = [
   '一周健康食谱推荐',
 ];
 
-const platforms = [
-  { code: 'xiaohongshu', name: '小红书', emoji: '🎨', gradient: 'from-pink-500 to-rose-500' },
-  { code: 'wechat', name: '公众号', emoji: '📱', gradient: 'from-green-500 to-emerald-500' },
-  { code: 'zhihu', name: '知乎', emoji: '💡', gradient: 'from-blue-500 to-indigo-500' },
-];
+// 各类别的展示配置（emoji + 颜色）
+const categoryConfig: Record<string, { label: string; emoji: string; gradient: string }> = {
+  social_media: { label: '社交媒体', emoji: '📱', gradient: 'from-pink-500 to-rose-500' },
+  creative_writing: { label: '创意写作', emoji: '✍️', gradient: 'from-purple-500 to-violet-500' },
+  marketing: { label: '营销内容', emoji: '📢', gradient: 'from-orange-500 to-amber-500' },
+  technical: { label: '技术内容', emoji: '💻', gradient: 'from-cyan-500 to-blue-500' },
+};
+
+// 各平台/内容类型的 emoji 映射
+const platformEmojis: Record<string, string> = {
+  xiaohongshu: '🎨',
+  wechat: '📱',
+  zhihu: '💡',
+  fiction: '📖',
+  storyboard: '🎬',
+  script: '🎭',
+  copywriting: '📝',
+  newsletter: '📧',
+  technical_doc: '📘',
+  tutorial: '📗',
+};
 
 export function TopicInputPanel() {
   const {
     status,
     draft,
+    error,
     setTopic,
     setPlatformCode,
     setParameters,
@@ -45,6 +62,30 @@ export function TopicInputPanel() {
   const [exampleIndex, setExampleIndex] = useState(0);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [isBatching, setIsBatching] = useState(false);
+  const [platforms, setPlatforms] = useState<Platform[]>([]);
+
+  // Fetch platforms from API
+  useEffect(() => {
+    platformsApi.list().then((res) => {
+      if (res.data.success && res.data.data) {
+        setPlatforms(res.data.data);
+      }
+    }).catch(() => {});
+  }, []);
+
+  // Group platforms by category
+  const categoryGroups = useMemo(() => {
+    const groups: Record<string, Platform[]> = {};
+    for (const p of platforms) {
+      const cat = p.category || 'social_media';
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(p);
+    }
+    return groups;
+  }, [platforms]);
+
+  // Category ordering
+  const categoryOrder = ['social_media', 'creative_writing', 'marketing', 'technical'];
 
   useEffect(() => {
     if (status === 'idle') {
@@ -239,35 +280,44 @@ export function TopicInputPanel() {
           <HotTopicsPanel onSelectTopic={setTopic} />
         )}
 
-        {/* Platform Selection */}
-        <div className="space-y-1.5">
-          <span className="text-[9px] text-app-text-tertiary uppercase tracking-wider font-medium">目标平台</span>
-          <div className="grid grid-cols-3 gap-1.5">
-            {platforms.map((p) => {
-              const isSelected = draft.platform_code === p.code;
-              return (
-                <button
-                  key={p.code}
-                  onClick={() => setPlatformCode(p.code)}
-                  disabled={isLoading}
-                  className={cn(
-                    'flex flex-col items-center gap-1 p-2 rounded-xl border transition-all duration-150',
-                    isSelected
-                      ? 'border-primary-500/50 bg-primary-600/15'
-                      : 'border-app-border bg-app-surface hover:border-app-border-light'
-                  )}
-                >
-                  <span className="text-base">{p.emoji}</span>
-                  <span className={cn(
-                    'text-[9px] font-medium',
-                    isSelected ? 'text-primary-400' : 'text-app-text-secondary'
-                  )}>
-                    {p.name}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+        {/* Content Type Selection */}
+        <div className="space-y-2">
+          <span className="text-[9px] text-app-text-tertiary uppercase tracking-wider font-medium">内容类型</span>
+          {categoryOrder.map((cat) => {
+            const items = categoryGroups[cat];
+            if (!items || items.length === 0) return null;
+            const cfg = categoryConfig[cat] || { label: cat, emoji: '📄', gradient: 'from-gray-500 to-gray-500' };
+            return (
+              <div key={cat} className="space-y-1">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px]">{cfg.emoji}</span>
+                  <span className="text-[8px] text-app-text-tertiary font-medium uppercase tracking-wider">{cfg.label}</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {items.map((p) => {
+                    const isSelected = draft.platform_code === p.code;
+                    const emoji = platformEmojis[p.code] || '📄';
+                    return (
+                      <button
+                        key={p.code}
+                        onClick={() => setPlatformCode(p.code)}
+                        disabled={isLoading}
+                        className={cn(
+                          'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border transition-all duration-150 text-[10px]',
+                          isSelected
+                            ? 'border-primary-500/50 bg-primary-600/15 text-primary-400'
+                            : 'border-app-border bg-app-surface text-app-text-secondary hover:border-app-border-light hover:text-app-text'
+                        )}
+                      >
+                        <span>{emoji}</span>
+                        <span className="font-medium whitespace-nowrap">{p.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
         </div>
 
         {/* Template Selector */}
@@ -340,14 +390,14 @@ export function TopicInputPanel() {
 
         {/* Error */}
         <AnimatePresence>
-          {status === 'error' && draft.topic && (
+          {status === 'error' && error && (
             <motion.div
               initial={{ opacity: 0, y: -5 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
               className="p-2 rounded-lg bg-red-500/10 border border-red-500/20"
             >
-              <p className="text-[10px] text-red-400">{draft.topic}</p>
+              <p className="text-[10px] text-red-400">{error}</p>
             </motion.div>
           )}
         </AnimatePresence>

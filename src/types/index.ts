@@ -10,6 +10,7 @@ export interface Platform {
   code: string;
   name: string;
   icon_url?: string;
+  category: string;
   is_mock: boolean;
   is_active: boolean;
 }
@@ -207,6 +208,7 @@ export type {
   PendingDecision,
   DecisionSubmitRequest,
   ChatMessage,
+  PreviousGeneration,
   ContentType,
   ContentStyle,
 } from './agent';

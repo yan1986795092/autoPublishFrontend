@@ -127,5 +127,15 @@ export interface ReasoningChunk {
   timestamp: number;
 }
 
+/** 一次完整的生成会话记录 */
+export interface PreviousGeneration {
+  id: string;
+  prompt: string;
+  result: AgentResult | null;
+  events: StreamEvent[];
+  timestamp: number;
+  plan?: ExecutionPlan;
+}
+
 export type ContentType = 'blog' | 'social_post' | 'copywriting' | 'script' | 'newsletter' | 'report' | 'auto';
 export type ContentStyle = '技术' | '种草' | '干货' | '幽默' | '深度' | '教程' | '';

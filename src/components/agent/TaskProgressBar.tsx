@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { cn } from '../../utils/helpers';
 import type { AsyncTask } from '../../types';
@@ -29,19 +29,25 @@ export function TaskProgressBar({ task, className }: TaskProgressBarProps) {
   const isCompleted = task.state === 'completed';
   const isFailed = task.state === 'failed';
   const [elapsed, setElapsed] = useState(0);
+  const startRef = useRef<number | null>(null);
 
   // Estimate time remaining based on progress rate
   useEffect(() => {
     if (!isRunning) {
       setElapsed(0);
+      startRef.current = null;
       return;
     }
-    const start = Date.now() - elapsed * 1000;
+    if (startRef.current === null) {
+      startRef.current = Date.now();
+    }
     const timer = setInterval(() => {
-      setElapsed((Date.now() - start) / 1000);
+      if (startRef.current !== null) {
+        setElapsed((Date.now() - startRef.current) / 1000);
+      }
     }, 1000);
     return () => clearInterval(timer);
-  }, [isRunning, task.progress]);
+  }, [isRunning]);
 
   const progress = Math.min(task.progress, 100);
   const estimatedRemaining = progress > 5

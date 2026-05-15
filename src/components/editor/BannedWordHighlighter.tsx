@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Editor } from '@tiptap/react';
 import { useEditorStore } from '../../stores/useEditorStore';
+import { useUIStore } from '../../stores/useUIStore';
 import { aiEditApi } from '../../services/api';
 import { AlertTriangle, ChevronDown, ChevronUp, RotateCcw } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -11,6 +12,7 @@ interface Props {
 }
 
 export function BannedWordHighlighter({ editor }: Props) {
+  const { showToast } = useUIStore();
   const { bannedWords, setBannedWords, activePlatform } = useEditorStore();
   const [collapsed, setCollapsed] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -32,7 +34,7 @@ export function BannedWordHighlighter({ editor }: Props) {
           const words = res.data.data?.words || [];
           setBannedWords(words);
         } catch {
-          // silently fail
+          showToast('违禁词检查失败', 'error');
         } finally {
           setLoading(false);
         }
@@ -57,7 +59,7 @@ export function BannedWordHighlighter({ editor }: Props) {
           const words = res.data.data?.words || [];
           setBannedWords(words);
         } catch {
-          // silently fail
+          showToast('违禁词检查失败', 'error');
         } finally {
           setLoading(false);
         }

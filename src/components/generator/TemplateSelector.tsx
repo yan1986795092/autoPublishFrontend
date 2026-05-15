@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useGeneratorStore } from '../../stores/useGeneratorStore';
-import { templatesApi } from '../../services/api';
+import { templatesApi, platformsApi } from '../../services/api';
 import { cn } from '../../utils/helpers';
-import type { PromptTemplate } from '../../types';
+import type { PromptTemplate, Platform } from '../../types';
 
 interface Props {
   disabled?: boolean;
@@ -11,13 +11,20 @@ interface Props {
 export function TemplateSelector({ disabled }: Props) {
   const { draft, setTemplateId } = useGeneratorStore();
   const [templates, setTemplates] = useState<PromptTemplate[]>([]);
+  const [platforms, setPlatforms] = useState<Platform[]>([]);
   const [open, setOpen] = useState(false);
 
   const fetchTemplates = useCallback(async () => {
     try {
-      const res = await templatesApi.list({ platform_code: draft.platform_code });
-      if (res.data.success && res.data.data) {
-        setTemplates(res.data.data);
+      const [tRes, pRes] = await Promise.all([
+        templatesApi.list({ platform_code: draft.platform_code }),
+        platformsApi.list(),
+      ]);
+      if (tRes.data.success && tRes.data.data) {
+        setTemplates(tRes.data.data);
+      }
+      if (pRes.data.success && pRes.data.data) {
+        setPlatforms(pRes.data.data);
       }
     } catch { /* ignore */ }
   }, [draft.platform_code]);
@@ -25,6 +32,12 @@ export function TemplateSelector({ disabled }: Props) {
   useEffect(() => {
     fetchTemplates();
   }, [fetchTemplates]);
+
+  // Build platform name lookup
+  const platformNameMap: Record<string, string> = {};
+  for (const p of platforms) {
+    platformNameMap[p.code] = p.name;
+  }
 
   const selected = templates.find((t) => t.id === draft.template_id);
 
@@ -70,15 +83,20 @@ export function TemplateSelector({ disabled }: Props) {
               )}
 
               {/* Group by platform */}
-              {['xiaohongshu', 'wechat', 'zhihu', null].map((platform) => {
-                const group = templates.filter((t) => (t.platform_code || null) === platform);
-                if (group.length === 0) return null;
-                const platformName =
-                  platform === 'xiaohongshu' ? '小红书' :
-                  platform === 'wechat' ? '公众号' :
-                  platform === 'zhihu' ? '知乎' : '通用';
-                return (
-                  <div key={platform || '通用'}>
+              {(() => {
+                // Collect unique platform codes from templates, sorted
+                const codes = [...new Set(templates.map((t) => t.platform_code || null))];
+                codes.sort((a, b) => {
+                  if (a === null) return 1;
+                  if (b === null) return -1;
+                  return (platformNameMap[a] || a).localeCompare(platformNameMap[b] || b);
+                });
+                return codes.map((platform) => {
+                  const group = templates.filter((t) => (t.platform_code || null) === platform);
+                  if (group.length === 0) return null;
+                  const platformName = platform ? (platformNameMap[platform] || platform) : '通用';
+                  return (
+                    <div key={platform || '通用'}>
                     <div className="px-2.5 py-1 text-[8px] text-app-text-tertiary uppercase tracking-wider bg-app-surface/50">
                       {platformName}
                     </div>

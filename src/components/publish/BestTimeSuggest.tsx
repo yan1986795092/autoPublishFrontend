@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { publishApi } from '../../services/api';
+import { useUIStore } from '../../stores/useUIStore';
 import { cn } from '../../utils/helpers';
 import { Clock, Loader2, TrendingUp } from 'lucide-react';
 
@@ -15,6 +16,7 @@ interface TimeSuggestion {
 }
 
 export function BestTimeSuggest({ platformCode }: Props) {
+  const { showToast } = useUIStore();
   const [suggestion, setSuggestion] = useState<TimeSuggestion | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -28,7 +30,7 @@ export function BestTimeSuggest({ platformCode }: Props) {
           setSuggestion(data as TimeSuggestion);
         }
       } catch {
-        // silently fail
+        showToast('获取发布时间建议失败', 'error');
       } finally {
         setLoading(false);
       }

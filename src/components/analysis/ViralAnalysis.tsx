@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { aiEditApi } from '../../services/api';
+import { useUIStore } from '../../stores/useUIStore';
 import { cn } from '../../utils/helpers';
 import { Flame, TrendingUp, Loader2, Sparkles, Zap, Target, MessageCircle, Share2, CheckCircle, AlertTriangle, Lightbulb, BarChart3 } from 'lucide-react';
 
@@ -42,6 +43,7 @@ function ScoreBar({ label, value, icon }: { label: string; value: number; icon: 
 }
 
 export function ViralAnalysis({ text, className }: { text: string; className?: string }) {
+  const { showToast } = useUIStore();
   const [score, setScore] = useState<ViralScore | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -54,7 +56,7 @@ export function ViralAnalysis({ text, className }: { text: string; className?: s
         setScore(res.data.data as ViralScore);
       }
     } catch {
-      // silently fail
+      showToast('分析失败，请稍后重试', 'error');
     } finally {
       setLoading(false);
     }

@@ -7,21 +7,22 @@ import {
   DialogTitle,
 } from '../ui/dialog';
 import { Button } from '../ui/button';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGeneratorStore } from '../../stores/useGeneratorStore';
 import { useUIStore } from '../../stores/useUIStore';
-import { publishApi } from '../../services/api';
+import { publishApi, platformsApi } from '../../services/api';
 import { Send, Loader2, AlertCircle, CheckCircle2, FileText, Clock, TrendingUp } from 'lucide-react';
 import { cn } from '../../utils/helpers';
-import type { PublishResponse } from '../../types';
+import type { PublishResponse, Platform } from '../../types';
 import { BestTimeSuggest } from './BestTimeSuggest';
 
-const platformOptions = [
-  { code: 'xiaohongshu', name: '小红书', emoji: '🎨', desc: '适合生活分享、知识干货', gradient: 'from-pink-500 to-rose-500' },
-  { code: 'wechat', name: '公众号', emoji: '📱', desc: '适合深度文章、品牌内容', gradient: 'from-green-500 to-emerald-500' },
-  { code: 'zhihu', name: '知乎', emoji: '💡', desc: '适合专业问答、知识分享', gradient: 'from-blue-500 to-indigo-500' },
-];
+// 平台 emoji 映射（发布可用平台）
+const platformEmojis: Record<string, string> = {
+  xiaohongshu: '🎨',
+  wechat: '📱',
+  zhihu: '💡',
+};
 
 function getLocalDateTimeISO() {
   const now = new Date();
@@ -44,6 +45,27 @@ export function PublishDialog() {
   const [scheduleTime, setScheduleTime] = useState(getLocalDateTimeISO());
   const [isPublishing, setIsPublishing] = useState(false);
   const [result, setResult] = useState<PublishResult | null>(null);
+  const [publishPlatforms, setPublishPlatforms] = useState<Platform[]>([]);
+
+  // Fetch publishable platforms (social_media only)
+  useEffect(() => {
+    if (publishDialogOpen) {
+      platformsApi.list().then((res) => {
+        if (res.data.success && res.data.data) {
+          setPublishPlatforms(res.data.data.filter((p: Platform) => p.category === 'social_media'));
+        }
+      }).catch(() => {});
+    }
+  }, [publishDialogOpen]);
+
+  // Build platform display info from fetched data
+  const platformOptions = publishPlatforms.map((p) => ({
+    code: p.code,
+    name: p.name,
+    emoji: platformEmojis[p.code] || '📄',
+    desc: p.is_mock ? '示例平台·模拟发布' : '已对接平台',
+    gradient: 'from-primary-500 to-primary-600' as const,
+  }));
 
   const togglePlatform = (code: string) => {
     setSelectedPlatforms((prev) =>

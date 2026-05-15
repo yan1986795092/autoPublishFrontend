@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { templatesApi } from '../services/api';
-import type { PromptTemplate, PromptTemplateDetail } from '../types';
+import { templatesApi, platformsApi } from '../services/api';
+import type { PromptTemplate, PromptTemplateDetail, Platform } from '../types';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { SkeletonList } from '../components/ui/Skeleton';
@@ -11,17 +11,43 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { cn } from '../utils/helpers';
 
+// 平台 emoji 映射
+const platformEmojis: Record<string, string> = {
+  xiaohongshu: '🎨',
+  wechat: '📱',
+  zhihu: '💡',
+  fiction: '📖',
+  storyboard: '🎬',
+  script: '🎭',
+  copywriting: '📝',
+  newsletter: '📧',
+  technical_doc: '📘',
+  tutorial: '📗',
+};
+
+const categoryConfig: Record<string, { label: string; gradient: string }> = {
+  social_media: { label: '社交媒体', gradient: 'from-pink-500 to-rose-500' },
+  creative_writing: { label: '创意写作', gradient: 'from-purple-500 to-violet-500' },
+  marketing: { label: '营销内容', gradient: 'from-orange-500 to-amber-500' },
+  technical: { label: '技术内容', gradient: 'from-cyan-500 to-blue-500' },
+};
+
 export function TemplatePage() {
   const [templates, setTemplates] = useState<PromptTemplate[]>([]);
+  const [platforms, setPlatforms] = useState<Platform[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedTemplate, setSelectedTemplate] = useState<PromptTemplateDetail | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
 
   useEffect(() => {
-    templatesApi.list()
-      .then((res) => {
-        if (res.data.success) setTemplates(res.data.data || []);
+    Promise.all([
+      templatesApi.list(),
+      platformsApi.list(),
+    ])
+      .then(([tRes, pRes]) => {
+        if (tRes.data.success) setTemplates(tRes.data.data || []);
+        if (pRes.data.success) setPlatforms(pRes.data.data || []);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -40,11 +66,18 @@ export function TemplatePage() {
     }
   };
 
-  const platformGroups = [
-    { code: 'xiaohongshu', label: '小红书', emoji: '🎨', gradient: 'from-pink-500 to-rose-500' },
-    { code: 'wechat', label: '公众号', emoji: '📱', gradient: 'from-green-500 to-emerald-500' },
-    { code: 'zhihu', label: '知乎', emoji: '💡', gradient: 'from-blue-500 to-indigo-500' },
-  ];
+  // Build platform groups from API data
+  const platformGroups = platforms
+    .filter((p) => templates.some((t) => t.platform_code === p.code))
+    .map((p) => ({
+      code: p.code,
+      label: p.name,
+      emoji: platformEmojis[p.code] || '📄',
+      gradient: categoryConfig[p.category]?.gradient || 'from-gray-500 to-gray-500',
+    }));
+
+  // If no platforms from API, fallback to showing all templates as uncategorized
+  const hasGroups = platformGroups.length > 0;
 
   if (loading) {
     return <SkeletonList count={4} />;

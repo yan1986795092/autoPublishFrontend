@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Sidebar } from './Sidebar';
@@ -12,9 +13,16 @@ const pageVariants: Record<string, { initial: { opacity: number; y: number }; an
 };
 
 export function AppShell() {
-  const { sidebarCollapsed } = useUIStore();
+  const { sidebarCollapsed, toggleSidebar } = useUIStore();
   const location = useLocation();
   const variants = pageVariants[location.pathname] || pageVariants['/'];
+
+  // Listen for Ctrl+B shortcut to toggle sidebar
+  useEffect(() => {
+    const handler = () => toggleSidebar();
+    window.addEventListener('shortcut:toggle-sidebar', handler);
+    return () => window.removeEventListener('shortcut:toggle-sidebar', handler);
+  }, [toggleSidebar]);
 
   return (
     <div className="flex h-screen bg-app-bg overflow-hidden">

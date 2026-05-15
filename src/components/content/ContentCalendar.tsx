@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { contentsApi } from '../../services/api';
+import { useUIStore } from '../../stores/useUIStore';
 import { cn } from '../../utils/helpers';
 import { ChevronLeft, ChevronRight, CalendarDays, FileText, Clock } from 'lucide-react';
 
@@ -20,6 +21,7 @@ interface CalendarItem {
 }
 
 export function ContentCalendar() {
+  const { showToast } = useUIStore();
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
@@ -37,7 +39,7 @@ export function ContentCalendar() {
           setCalendarData(data.calendar || {});
         }
       } catch {
-        // silently fail
+        showToast('加载日历数据失败', 'error');
       } finally {
         setLoading(false);
       }

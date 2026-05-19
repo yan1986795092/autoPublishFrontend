@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { cn } from '../../utils/helpers';
 import { ChevronDown, Brain } from 'lucide-react';
 import type { ThinkingStep, AgentResult } from '../../types';
+import { getAgentIcon, getAgentColor, AGENT_ACTION_LABELS } from '../../config/agents';
 
 interface AgentThinkingPanelProps {
   result?: AgentResult | null;
@@ -11,67 +12,7 @@ interface AgentThinkingPanelProps {
   compact?: boolean;
 }
 
-const AGENT_ICONS: Record<string, string> = {
-  ManagerAgent: '🧠',
-  WritingAgent: '✍️',
-  SEOAgent: '🔍',
-  DiagramAgent: '📊',
-  ReviewAgent: '✅',
-  WebSearch: '🌐',
-  PlatformAdapter: '🔌',
-  ImageAgent: '🎨',
-  CodeAgent: '💻',
-  HotTopicAgent: '🔥',
-};
-
-const AGENT_COLORS: Record<string, string> = {
-  ManagerAgent: 'text-purple-400 border-purple-500/30 bg-purple-500/10',
-  WritingAgent: 'text-blue-400 border-blue-500/30 bg-blue-500/10',
-  SEOAgent: 'text-green-400 border-green-500/30 bg-green-500/10',
-  DiagramAgent: 'text-orange-400 border-orange-500/30 bg-orange-500/10',
-  ReviewAgent: 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10',
-  WebSearch: 'text-cyan-400 border-cyan-500/30 bg-cyan-500/10',
-  PlatformAdapter: 'text-pink-400 border-pink-500/30 bg-pink-500/10',
-  ImageAgent: 'text-yellow-400 border-yellow-500/30 bg-yellow-500/10',
-  CodeAgent: 'text-red-400 border-red-500/30 bg-red-500/10',
-  HotTopicAgent: 'text-orange-400 border-orange-500/30 bg-orange-500/10',
-};
-
-const ACTION_LABELS: Record<string, string> = {
-  decompose: '任务拆解',
-  analyze_task: '分析任务',
-  generate: '生成内容',
-  execute_plan: '执行计划',
-  merge_and_validate: '合并与验证',
-  validate: '质量检查',
-  choose_diagram_type: '选择图表类型',
-  generate_diagram: '生成图表',
-  keyword_research: '关键词研究',
-  seo_score: 'SEO 评分',
-  optimize: '优化建议',
-  fetch_trending: '获取热榜',
-  filter_topics: '筛选话题',
-  analyze_trends: '趋势分析',
-  validate_language: '语言验证',
-};
-
-function getAgentStyle(agent: string): string {
-  for (const [key, value] of Object.entries(AGENT_COLORS)) {
-    if (agent.includes(key)) return value;
-  }
-  return 'text-gray-400 border-gray-500/30 bg-gray-500/10';
-}
-
-function getAgentIcon(agent: string): string {
-  for (const [key, value] of Object.entries(AGENT_ICONS)) {
-    if (agent.includes(key)) return value;
-  }
-  return '🤖';
-}
-
-function getActionLabel(action: string): string {
-  return ACTION_LABELS[action] || action;
-}
+/* ─── 兼容已有引用 ─── */
 
 function StepCard({ step, index }: { step: ThinkingStep; index: number }) {
   const [expanded, setExpanded] = useState(false);
@@ -113,12 +54,12 @@ function StepCard({ step, index }: { step: ThinkingStep; index: number }) {
           <div className="flex items-center gap-2">
             <span className={cn(
               'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium border',
-              getAgentStyle(step.agent)
+              getAgentColor(step.agent)
             )}>
               {getAgentIcon(step.agent)} {step.agent.replace('Agent', '')}
             </span>
             <span className="text-xs font-medium text-app-text">
-              {getActionLabel(step.action)}
+              {AGENT_ACTION_LABELS[step.action] || step.action}
             </span>
             {step.time_elapsed > 0 && (
               <span className="ml-auto text-[10px] text-app-text-secondary tabular-nums">

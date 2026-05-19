@@ -9,6 +9,10 @@ import { ContentManagementPage } from './pages/ContentManagementPage';
 import { ContentEditPage } from './pages/ContentEditPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { LoginPage } from './pages/LoginPage';
+import { AgentPage } from './pages/AgentPage';
+import { AgentStudioPage } from './pages/AgentStudioPage';
+import { AgentHistoryPage } from './pages/AgentHistoryPage';
+import { TemplatePage } from './pages/TemplatePage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuthStore();
@@ -47,6 +51,10 @@ export default function App() {
           }
         >
           <Route path="/" element={<ErrorBoundary><HomePage /></ErrorBoundary>} />
+          <Route path="/agent" element={<ErrorBoundary><AgentPage /></ErrorBoundary>} />
+          <Route path="/agent-studio" element={<ErrorBoundary><AgentStudioPage /></ErrorBoundary>} />
+          <Route path="/agent-history" element={<ErrorBoundary><AgentHistoryPage /></ErrorBoundary>} />
+          <Route path="/templates" element={<ErrorBoundary><TemplatePage /></ErrorBoundary>} />
           <Route path="/content" element={<ErrorBoundary><ContentManagementPage /></ErrorBoundary>} />
           <Route path="/content/:id" element={<ErrorBoundary><ContentEditPage /></ErrorBoundary>} />
           <Route path="/settings" element={<ErrorBoundary><SettingsPage /></ErrorBoundary>} />

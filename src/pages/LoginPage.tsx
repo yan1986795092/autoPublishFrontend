@@ -30,12 +30,10 @@ export function LoginPage() {
       const res = await api;
 
       if (res.data.success && res.data.data) {
-        if (!isRegister) {
-          const data = res.data.data as any;
-          setTokens(data.access_token, data.refresh_token);
-          setUser(data.user);
-        }
-        showToast(isRegister ? '注册成功，请登录' : '登录成功', 'success');
+        const data = res.data.data as any;
+        setTokens(data.access_token, data.refresh_token);
+        setUser(data.user);
+        showToast(isRegister ? '注册成功' : '登录成功', 'success');
         navigate('/');
       } else {
         showToast(res.data.error?.message || '操作失败', 'error');
@@ -55,7 +53,7 @@ export function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0a0a0b] flex items-center justify-center p-4 relative overflow-hidden">
+    <div className="min-h-screen bg-app-bg flex items-center justify-center p-4 relative overflow-hidden">
       {/* Animated gradient mesh background */}
       <motion.div
         className="absolute inset-0 pointer-events-none"
@@ -105,7 +103,7 @@ export function LoginPage() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: 0.2 }}
-          className="relative overflow-hidden rounded-2xl border border-white/[0.06] bg-[rgba(20,20,22,0.85)] backdrop-blur-xl p-6 shadow-[0_8px_40px_rgba(0,0,0,0.4)]"
+          className="relative overflow-hidden rounded-2xl border border-white/[0.06] bg-app-elevated/80 backdrop-blur-xl p-6 shadow-[0_8px_40px_rgba(0,0,0,0.4)]"
         >
           {/* Top highlight */}
           <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/[0.08] to-transparent" />
@@ -171,6 +169,17 @@ export function LoginPage() {
                 />
               </div>
 
+              {/* Remember me + Forgot password */}
+              <div className="flex items-center justify-between">
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input type="checkbox" className="rounded border-app-border bg-app-surface accent-primary-500 w-3 h-3" />
+                  <span className="text-[11px] text-app-text-secondary">记住我</span>
+                </label>
+                <button type="button" className="text-[11px] text-primary-400 hover:text-primary-300 transition-colors">
+                  忘记密码？
+                </button>
+              </div>
+
               {/* Submit button */}
               <Button
                 type="submit"
@@ -202,7 +211,7 @@ export function LoginPage() {
                 <div className="w-full border-t border-white/[0.06]" />
               </div>
               <div className="relative flex justify-center text-xs uppercase">
-                <span className="px-2 text-app-text-tertiary bg-[rgba(20,20,22,0.85)]">或</span>
+                <span className="px-2 text-app-text-tertiary bg-app-elevated/80">或</span>
               </div>
             </div>
 

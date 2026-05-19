@@ -1,29 +1,26 @@
-import { useEffect, useState, useCallback } from 'react';
-import { motion } from 'framer-motion';
+import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { contentsApi } from '../services/api';
+import { contentsApi, publishApi } from '../services/api';
 import type { Content, ContentVersion } from '../types';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Input } from '../components/ui/input';
 import { Textarea } from '../components/ui/textarea';
 import { SkeletonCard, SkeletonText } from '../components/ui/Skeleton';
-import { formatRelativeTime, cn } from '../utils/helpers';
 import { TagInput } from '../components/ui/TagInput';
-import { publishApi } from '../services/api';
+import { formatRelativeTime, cn } from '../utils/helpers';
 import {
-  ArrowLeft, Save, RotateCcw, Eye, History, FileText, Loader2, Download, ClipboardCopy, Send, Clock, X
+  ArrowLeft, Save, RotateCcw, Eye, History, FileText, Loader2, Download, ClipboardCopy, Palette, MessageSquare, Lightbulb
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useUIStore } from '../stores/useUIStore';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
-import { Badge as BadgePrimitive } from '../components/ui/badge';
 
-const platformConfig: Record<string, { label: string; emoji: string }> = {
-  xiaohongshu: { label: '小红书', emoji: '🎨' },
-  wechat: { label: '公众号', emoji: '📱' },
-  zhihu: { label: '知乎', emoji: '💡' },
+const platformConfig: Record<string, { label: string; icon: React.ReactNode }> = {
+  xiaohongshu: { label: '小红书', icon: <Palette className="w-3 h-3" /> },
+  wechat: { label: '公众号', icon: <MessageSquare className="w-3 h-3" /> },
+  zhihu: { label: '知乎', icon: <Lightbulb className="w-3 h-3" /> },
 };
 
 export function ContentEditPage() {
@@ -46,9 +43,9 @@ export function ContentEditPage() {
   const [previewOpen, setPreviewOpen] = useState(false);
   // History dialog
   const [historyOpen, setHistoryOpen] = useState(false);
-  // Publish dialog
-  const [publishOpen, setPublishOpen] = useState(false);
-  // Publish records
+  const [diffMode, setDiffMode] = useState(false);
+  const [diffBase, setDiffBase] = useState<string | null>(null);
+  // Publish records (reserved for future use)
   const [publishRecords, setPublishRecords] = useState<Array<{
     id: string; platform_code: string; status: string;
     platform_post_id?: string; platform_url?: string;
@@ -77,7 +74,7 @@ export function ContentEditPage() {
           if (pubRes.data.success && pubRes.data.data) {
             setPublishRecords(pubRes.data.data.records || []);
           }
-        } catch { /* ignore */ }
+        } catch { /* publish history unavailable */ }
       }
     } catch {
       showToast('加载内容失败', 'error');
@@ -171,7 +168,7 @@ export function ContentEditPage() {
             <div className="flex items-center gap-1.5 mt-0.5">
               {content.platform_code && (
                 <Badge variant={content.platform_code === 'xiaohongshu' ? 'xhs' : content.platform_code === 'wechat' ? 'wechat' : 'zhihu'} size="xs">
-                  {platformConfig[content.platform_code]?.emoji} {platformConfig[content.platform_code]?.label}
+                {platformConfig[content.platform_code]?.icon} {platformConfig[content.platform_code]?.label}
                 </Badge>
               )}
               <Badge variant={content.status === 'published' ? 'success' : 'warning'} size="xs">
@@ -254,7 +251,7 @@ export function ContentEditPage() {
         <div className="px-4 py-2 border-b border-app-border bg-app-surface text-[11px] font-medium text-app-text-secondary flex items-center gap-2">
           <span className="w-1.5 h-1.5 rounded-full bg-app-text-tertiary" />
           Markdown 编辑
-          <span className="ml-auto text-app-text-tertiary">{editContentMd.length} 字</span>
+          <span className="ml-auto text-app-text-tertiary">{Array.from(editContentMd).length} 字</span>
         </div>
         <Textarea
           value={editContentMd}
@@ -283,14 +280,14 @@ export function ContentEditPage() {
                         : 'bg-app-surface text-app-text-tertiary border-app-border'
                     )}
                   >
-                    {platformConfig[p]?.emoji} {platformConfig[p]?.label}
+                    {platformConfig[p]?.icon} {platformConfig[p]?.label}
                   </button>
                 ))}
               </div>
             </DialogTitle>
           </DialogHeader>
-          <div className="min-h-[200px] bg-white rounded-xl overflow-hidden">
-            <div className="prose max-w-none p-4 [&_h1]:text-gray-900 [&_h2]:text-gray-800 [&_p]:text-gray-700 [&_p]:leading-relaxed">
+          <div className="min-h-[200px] bg-white/5 rounded-xl overflow-hidden">
+            <div className="prose max-w-none p-4 [&_h1]:text-gray-100 [&_h2]:text-gray-200 [&_p]:text-gray-300 [&_p]:leading-relaxed">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>
                 {editContentMd || '*暂无内容*'}
               </ReactMarkdown>
@@ -300,31 +297,97 @@ export function ContentEditPage() {
       </Dialog>
 
       {/* History Dialog */}
-      <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
+      <Dialog open={historyOpen} onOpenChange={(v) => { setHistoryOpen(v); if (!v) { setDiffMode(false); setDiffBase(null); } }}>
         <DialogContent className="max-w-2xl max-h-[70vh] overflow-hidden flex flex-col">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-sm">
-              <History className="w-4 h-4 text-primary-400" />
-              版本历史
+            <DialogTitle className="flex items-center justify-between text-sm">
+              <div className="flex items-center gap-2">
+                <History className="w-4 h-4 text-primary-400" />
+                版本历史
+              </div>
+              {versions.length >= 2 && (
+                <button
+                  onClick={() => { setDiffMode(!diffMode); setDiffBase(null); }}
+                  className={cn(
+                    'text-[10px] px-2 py-0.5 rounded transition-colors',
+                    diffMode ? 'bg-blue-500/10 text-blue-400' : 'text-app-text-tertiary hover:text-app-text-secondary'
+                  )}
+                >
+                  {diffMode ? '退出对比' : '对比版本'}
+                </button>
+              )}
             </DialogTitle>
           </DialogHeader>
           {versions.length > 0 ? (
             <div className="flex-1 overflow-auto space-y-2 pr-1">
-              {versions.map((version, idx) => (
-                <div key={version.id} className="rounded-lg border border-app-border bg-app-surface p-3">
+              {diffMode && diffBase && (() => {
+                const base = versions.find(v => v.id === diffBase);
+                const target = versions.find(v => v.id !== diffBase);
+                if (base && target) {
+                  const baseLines = (base.content_md || '').split('\n');
+                  const targetLines = (target.content_md || '').split('\n');
+                  const maxLen = Math.max(baseLines.length, targetLines.length);
+                  return (
+                    <div className="rounded-lg border border-app-border bg-app-surface p-3 mb-2 text-[10px] font-mono">
+                      <p className="text-app-text-tertiary mb-1">
+                        对比 v{base.version_number} → v{target.version_number}
+                      </p>
+                      {Array.from({ length: maxLen }).map((_, i) => {
+                        const a = baseLines[i] || '';
+                        const b = targetLines[i] || '';
+                        if (a === b) return null;
+                        return (
+                          <div key={i} className={cn(
+                            'flex gap-2 py-0.5',
+                            a && !b ? 'bg-red-500/10 text-red-400' : 'bg-green-500/10 text-green-400'
+                          )}>
+                            <span className="text-app-text-tertiary w-6 text-right shrink-0">{i + 1}</span>
+                            <span className="truncate">{b || `<missing>`}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+              {versions.map((version, idx) => {
+                const isBase = diffMode && diffBase === version.id;
+                const isSelected = diffMode && versions.filter(v => v.id === diffBase || diffBase === null).length < 2;
+                return (
+                <div key={version.id}
+                  onClick={() => {
+                    if (!diffMode) return;
+                    if (diffBase === version.id) { setDiffBase(null); return; }
+                    setDiffBase(version.id);
+                  }}
+                  className={cn(
+                    'rounded-lg border bg-app-surface p-3 transition-colors',
+                    isBase ? 'border-blue-500/50 bg-blue-500/5' : 'border-app-border',
+                    diffMode ? 'cursor-pointer hover:border-blue-500/30' : ''
+                  )}
+                >
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
-                      <BadgePrimitive variant={idx === 0 ? 'primary' : 'outline'} size="sm">v{version.version_number}</BadgePrimitive>
+                      {diffMode && (
+                        <div className={cn(
+                          'w-3.5 h-3.5 rounded border flex items-center justify-center',
+                          isBase ? 'border-blue-500 bg-blue-500' : 'border-app-border'
+                        )}>
+                          {isBase && <span className="text-white text-[8px]">✓</span>}
+                        </div>
+                      )}
+                      <Badge variant={idx === 0 ? 'primary' : 'outline'} size="sm">v{version.version_number}</Badge>
                       <span className="text-[10px] text-app-text-tertiary">{formatRelativeTime(version.created_at)}</span>
                     </div>
-                    {idx === 0 && (
+                    {idx === 0 && !diffMode && (
                       <span className="text-[9px] px-1.5 py-0.5 bg-primary-600/20 text-primary-400 rounded font-medium">当前版本</span>
                     )}
                   </div>
                   {version.change_summary && (
                     <p className="text-[10px] text-app-text-secondary mb-2">{version.change_summary}</p>
                   )}
-                  {version.content_md && (
+                  {version.content_md && !diffMode && (
                     <div className="p-2 bg-app-elevated rounded max-h-20 overflow-auto text-[10px] text-app-text-secondary">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>
                         {(version.content_md ?? '').slice(0, 300) + ((version.content_md?.length ?? 0) > 300 ? '...' : '')}
@@ -332,7 +395,7 @@ export function ContentEditPage() {
                     </div>
                   )}
                 </div>
-              ))}
+              )})}
             </div>
           ) : (
             <p className="text-center text-app-text-tertiary py-8 text-xs">暂无版本记录</p>

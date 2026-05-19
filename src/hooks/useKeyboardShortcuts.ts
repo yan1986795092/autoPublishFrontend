@@ -1,5 +1,6 @@
 import { useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { COMMANDS } from '../config/commands';
 
 export function useKeyboardShortcuts() {
   const navigate = useNavigate();
@@ -10,7 +11,6 @@ export function useKeyboardShortcuts() {
     // Ctrl+S — Save (only on edit page)
     if (mod && e.key === 's') {
       e.preventDefault();
-      // Dispatch a custom event that ContentEditPage listens to
       window.dispatchEvent(new CustomEvent('shortcut:save'));
       return;
     }
@@ -48,3 +48,10 @@ export function useKeyboardShortcuts() {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
 }
+
+/** Get all commands that apply in a given context */
+export function getContextCommands(context: Command['context']) {
+  return COMMANDS.filter((c) => c.context === context);
+}
+
+import type { Command } from '../config/commands';

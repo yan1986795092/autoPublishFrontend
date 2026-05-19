@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useCallback } from 'react';
+import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAgentStore } from '../../stores/useAgentStore';
 import { cn } from '../../utils/helpers';
@@ -6,65 +6,9 @@ import {
   Bot, CheckCircle, AlertCircle, Loader2, ChevronDown,
   Terminal, Type, Lightbulb, Zap, RotateCcw, Pause, Play
 } from 'lucide-react';
-import type { StreamEvent, LLMChunk, ReasoningChunk } from '../../types';
-
-/* ─── Agent Icons & Labels ─── */
-const AGENT_ICONS: Record<string, string> = {
-  ManagerAgent: '🧠', WritingAgent: '✍️', SEOAgent: '🔍',
-  DiagramAgent: '📊', ReviewAgent: '✅', WebSearch: '🌐',
-  ImageAgent: '🎨', CodeAgent: '💻', HotTopicAgent: '🔥',
-  PlatformAdapter: '📱', TranslationAgent: '🌏', URLCrawler: '🔗',
-};
-
-function getAgentIcon(agent: string): string {
-  for (const [key, icon] of Object.entries(AGENT_ICONS)) {
-    if (agent.includes(key)) return icon;
-  }
-  return '🤖';
-}
-
-function getAgentColor(agent: string): string {
-  if (agent.includes('Manager')) return 'text-purple-400 border-purple-500/40 bg-purple-500/10';
-  if (agent.includes('Writing')) return 'text-blue-400 border-blue-500/40 bg-blue-500/10';
-  if (agent.includes('SEO')) return 'text-green-400 border-green-500/40 bg-green-500/10';
-  if (agent.includes('Diagram')) return 'text-orange-400 border-orange-500/40 bg-orange-500/10';
-  if (agent.includes('Review')) return 'text-emerald-400 border-emerald-500/40 bg-emerald-500/10';
-  if (agent.includes('WebSearch') || agent.includes('Crawl')) return 'text-cyan-400 border-cyan-500/40 bg-cyan-500/10';
-  if (agent.includes('Image')) return 'text-yellow-400 border-yellow-500/40 bg-yellow-500/10';
-  if (agent.includes('Code')) return 'text-red-400 border-red-500/40 bg-red-500/10';
-  if (agent.includes('Hot')) return 'text-orange-400 border-orange-500/40 bg-orange-500/10';
-  if (agent.includes('Platform') || agent.includes('Translation')) return 'text-pink-400 border-pink-500/40 bg-pink-500/10';
-  return 'text-gray-400 border-gray-500/40 bg-gray-500/10';
-}
-
-/* ─── Agent Action Descriptions（人类可读的动作描述）── */
-const AGENT_ACTION_DESC: Record<string, { running: string; done: string }> = {
-  WebSearch: { running: '🔍 正在搜索相关文章...', done: '✓ 搜索完成' },
-  URLCrawler: { running: '🔗 正在抓取网页内容...', done: '✓ 抓取完成' },
-  WritingAgent: { running: '✍️ 正在根据素材撰写内容...', done: '✓ 内容撰写完成' },
-  SEOAgent: { running: '🔍 正在优化 SEO 关键词...', done: '✓ SEO 优化完成' },
-  ReviewAgent: { running: '✅ 正在审核内容质量...', done: '✓ 审核通过' },
-  ManagerAgent: { running: '🧠 正在规划任务...', done: '✓ 任务规划完成' },
-  DiagramAgent: { running: '📊 正在生成图表...', done: '✓ 图表生成完成' },
-  HotTopicAgent: { running: '🔥 正在分析热点话题...', done: '✓ 热点分析完成' },
-  ImageAgent: { running: '🎨 正在生成配图...', done: '✓ 配图生成完成' },
-  CodeAgent: { running: '💻 正在编写代码...', done: '✓ 代码编写完成' },
-  PlatformAdapter: { running: '📱 正在适配平台格式...', done: '✓ 平台适配完成' },
-  TranslationAgent: { running: '🌏 正在翻译内容...', done: '✓ 翻译完成' },
-};
-
-function getAgentActionDescription(agent: string, status: string): string {
-  for (const [key, desc] of Object.entries(AGENT_ACTION_DESC)) {
-    if (agent.includes(key)) {
-      if (status === 'done' || status === 'completed') return desc.done;
-      if (status === 'failed') return '✗ 执行失败';
-      return desc.running;
-    }
-  }
-  if (status === 'done' || status === 'completed') return '✓ 完成';
-  if (status === 'failed') return '✗ 失败';
-  return '⏳ 执行中...';
-}
+import type { StreamEvent, LLMChunk, ReasoningChunk, StreamToolUse } from '../../types';
+import { getAgentIcon, getAgentColor, getAgentActionDesc } from '../../config/agents';
+import { ToolCard } from './ToolCard';
 
 /* ─── LLM Chunk Line（打字机行，类似 Claude Code 终端行）── */
 function LLMTerminalLine({ agent, chunks }: { agent: string; chunks: LLMChunk[] }) {
@@ -145,14 +89,16 @@ function ReasoningBlock({ agent, chunks }: { agent: string; chunks: ReasoningChu
 
 /* ─── Rich Agent Line（DeepSeek 风格终端行）── */
 function RichAgentLine({ event }: { event: StreamEvent }) {
+  const [showInterim, setShowInterim] = useState(false);
   const isDone = event.status === 'done' || event.status === 'completed';
   const isFailed = event.status === 'failed';
   const isRunning = event.status === 'running';
   const agent = event.agent || '';
-  const actionDesc = getAgentActionDescription(agent, event.status || 'running');
+  const actionDesc = getAgentActionDesc(agent, event.status || 'running');
   const inputSummary = (event.data?.input_summary as string) || '';
   const outputSummary = (event.data?.output_summary as string) || '';
   const reasoning = event.reasoning || (event.data?.reasoning as string) || '';
+  const intermediateOutput = (event.data?.intermediate_output as string) || '';
 
   return (
     <motion.div
@@ -216,6 +162,24 @@ function RichAgentLine({ event }: { event: StreamEvent }) {
       {isDone && outputSummary && (
         <div className="ml-8 mt-0.5 text-[10px] text-gray-500 leading-relaxed line-clamp-1">
           {outputSummary.slice(0, 200)}
+        </div>
+      )}
+
+      {/* ── Intermediate output (collapsible) ── */}
+      {intermediateOutput && (
+        <div className="ml-8 mt-1 rounded border border-cyan-500/20 bg-cyan-500/5 p-2">
+          <button
+            onClick={() => setShowInterim(!showInterim)}
+            className="text-[10px] text-cyan-400/70 hover:text-cyan-400 flex items-center gap-1 transition-colors"
+          >
+            <ChevronDown className={cn('w-2.5 h-2.5 transition-transform', showInterim && 'rotate-180')} />
+            查看中间结果
+          </button>
+          {showInterim && (
+            <pre className="text-[10px] mt-1 text-gray-400 font-mono whitespace-pre-wrap leading-relaxed max-h-32 overflow-y-auto">
+              {intermediateOutput}
+            </pre>
+          )}
         </div>
       )}
     </motion.div>
@@ -380,6 +344,8 @@ export function AgentLiveView({ onEdit, onPublish }: {
       lastAgent = agent;
     } else if (evt.type === 'llm_chunk' || evt.type === 'reasoning') {
       // Skip individual, will be grouped
+    } else if (evt.type === 'tool_use' || evt.type === 'tool_result') {
+      renderItems.push({ id: evt.id, type: evt.type, event: evt });
     } else if (evt.type === 'plan') {
       // Don't emit here; emit before first thinking_step
     } else if (evt.type === 'progress') {
@@ -526,6 +492,22 @@ export function AgentLiveView({ onEdit, onPublish }: {
                   {item.llmChunks && item.llmChunks.length > 0 && (
                     <LLMTerminalLine agent={item.agent} chunks={item.llmChunks} />
                   )}
+                </div>
+              )}
+              {item.type === 'tool_use' && item.event && (
+                <div className="pl-2 mt-1 mb-1">
+                  <ToolCard
+                    tool={item.event.data as unknown as StreamToolUse}
+                    status="calling"
+                  />
+                </div>
+              )}
+              {item.type === 'tool_result' && item.event && (
+                <div className="pl-2 mt-1 mb-1">
+                  <ToolCard
+                    tool={item.event.data as unknown as StreamToolUse}
+                    status="result"
+                  />
                 </div>
               )}
               {item.type === 'result' && item.event && (

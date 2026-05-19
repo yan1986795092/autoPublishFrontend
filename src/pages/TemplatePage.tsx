@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { templatesApi, platformsApi } from '../services/api';
 import type { PromptTemplate, PromptTemplateDetail, Platform } from '../types';
@@ -36,6 +37,7 @@ export function TemplatePage() {
   const [templates, setTemplates] = useState<PromptTemplate[]>([]);
   const [platforms, setPlatforms] = useState<Platform[]>([]);
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
   const [selectedTemplate, setSelectedTemplate] = useState<PromptTemplateDetail | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -210,7 +212,7 @@ export function TemplatePage() {
                 <Button variant="outline" onClick={() => setDetailOpen(false)} className="flex-1">
                   关闭
                 </Button>
-                <Button variant="gradient" className="flex-1" onClick={() => setDetailOpen(false)}>
+                <Button variant="gradient" className="flex-1" onClick={() => { setDetailOpen(false); navigate('/', { state: { templatePrompt: selectedTemplate?.system_prompt } }); }}>
                   <Sparkles className="h-4 w-4" />使用此模板
                 </Button>
               </div>

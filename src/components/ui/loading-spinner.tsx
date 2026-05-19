@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { cn } from '../../utils/helpers';
 
@@ -12,10 +13,26 @@ const sizeMap = {
   lg: 'w-8 h-8',
 };
 
+function usePrefersReducedMotion() {
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  });
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const handler = (e: MediaQueryListEvent) => setPrefersReducedMotion(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+  return prefersReducedMotion;
+}
+
 export function LoadingSpinner({ size = 'md', className }: LoadingSpinnerProps) {
+  const prefersReducedMotion = usePrefersReducedMotion();
+
   return (
     <motion.div
-      animate={{ rotate: 360 }}
+      animate={prefersReducedMotion ? {} : { rotate: 360 }}
       transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
       className={cn(
         'border-2 border-app-border border-t-primary-400 rounded-full',

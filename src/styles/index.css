@@ -219,6 +219,11 @@
 }
 
 /* ========== Surface Card Variants ========== */
+.glass-card {
+  background: var(--color-app-elevated);
+  border: 1px solid var(--color-app-border);
+  border-radius: var(--radius-lg);
+}
 .surface-card {
   background: var(--color-app-elevated);
   border: 1px solid var(--color-app-border);

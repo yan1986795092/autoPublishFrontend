@@ -26,6 +26,7 @@ export interface ThinkingStep {
   status: 'running' | 'done' | 'failed';
   prompt_used?: string;
   response_used?: string;
+  intermediate_output?: string; // P2.4: show partial results during execution
 }
 
 export interface AgentUsage {
@@ -96,10 +97,18 @@ export interface ChatMessage {
   plan?: ExecutionPlan;
 }
 
+// P2.6: Tool use event types
+export interface StreamToolUse {
+  name: string;
+  input: Record<string, unknown>;
+  output?: Record<string, unknown>;
+  tool_call_id: string;
+}
+
 // === Stream Event (for real-time agent thinking display) ===
 export interface StreamEvent {
   id: string;
-  type: 'user_message' | 'plan' | 'thinking_step' | 'progress' | 'decision_required' | 'result' | 'error' | 'done' | 'llm_chunk' | 'reasoning';
+  type: 'user_message' | 'plan' | 'thinking_step' | 'progress' | 'decision_required' | 'result' | 'error' | 'done' | 'llm_chunk' | 'reasoning' | 'tool_use' | 'tool_result';
   timestamp: number;
   data: any;
   // thinking step 快捷字段
@@ -139,3 +148,14 @@ export interface PreviousGeneration {
 
 export type ContentType = 'blog' | 'social_post' | 'copywriting' | 'script' | 'newsletter' | 'report' | 'auto';
 export type ContentStyle = '技术' | '种草' | '干货' | '幽默' | '深度' | '教程' | '';
+
+/** 步骤执行失败后的恢复选项 */
+export type RecoveryAction = 'retry' | 'skip' | 'cancel';
+
+export interface RecoveryState {
+  failedStepIndex: number;
+  failedStep: ThinkingStep | null;
+  retryCount: number;
+  errorMessage: string;
+  planSnapshot: ExecutionPlan | null;
+}

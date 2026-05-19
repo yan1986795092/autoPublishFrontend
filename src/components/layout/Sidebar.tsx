@@ -4,13 +4,16 @@ import { useAuthStore } from '../../stores/useAuthStore';
 import { useUIStore } from '../../stores/useUIStore';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { cn } from '../../utils/helpers';
-import { PenLine, FileText, Settings, ChevronLeft, Menu, X, LogOut } from 'lucide-react';
-
-const MOBILE_BREAKPOINT = 768;
+import { PenLine, FileText, Settings, ChevronLeft, Menu, X, LogOut, Bot, Cpu, Library, History as HistoryIcon } from 'lucide-react';
+import { SIDEBAR } from '../../config/layout';
 
 const navItems = [
   { id: 'create' as const, label: '创作工场', path: '/', icon: PenLine },
+  { id: 'agent' as const, label: 'Agent 工场', path: '/agent', icon: Bot },
+  { id: 'agent-studio' as const, label: 'Agent Studio', path: '/agent-studio', icon: Cpu },
+  { id: 'templates' as const, label: '模板管理', path: '/templates', icon: Library },
   { id: 'content' as const, label: '内容管理', path: '/content', icon: FileText },
+  { id: 'agent-history' as const, label: '执行历史', path: '/agent-history', icon: HistoryIcon },
   { id: 'settings' as const, label: '设置', path: '/settings', icon: Settings },
 ];
 
@@ -33,7 +36,7 @@ export function Sidebar() {
   const { user } = useAuthStore();
   const windowSize = useWindowSize();
 
-  const isMobile = windowSize < MOBILE_BREAKPOINT;
+  const isMobile = windowSize < SIDEBAR.BREAKPOINT_MOBILE;
   const mobileMenuOpen = sidebarMobileOpen;
 
   useEffect(() => {
@@ -55,7 +58,7 @@ export function Sidebar() {
     toggleSidebarMobile();
   };
 
-  const sidebarWidth = sidebarCollapsed ? 64 : 220;
+  const sidebarWidth = sidebarCollapsed ? SIDEBAR.WIDTH_COLLAPSED : SIDEBAR.WIDTH;
 
   return (
     <>
@@ -145,7 +148,7 @@ export function Sidebar() {
         <div className="border-t border-sidebar-border py-2 px-2 space-y-1">
           {user && (
             <div className={cn(
-              'flex items-center gap-2 rounded-md px-2.5 py-2 group',
+              'flex items-center gap-2 rounded-md px-2.5 py-2 group relative',
               sidebarCollapsed ? 'justify-center' : ''
             )}>
               <div className="flex-shrink-0 w-7 h-7 rounded-md bg-primary-600/20 border border-primary-500/30 flex items-center justify-center text-xs font-semibold text-primary-400">
@@ -160,8 +163,10 @@ export function Sidebar() {
               <button
                 onClick={() => { useAuthStore.getState().logout(); navigate('/login'); }}
                 className={cn(
-                  'flex-shrink-0 rounded-md p-1 text-sidebar-text-tertiary hover:text-red-400 hover:bg-red-500/10 transition-all',
-                  sidebarCollapsed ? 'opacity-0 group-hover:opacity-100 absolute -right-1' : 'opacity-0 group-hover:opacity-100'
+                  'flex-shrink-0 rounded-md p-1 text-sidebar-text-tertiary hover:text-red-400 hover:bg-red-500/10',
+                  sidebarCollapsed
+                    ? 'opacity-0 group-hover:opacity-100 absolute -right-1 transition-all'
+                    : 'opacity-0 group-hover:opacity-100 transition-all ml-auto'
                 )}
                 title="退出登录"
               >

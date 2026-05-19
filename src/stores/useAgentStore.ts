@@ -1,6 +1,8 @@
 import { create } from 'zustand';
-import type { AsyncTask, AgentResult, ExecutionPlan, PendingDecision, DecisionSubmitRequest, ChatMessage, ThinkingStep, StreamEvent, LLMChunk, ReasoningChunk, PreviousGeneration } from '../types';
+import { persist } from 'zustand/middleware';
+import type { AsyncTask, AgentResult, ExecutionPlan, PendingDecision, DecisionSubmitRequest, ChatMessage, ThinkingStep, StreamEvent, LLMChunk, ReasoningChunk, PreviousGeneration, RecoveryState } from '../types';
 import { agentApi } from '../services/api';
+import { SSEProcessor } from '../services/sse-processor';
 import { useAuthStore } from './useAuthStore';
 
 interface AgentState {
@@ -35,6 +37,11 @@ interface AgentState {
   // 历史生成记录（多次执行的结果存档）
   previousGenerations: PreviousGeneration[];
 
+  // 错误恢复状态
+  recoveryState: RecoveryState | null;
+  retryStep: () => Promise<void>;
+  skipStep: () => Promise<void>;
+
   // 消息列表（Chat 式界面）
   messages: ChatMessage[];
   addMessage: (msg: ChatMessage) => void;
@@ -67,7 +74,9 @@ interface AgentState {
   setWsConnectionState: (state: 'connecting' | 'connected' | 'disconnected') => void;
 }
 
-export const useAgentStore = create<AgentState>()((set, get) => ({
+export const useAgentStore = create<AgentState>()(
+  persist(
+    (set, get) => ({
   currentTaskId: null,
   currentTask: null,
   currentResult: null,
@@ -83,6 +92,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
   _ws: null,
   taskHistory: [],
   _abortController: null,
+  recoveryState: null,
   previousGenerations: [],
   messages: [],
 
@@ -222,7 +232,6 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
 
   runStreaming: async (prompt: string) => {
     const token = useAuthStore.getState().accessToken;
-    const controller = new AbortController();
 
     // Archive previous generation before clearing for new run
     const prevState = useAgentStore.getState();
@@ -238,238 +247,183 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       set((s) => ({ previousGenerations: [...s.previousGenerations, gen] }));
     }
 
-    set({ isRunning: true, error: null, thinkingSteps: [], currentResult: null, streamEvents: [], llmChunks: {}, reasoningChunks: {}, _abortController: controller });
+    set({ isRunning: true, error: null, thinkingSteps: [], currentResult: null, streamEvents: [], llmChunks: {}, reasoningChunks: {}, recoveryState: null });
 
-    // 添加用户消息事件
-    const userEvent: StreamEvent = {
-      id: crypto.randomUUID(),
-      type: 'user_message',
-      timestamp: Date.now(),
-      data: { content: prompt },
-    };
-    set((state) => ({ streamEvents: [...state.streamEvents, userEvent] }));
+    set((state) => ({
+      streamEvents: [...state.streamEvents, {
+        id: crypto.randomUUID(),
+        type: 'user_message' as const,
+        timestamp: Date.now(),
+        data: { content: prompt },
+      }],
+    }));
 
-    try {
-      const response = await fetch(agentApi.streamUrl(), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ prompt }),
-        signal: controller.signal,
+    const state = useAgentStore.getState();
+    const controller = new AbortController();
+    set({ _abortController: controller });
+
+    const processor = new SSEProcessor();
+    let lastStep: ThinkingStep | null = null;
+    let errorOccurred = false;
+
+    // Register SSE handlers
+    processor.on('plan', (event) => {
+      set({ currentPlan: event.data as unknown as ExecutionPlan });
+      set((s) => ({
+        streamEvents: [...s.streamEvents, { id: crypto.randomUUID(), type: 'plan', timestamp: Date.now(), data: event.data }],
+      }));
+    });
+
+    processor.on('task_created', (event) => {
+      set({ currentTaskId: event.data.task_id as string });
+    });
+
+    processor.on('thinking_step', (event) => {
+      lastStep = event.data as unknown as ThinkingStep;
+      set((s) => ({
+        thinkingSteps: [...s.thinkingSteps, lastStep!],
+        streamEvents: [...s.streamEvents, {
+          id: crypto.randomUUID(),
+          type: 'thinking_step', timestamp: Date.now(), data: event.data,
+          agent: (event.data as any).agent,
+          action: (event.data as any).action,
+          reasoning: (event.data as any).reasoning,
+          status: (event.data as any).status,
+          output_summary: (event.data as any).output_summary,
+        }],
+      }));
+    });
+
+    processor.on('progress', (event) => {
+      const existingTask = useAgentStore.getState().currentTask;
+      set({
+        currentTask: {
+          ...existingTask,
+          id: (event.data.task_id as string) || existingTask?.id || '',
+          user_id: existingTask?.user_id || '',
+          prompt: existingTask?.prompt || prompt,
+          state: 'running',
+          progress: (event.data.progress as number) || 0,
+          progress_message: (event.data.progress_message as string) || '',
+          current_step: (event.data.current_step as string) || '',
+          completed_steps: (event.data.completed_steps as number) || 0,
+          total_steps: (event.data.total_steps as number) || 0,
+          created_at: existingTask?.created_at || new Date().toISOString(),
+        } as AsyncTask,
       });
+    });
 
-      if (!response.ok) {
-        let errorMsg = `请求失败 (${response.status})`;
-        try {
-          const errBody = await response.text();
-          const parsed = JSON.parse(errBody);
-          errorMsg = parsed.detail || errorMsg;
-        } catch { /* ignore parse errors */ }
+    processor.on('result', (event) => {
+      set({
+        currentResult: event.data as unknown as AgentResult,
+        isRunning: false,
+        currentTaskId: null,
+      });
+      set((s) => ({
+        streamEvents: [...s.streamEvents, { id: crypto.randomUUID(), type: 'result', timestamp: Date.now(), data: event.data }],
+      }));
+      useAgentStore.getState().loadTaskHistory();
+    });
+
+    processor.on('decision_required', (event) => {
+      set({ pendingDecision: event.data as unknown as PendingDecision });
+      set((s) => ({
+        streamEvents: [...s.streamEvents, { id: crypto.randomUUID(), type: 'decision_required', timestamp: Date.now(), data: event.data }],
+      }));
+    });
+
+    processor.on('error', (event) => {
+      errorOccurred = true;
+      set((s) => ({
+        error: (event.data.message as string) || '执行出错',
+        isRunning: false,
+        currentTaskId: null,
+        recoveryState: {
+          failedStepIndex: s.thinkingSteps.length,
+          failedStep: lastStep,
+          retryCount: s.recoveryState?.retryCount ?? 0,
+          errorMessage: (event.data.message as string) || '执行出错',
+          planSnapshot: s.currentPlan,
+        },
+        streamEvents: [...s.streamEvents, { id: crypto.randomUUID(), type: 'error', timestamp: Date.now(), data: { message: event.data.message } }],
+      }));
+    });
+
+    processor.on('reasoning', (event) => {
+      const agent = (event.data as any).agent as string;
+      const content = (event.data as any).content as string;
+      set((s) => {
+        const existing = s.reasoningChunks[agent] || [];
+        return {
+          reasoningChunks: { ...s.reasoningChunks, [agent]: [...existing, { agent, content, timestamp: Date.now() }] },
+          streamEvents: [...s.streamEvents, { id: crypto.randomUUID(), type: 'reasoning', timestamp: Date.now(), data: event.data, agent, content }],
+        };
+      });
+    });
+
+    processor.on('llm_chunk', (event) => {
+      const agent = (event.data as any).agent as string;
+      const content = (event.data as any).content as string;
+      set((s) => {
+        const existing = s.llmChunks[agent] || [];
+        return {
+          llmChunks: { ...s.llmChunks, [agent]: [...existing, { agent, content, timestamp: Date.now() }] },
+          streamEvents: [...s.streamEvents, { id: crypto.randomUUID(), type: 'llm_chunk', timestamp: Date.now(), data: event.data, agent, content }],
+        };
+      });
+    });
+
+    processor.on('tool_use', (event) => {
+      set((s) => ({
+        streamEvents: [...s.streamEvents, {
+          id: crypto.randomUUID(), type: 'tool_use', timestamp: Date.now(), data: event.data,
+        }],
+      }));
+    });
+
+    processor.on('tool_result', (event) => {
+      set((s) => ({
+        streamEvents: [...s.streamEvents, {
+          id: crypto.randomUUID(), type: 'tool_result', timestamp: Date.now(), data: event.data,
+        }],
+      }));
+    });
+
+    processor.on('done', () => {
+      set({ isRunning: false, currentTaskId: null, _abortController: null });
+    });
+
+    // Connect and process stream
+    await processor.connect(agentApi.streamUrl(), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ prompt }),
+    }, {
+      onError(errorMsg) {
+        if (errorOccurred) return; // already handled by error event
+        const recovery = lastStep ? {
+          failedStepIndex: useAgentStore.getState().thinkingSteps.length,
+          failedStep: lastStep,
+          retryCount: useAgentStore.getState().recoveryState?.retryCount ?? 0,
+          errorMessage: errorMsg,
+          planSnapshot: useAgentStore.getState().currentPlan,
+        } : undefined;
         set((s) => ({
-          streamEvents: [...s.streamEvents, {
-            id: crypto.randomUUID(),
-            type: 'error' as const,
-            timestamp: Date.now(),
-            data: { message: errorMsg },
-          }],
           error: errorMsg,
           isRunning: false,
           currentTaskId: null,
+          _abortController: null,
+          ...(recovery ? { recoveryState: recovery } : {}),
+          streamEvents: [...s.streamEvents, { id: crypto.randomUUID(), type: 'error', timestamp: Date.now(), data: { message: errorMsg } }],
         }));
-        return;
-      }
+      },
+    });
 
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error('No response body');
-
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        buffer = buffer.replace(/\r\n/g, '\n');
-        const events = buffer.split('\n\n');
-        buffer = events.pop() || '';
-
-        for (const eventBlock of events) {
-          const eventMatch = eventBlock.match(/^event: (\w+)/m);
-          const dataMatch = eventBlock.match(/^data: (.+)$/m);
-          if (!eventMatch || !dataMatch) continue;
-
-          const eventType = eventMatch[1];
-          let data: Record<string, unknown>;
-          try {
-            data = JSON.parse(dataMatch[1]);
-          } catch {
-            continue;
-          }
-
-          const store = useAgentStore.getState();
-
-          switch (eventType) {
-            case 'plan':
-              set({ currentPlan: data as unknown as ExecutionPlan });
-              set((s) => ({
-                streamEvents: [...s.streamEvents, {
-                  id: crypto.randomUUID(),
-                  type: 'plan',
-                  timestamp: Date.now(),
-                  data,
-                }],
-              }));
-              break;
-            case 'task_created':
-              set({ currentTaskId: data.task_id as string });
-              break;
-            case 'thinking_step':
-              set((s) => ({
-                thinkingSteps: [...s.thinkingSteps, data as unknown as ThinkingStep],
-                streamEvents: [...s.streamEvents, {
-                  id: crypto.randomUUID(),
-                  type: 'thinking_step',
-                  timestamp: Date.now(),
-                  data,
-                  agent: (data as any).agent,
-                  agent_type: (data as any).agent,
-                  action: (data as any).action,
-                  reasoning: (data as any).reasoning,
-                  status: (data as any).status,
-                  output_summary: (data as any).output_summary,
-                }],
-              }));
-              break;
-            case 'progress': {
-              const existingTask = useAgentStore.getState().currentTask;
-              set({
-                currentTask: {
-                  ...existingTask,
-                  id: (data.task_id as string) || existingTask?.id || '',
-                  user_id: existingTask?.user_id || '',
-                  prompt: existingTask?.prompt || prompt,
-                  state: 'running',
-                  progress: (data.progress as number) || 0,
-                  progress_message: (data.progress_message as string) || '',
-                  current_step: (data.current_step as string) || '',
-                  completed_steps: (data.completed_steps as number) || 0,
-                  total_steps: (data.total_steps as number) || 0,
-                  created_at: existingTask?.created_at || new Date().toISOString(),
-                } as AsyncTask,
-              });
-              break;
-            }
-            case 'result':
-              set({
-                currentResult: data as unknown as AgentResult,
-                isRunning: false,
-                currentTaskId: null,
-              });
-              set((s) => ({
-                streamEvents: [...s.streamEvents, {
-                  id: crypto.randomUUID(),
-                  type: 'result',
-                  timestamp: Date.now(),
-                  data,
-                }],
-              }));
-              useAgentStore.getState().loadTaskHistory();
-              break;
-            case 'decision_required':
-              set({
-                pendingDecision: data as unknown as PendingDecision,
-              });
-              set((s) => ({
-                streamEvents: [...s.streamEvents, {
-                  id: crypto.randomUUID(),
-                  type: 'decision_required',
-                  timestamp: Date.now(),
-                  data,
-                }],
-              }));
-              break;
-            case 'error':
-              set({
-                error: (data.message as string) || '执行出错',
-                isRunning: false,
-              });
-              set((s) => ({
-                streamEvents: [...s.streamEvents, {
-                  id: crypto.randomUUID(),
-                  type: 'error',
-                  timestamp: Date.now(),
-                  data: { message: data.message },
-                }],
-              }));
-              break;
-            case 'reasoning':
-              set((s) => {
-                const agent = (data as any).agent as string;
-                const content = (data as any).content as string;
-                const existing = s.reasoningChunks[agent] || [];
-                return {
-                  reasoningChunks: {
-                    ...s.reasoningChunks,
-                    [agent]: [...existing, { agent, content, timestamp: Date.now() }],
-                  },
-                  streamEvents: [...s.streamEvents, {
-                    id: crypto.randomUUID(),
-                    type: 'reasoning' as const,
-                    timestamp: Date.now(),
-                    data,
-                    agent,
-                    content,
-                  }],
-                };
-              });
-              break;
-            case 'llm_chunk':
-              set((s) => {
-                const agent = (data as any).agent as string;
-                const content = (data as any).content as string;
-                const existing = s.llmChunks[agent] || [];
-                return {
-                  llmChunks: {
-                    ...s.llmChunks,
-                    [agent]: [...existing, { agent, content, timestamp: Date.now() }],
-                  },
-                  streamEvents: [...s.streamEvents, {
-                    id: crypto.randomUUID(),
-                    type: 'llm_chunk' as const,
-                    timestamp: Date.now(),
-                    data,
-                    agent,
-                    content,
-                  }],
-                };
-              });
-              break;
-            case 'done':
-              set({ isRunning: false, currentTaskId: null, _abortController: null });
-              break;
-          }
-        }
-      }
-    } catch (e) {
-      if (e instanceof DOMException && e.name === 'AbortError') {
-        set({ isRunning: false, currentTaskId: null, _abortController: null });
-        return;
-      }
-      const errorMsg = String(e);
-      set((s) => ({
-        streamEvents: [...s.streamEvents, {
-          id: crypto.randomUUID(),
-          type: 'error' as const,
-          timestamp: Date.now(),
-          data: { message: errorMsg },
-        }],
-        error: errorMsg,
-        isRunning: false,
-        currentTaskId: null,
-      }));
+    if (!errorOccurred) {
+      set({ _abortController: null });
     }
   },
 
@@ -543,6 +497,43 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     }
   },
 
+  retryStep: async () => {
+    const state = useAgentStore.getState();
+    if (!state.recoveryState) return;
+    // 清除错误和恢复状态，重新执行
+    set({ error: null, recoveryState: null, isRunning: true });
+    // 从最后已知的 prompt 重新触发
+    const lastPrompt = state.streamEvents.find(e => e.type === 'user_message')?.data?.content as string || '';
+    if (lastPrompt) {
+      await state.runStreaming(lastPrompt);
+    }
+  },
+
+  skipStep: async () => {
+    const state = useAgentStore.getState();
+    if (!state.recoveryState) return;
+    // 在 thinkingSteps 中添加一个标记为 skipped 的步骤
+    const skippedStep: ThinkingStep = {
+      step_number: state.recoveryState.failedStepIndex,
+      agent: state.recoveryState.failedStep?.agent || 'unknown',
+      action: 'skipped',
+      reasoning: '用户选择跳过此步骤',
+      input_summary: '',
+      output_summary: '已跳过',
+      tokens_used: 0,
+      time_elapsed: 0,
+      status: 'done',
+    };
+    const { errorMessage, planSnapshot } = state.recoveryState;
+    // 清除错误和恢复状态
+    set((s) => ({
+      error: null,
+      recoveryState: null,
+      thinkingSteps: [...s.thinkingSteps, skippedStep],
+      isRunning: false, // 需要用户手动重新提交
+    }));
+  },
+
   clearCurrent: () => {
     const s = useAgentStore.getState();
     if (s._abortController) s._abortController.abort();
@@ -559,18 +550,28 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       set((state) => ({ previousGenerations: [...state.previousGenerations, gen] }));
     }
     set({
-    currentTaskId: null,
-    currentTask: null,
-    currentResult: null,
-    currentPlan: null,
-    isRunning: false,
-    error: null,
-    pendingDecision: null,
-    thinkingSteps: [],
-    streamEvents: [],
-    llmChunks: {},
-    reasoningChunks: {},
-    messages: [],
-    _abortController: null,
-  })},
-}));
+      currentTaskId: null,
+      currentTask: null,
+      currentResult: null,
+      currentPlan: null,
+      isRunning: false,
+      error: null,
+      pendingDecision: null,
+      thinkingSteps: [],
+      streamEvents: [],
+      llmChunks: {},
+      reasoningChunks: {},
+      messages: [],
+      _abortController: null,
+    });
+  },
+}), {
+  name: 'agent-store',
+  partialize: (state) => ({
+    messages: state.messages,
+    previousGenerations: state.previousGenerations,
+    taskHistory: state.taskHistory,
+    currentTaskId: state.currentTaskId,
+  }),
+}
+));

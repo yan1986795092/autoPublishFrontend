@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import type { DragEndEvent } from '@dnd-kit/core';
 import {
   DndContext,
@@ -16,42 +16,33 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { Button } from '../ui/button';
 import { cn } from '../../utils/helpers';
-import { GripVertical, X, Play } from 'lucide-react';
+import { GripVertical, X, Play, ArrowDown } from 'lucide-react';
 import type { ExecutionPlan, AgentTask } from '../../types';
+import { getAgentIcon, getAgentLabel } from '../../config/agents';
 
-const AGENT_ICONS: Record<string, string> = {
-  WritingAgent: '✍️',
-  SEOAgent: '🔍',
-  DiagramAgent: '📊',
-  ReviewAgent: '✅',
-  WebSearch: '🌐',
-  ImageAgent: '🎨',
-  CodeAgent: '💻',
-  HotTopicAgent: '🔥',
-  PlatformAdapter: '📱',
-  ManagerAgent: '🧠',
-};
-
-const AGENT_LABELS: Record<string, string> = {
-  WritingAgent: '写作',
-  SEOAgent: 'SEO优化',
-  DiagramAgent: '图表',
-  ReviewAgent: '审核',
-  WebSearch: '搜索',
-  ImageAgent: '配图',
-  CodeAgent: '代码',
-  HotTopicAgent: '热点',
-  PlatformAdapter: '平台适配',
-  ManagerAgent: '规划',
-};
+/** Recalculate dependency indices after reorder by matching task IDs */
+function recalcDeps(tasks: (AgentTask & { _id: string })[]): AgentTask[] {
+  return tasks.map((t) => {
+    if (t.dependencies.length === 0) return { ...t, _skipped: undefined, _id: undefined };
+    // Map each dependency index to its new position by matching task IDs
+    const newDeps = t.dependencies
+      .map((depIdx) => tasks[depIdx]?._id)
+      .filter(Boolean)
+      .map((depId) => tasks.findIndex((ot) => ot._id === depId))
+      .filter((idx) => idx >= 0);
+    return { ...t, dependencies: newDeps, _skipped: undefined, _id: undefined };
+  }) as AgentTask[];
+}
 
 interface SortableTaskProps {
   task: AgentTask & { _skipped?: boolean; _id?: string };
   index: number;
+  total: number;
+  dependencies: number[][]; // all links [from, to]
   onToggle: (index: number) => void;
 }
 
-function SortableTask({ task, index, onToggle }: SortableTaskProps) {
+function SortableTask({ task, index, total, dependencies, onToggle }: SortableTaskProps) {
   const id = (task as any)._id || task.id || String(index);
   const {
     attributes,
@@ -70,53 +61,84 @@ function SortableTask({ task, index, onToggle }: SortableTaskProps) {
 
   const skipped = (task as any)._skipped;
 
+  // Compute which tasks depend on this one (incoming arrows)
+  const dependedBy = useMemo(
+    () => dependencies.filter(([from]) => from === index).map(([, to]) => to),
+    [dependencies, index]
+  );
+
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className={cn(
-        'flex items-center gap-3 rounded-lg border p-3 transition-colors',
-        skipped
-          ? 'border-app-border/30 bg-app-surface/30'
-          : 'border-app-border bg-app-elevated hover:border-blue-500/30'
-      )}
-    >
-      <button
-        {...attributes}
-        {...listeners}
-        className="cursor-grab active:cursor-grabbing text-app-text-tertiary hover:text-app-text-secondary"
-      >
-        <GripVertical className="w-4 h-4" />
-      </button>
-
-      <span className="text-xs text-app-text-tertiary w-5">{index + 1}</span>
-      <span className="text-lg">{AGENT_ICONS[task.agent_type] || '🤖'}</span>
-      <div className="flex-1 min-w-0">
-        <p className={cn('text-sm font-medium', skipped ? 'text-app-text-tertiary line-through' : 'text-app-text')}>
-          {AGENT_LABELS[task.agent_type] || task.agent_type}
-        </p>
-        {(task as any).reasoning && (
-          <p className="text-xs text-app-text-secondary truncate">{(task as any).reasoning}</p>
-        )}
-      </div>
-
+    <div className="relative">
+      {/* Dependency arrow lines */}
       {task.dependencies.length > 0 && (
-        <span className="text-[10px] text-app-text-tertiary border border-app-border rounded px-1.5 py-0.5">
-          依赖 #{task.dependencies.map(d => (typeof d === 'number' ? d + 1 : d)).join(', #')}
-        </span>
+        <div className="absolute -top-2 left-8 flex items-center gap-1">
+          {task.dependencies.map((depIdx) => (
+            <span
+              key={depIdx}
+              className="text-[9px] text-cyan-400/60 bg-cyan-500/10 px-1.5 py-0.5 rounded-full flex items-center gap-0.5"
+              title={`依赖步骤 #${depIdx + 1}`}
+            >
+              <ArrowDown className="w-2.5 h-2.5 rotate-180" />
+              #{depIdx + 1}
+            </span>
+          ))}
+        </div>
       )}
 
-      <button
-        onClick={() => onToggle(index)}
+      <div
+        ref={setNodeRef}
+        style={style}
         className={cn(
-          'text-[10px] px-2 py-1 rounded border transition-colors',
+          'flex items-center gap-3 rounded-lg border p-3 transition-colors',
           skipped
-            ? 'border-yellow-500/30 text-yellow-400 bg-yellow-500/10'
-            : 'border-green-500/30 text-green-400 bg-green-500/10'
+            ? 'border-app-border/30 bg-app-surface/30'
+            : 'border-app-border bg-app-elevated hover:border-blue-500/30'
         )}
       >
-        {skipped ? '已跳过' : '启用'}
-      </button>
+        <button
+          {...attributes}
+          {...listeners}
+          className="cursor-grab active:cursor-grabbing text-app-text-tertiary hover:text-app-text-secondary"
+        >
+          <GripVertical className="w-4 h-4" />
+        </button>
+
+        <span className="text-xs text-app-text-tertiary w-5">{index + 1}</span>
+        <span className="text-lg">{getAgentIcon(task.agent_type)}</span>
+        <div className="flex-1 min-w-0">
+          <p className={cn('text-sm font-medium', skipped ? 'text-app-text-tertiary line-through' : 'text-app-text')}>
+            {getAgentLabel(task.agent_type)}
+          </p>
+          {(task as any).reasoning && (
+            <p className="text-xs text-app-text-secondary truncate">{(task as any).reasoning}</p>
+          )}
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          {task.dependencies.length > 0 && (
+            <span className="text-[10px] text-cyan-400/80 border border-cyan-500/20 rounded px-1.5 py-0.5">
+              依赖 #{task.dependencies.map(d => d + 1).join(', #')}
+            </span>
+          )}
+          {dependedBy.length > 0 && (
+            <span className="text-[10px] text-orange-400/60 border border-orange-500/20 rounded px-1.5 py-0.5">
+              被 #{dependedBy.map(d => d + 1).join(', #')} 依赖
+            </span>
+          )}
+        </div>
+
+        <button
+          onClick={() => onToggle(index)}
+          className={cn(
+            'text-[10px] px-2 py-1 rounded border transition-colors',
+            skipped
+              ? 'border-yellow-500/30 text-yellow-400 bg-yellow-500/10'
+              : 'border-green-500/30 text-green-400 bg-green-500/10'
+          )}
+        >
+          {skipped ? '已跳过' : '启用'}
+        </button>
+      </div>
     </div>
   );
 }
@@ -132,6 +154,19 @@ export function ExecutionPlanEditor({ plan, open, onConfirm, onCancel }: Executi
   const [localTasks, setLocalTasks] = useState<(AgentTask & { _skipped: boolean; _id: string })[]>(() =>
     (plan?.tasks ?? []).map((t, i) => ({ ...t, _skipped: false, _id: t.id || `task-${i}` }))
   );
+
+  // Compute dependency links: [fromIndex, toIndex][] where 'to' depends on 'from'
+  const dependencyLinks = useMemo(() => {
+    const links: number[][] = [];
+    localTasks.forEach((task, toIdx) => {
+      task.dependencies.forEach((fromIdx) => {
+        if (fromIdx >= 0 && fromIdx < localTasks.length && fromIdx !== toIdx) {
+          links.push([fromIdx, toIdx]);
+        }
+      });
+    });
+    return links;
+  }, [localTasks]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
@@ -155,7 +190,8 @@ export function ExecutionPlanEditor({ plan, open, onConfirm, onCancel }: Executi
   };
 
   const skippedCount = localTasks.filter(t => t._skipped).length;
-  const activeTasks = localTasks.filter(t => !t._skipped);
+  // Recalculate dependencies when confirming, to fix stale indices after drag
+  const finalTasks = recalcDeps(localTasks.filter(t => !t._skipped));
 
   if (!open) return null;
 
@@ -181,7 +217,7 @@ export function ExecutionPlanEditor({ plan, open, onConfirm, onCancel }: Executi
           </p>
         </div>
 
-        <div className="max-h-[400px] overflow-auto p-4 space-y-2">
+        <div className="max-h-[400px] overflow-auto p-4 space-y-3">
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <SortableContext items={localTasks.map(t => t._id)} strategy={verticalListSortingStrategy}>
               {localTasks.map((task, index) => (
@@ -189,6 +225,8 @@ export function ExecutionPlanEditor({ plan, open, onConfirm, onCancel }: Executi
                   key={task._id}
                   task={task}
                   index={index}
+                  total={localTasks.length}
+                  dependencies={dependencyLinks}
                   onToggle={handleToggle}
                 />
               ))}
@@ -199,14 +237,17 @@ export function ExecutionPlanEditor({ plan, open, onConfirm, onCancel }: Executi
         <div className="flex items-center justify-between px-6 py-4 border-t border-app-border bg-app-surface/50">
           <div className="text-xs text-app-text-tertiary">
             {skippedCount > 0 && <span className="text-yellow-400">将跳过 {skippedCount} 个步骤</span>}
-            <span className="ml-2">共 {activeTasks.length} 个步骤执行</span>
+            <span className="ml-2">共 {finalTasks.length} 个步骤执行</span>
+            {dependencyLinks.length > 0 && (
+              <span className="ml-2 text-cyan-400/60">· {dependencyLinks.length} 个依赖</span>
+            )}
           </div>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={onCancel}>取消</Button>
             <Button
               size="sm"
-              onClick={() => onConfirm({ ...plan, tasks: activeTasks })}
-              disabled={activeTasks.length === 0}
+              onClick={() => onConfirm({ ...plan, tasks: finalTasks })}
+              disabled={finalTasks.length === 0}
             >
               <Play className="w-4 h-4 mr-1" /> 开始执行
             </Button>

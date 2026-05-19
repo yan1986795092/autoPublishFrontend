@@ -3,13 +3,14 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { contentsApi } from '../services/api';
 import type { Content, ContentVersion } from '../types';
 import { Button } from '../components/ui/button';
-import { Badge } from '../components/ui/badge';
+import { PipelineProgress } from '../components/content/PipelineProgress';
 import { Input } from '../components/ui/input';
 import { SkeletonList } from '../components/ui/Skeleton';
 import { Pagination } from '../components/ui/pagination';
 import { EmptyState } from '../components/ui/empty-state';
 import { ViewDensitySwitcher } from '../components/ui/view-density-switcher';
 import { BulkActionBar } from '../components/ui/bulk-action-bar';
+import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from '../components/ui/dropdown-menu';
 import { formatRelativeTime, debounce, cn } from '../utils/helpers';
 import { ContentCalendar } from '../components/content/ContentCalendar';
@@ -17,23 +18,16 @@ import { useNavigate } from 'react-router-dom';
 import { useUIStore } from '../stores/useUIStore';
 import {
   FileText, PenLine, Trash2, ExternalLink, Plus, History, Clock,
-  CalendarDays, List, Search, MoreHorizontal, ChevronUp, ChevronDown,
-  Check, AlertTriangle, Archive
+  Search, MoreHorizontal, ChevronUp, ChevronDown, CalendarDays, List
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 
-const statusConfig = {
-  published: { label: '已发布', variant: 'success' as const },
-  draft: { label: '草稿', variant: 'warning' as const },
-  archived: { label: '已归档', variant: 'secondary' as const },
-};
-
-const platformConfig: Record<string, { label: string; emoji: string }> = {
-  xiaohongshu: { label: '小红书', emoji: '🎨' },
-  wechat: { label: '公众号', emoji: '📱' },
-  zhihu: { label: '知乎', emoji: '💡' },
+const platformConfig: Record<string, { label: string }> = {
+  xiaohongshu: { label: '小红书' },
+  wechat: { label: '公众号' },
+  zhihu: { label: '知乎' },
 };
 
 type SortKey = 'title' | 'status' | 'updated_at';
@@ -59,6 +53,7 @@ export function ContentManagementPage() {
 
   // Pagination
   const [page, setPage] = useState(1);
+  const [totalItems, setTotalItems] = useState(0);
   const pageSize = 10;
 
   const navigate = useNavigate();
@@ -70,19 +65,34 @@ export function ContentManagementPage() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
 
+  // Confirm dialog
+  const [confirmDialog, setConfirmDialog] = useState<{
+    open: boolean; title: string; description: string; variant?: 'danger' | 'default';
+    onConfirm: () => void;
+  }>({ open: false, title: '', description: '', onConfirm: () => {} });
+
   const densityClass = viewDensity === 'compact' ? 'py-2' : viewDensity === 'comfortable' ? 'py-4' : 'py-3';
   const showDescription = viewDensity !== 'compact';
 
-  useEffect(() => {
-    contentsApi.list({ page: 1, page_size: 50 })
-      .then((res) => {
-        if (res.data.success) {
-          setContents(res.data.data?.items || []);
-        }
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
+  // Load contents with server-side pagination
+  const loadContents = useCallback(async (pageNum: number) => {
+    setLoading(true);
+    try {
+      const params: { page: number; page_size: number; status?: string } = { page: pageNum, page_size: pageSize };
+      if (filter !== 'all') params.status = filter;
+      const res = await contentsApi.list(params);
+      if (res.data.success && res.data.data) {
+        setContents(res.data.data.items || []);
+        setTotalItems(res.data.data.pagination?.total || 0);
+      }
+    } catch {
+      // silent
+    } finally {
+      setLoading(false);
+    }
+  }, [filter, pageSize]);
+
+  useEffect(() => { loadContents(page); }, [page, loadContents]);
 
   // Debounced search
   const debouncedSearch = useMemo(() => debounce((val: string) => setSearchQuery(val), 300), []);
@@ -117,12 +127,8 @@ export function ContentManagementPage() {
     return items;
   }, [contents, filter, tagFilter, searchQuery, sort]);
 
-  const totalPages = Math.max(1, Math.ceil(processedContents.length / pageSize));
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
   const safePage = Math.min(page, totalPages);
-  const pagedContents = useMemo(() =>
-    processedContents.slice((safePage - 1) * pageSize, safePage * pageSize),
-    [processedContents, safePage]
-  );
 
   // Stats
   const stats = useMemo(() => ({
@@ -145,13 +151,13 @@ export function ContentManagementPage() {
   ];
 
   // Selection
-  const allVisibleSelected = pagedContents.length > 0 && pagedContents.every((c) => selectedIds.has(c.id));
+  const allVisibleSelected = processedContents.length > 0 && processedContents.every((c) => selectedIds.has(c.id));
   const toggleSelectAll = () => {
     if (allVisibleSelected) {
-      setSelectedIds(new Set([...selectedIds].filter((id) => !pagedContents.some((c) => c.id === id))));
+      setSelectedIds(new Set([...selectedIds].filter((id) => !processedContents.some((c) => c.id === id))));
     } else {
       const next = new Set(selectedIds);
-      pagedContents.forEach((c) => next.add(c.id));
+      processedContents.forEach((c) => next.add(c.id));
       setSelectedIds(next);
     }
   };
@@ -161,42 +167,54 @@ export function ContentManagementPage() {
     setSelectedIds(next);
   };
 
-  const handleBulkDelete = async () => {
-    if (!confirm(`确定要删除选中的 ${selectedIds.size} 条内容吗？`)) return;
-    setOperationLoading(true);
-    let success = 0, failed = 0;
-    for (const id of selectedIds) {
-      try { await contentsApi.delete(id); success++; } catch { failed++; }
-    }
-    setContents((prev) => prev.filter((c) => !selectedIds.has(c.id)));
-    setSelectedIds(new Set());
-    setOperationLoading(false);
-    if (failed === 0) {
-      showToast(`已删除 ${success} 条内容`, 'success');
-    } else {
-      showToast(`成功 ${success} 条，失败 ${failed} 条`, failed > success / 2 ? 'error' : 'info');
-    }
+  const handleBulkDelete = () => {
+    setConfirmDialog({
+      open: true, title: '批量删除', variant: 'danger',
+      description: `确定要删除选中的 ${selectedIds.size} 条内容吗？此操作不可恢复。`,
+      onConfirm: async () => {
+        setOperationLoading(true);
+        let success = 0, failed = 0;
+        const results = await Promise.allSettled(
+          Array.from(selectedIds).map((id) => contentsApi.delete(id))
+        );
+        results.forEach((r) => { if (r.status === 'fulfilled') success++; else failed++; });
+        setContents((prev) => prev.filter((c) => !selectedIds.has(c.id)));
+        setSelectedIds(new Set());
+        setOperationLoading(false);
+        if (failed === 0) {
+          showToast(`已删除 ${success} 条内容`, 'success');
+        } else {
+          showToast(`成功 ${success} 条，失败 ${failed} 条`, failed > success / 2 ? 'error' : 'info');
+        }
+      },
+    });
   };
 
-  const handleBulkArchive = async () => {
-    if (!confirm(`确定要归档选中的 ${selectedIds.size} 条内容吗？`)) return;
-    setOperationLoading(true);
-    let success = 0, failed = 0;
-    for (const id of selectedIds) {
-      try { await contentsApi.update(id, { status: 'archived' }); success++; } catch { failed++; }
-    }
-    setContents((prev) =>
-      prev.map((c) =>
-        selectedIds.has(c.id) ? { ...c, status: 'archived' as const } : c
-      )
-    );
-    setSelectedIds(new Set());
-    setOperationLoading(false);
-    if (failed === 0) {
-      showToast(`已归档 ${success} 条内容`, 'success');
-    } else {
-      showToast(`成功 ${success} 条，失败 ${failed} 条`, failed > success / 2 ? 'error' : 'info');
-    }
+  const handleBulkArchive = () => {
+    setConfirmDialog({
+      open: true, title: '批量归档', variant: 'default',
+      description: `确定要归档选中的 ${selectedIds.size} 条内容吗？`,
+      onConfirm: async () => {
+        setOperationLoading(true);
+        let success = 0, failed = 0;
+        const results = await Promise.allSettled(
+          Array.from(selectedIds).map((id) => contentsApi.update(id, { status: 'archived' }))
+        );
+        results.forEach((r) => { if (r.status === 'fulfilled') success++; else failed++; });
+        setContents((prev) =>
+          prev.map((c) =>
+            selectedIds.has(c.id) ? { ...c, status: 'archived' as const } : c
+          )
+        );
+        setSelectedIds(new Set());
+        setOperationLoading(false);
+        if (failed === 0) {
+          showToast(`已归档 ${success} 条内容`, 'success');
+        } else {
+          showToast(`成功 ${success} 条，失败 ${failed} 条`, failed > success / 2 ? 'error' : 'info');
+        }
+      },
+    });
   };
 
   // Sort toggle — first click is DESC (most recent first), then toggle
@@ -219,15 +237,20 @@ export function ContentManagementPage() {
   );
 
   // Delete single
-  const handleDelete = async (id: string) => {
-    if (!confirm('确定要删除这条内容吗？')) return;
-    try {
-      await contentsApi.delete(id);
-      setContents((prev) => prev.filter((c) => c.id !== id));
-      showToast('删除成功', 'success');
-    } catch {
-      showToast('删除失败', 'error');
-    }
+  const handleDelete = (id: string) => {
+    setConfirmDialog({
+      open: true, title: '删除内容', variant: 'danger',
+      description: '确定要删除这条内容吗？此操作不可恢复。',
+      onConfirm: async () => {
+        try {
+          await contentsApi.delete(id);
+          setContents((prev) => prev.filter((c) => c.id !== id));
+          showToast('删除成功', 'success');
+        } catch {
+          showToast('删除失败', 'error');
+        }
+      },
+    });
   };
 
   const handleViewHistory = async (content: Content) => {
@@ -249,7 +272,9 @@ export function ContentManagementPage() {
 
   const getWordCount = (md?: string) => {
     if (!md) return 0;
-    return md.replace(/[#*`\n]/g, '').length;
+    const text = md.replace(/[#*`\n]/g, '').trim();
+    if (!text) return 0;
+    return text.split(/\s+/).length;
   };
 
   if (loading) return <SkeletonList count={5} />;
@@ -269,6 +294,22 @@ export function ContentManagementPage() {
         </div>
         <div className="flex items-center gap-2">
           <ViewDensitySwitcher value={viewDensity} onChange={setViewDensity} />
+          <div className="flex items-center gap-0.5 p-0.5 rounded-lg border border-app-border bg-app-surface">
+            <button
+              onClick={() => setView('list')}
+              className={cn('p-1.5 rounded-md transition-colors', view === 'list' ? 'bg-primary-600/20 text-primary-400' : 'text-app-text-tertiary hover:text-app-text-secondary')}
+              title="列表视图"
+            >
+              <List className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => setView('calendar')}
+              className={cn('p-1.5 rounded-md transition-colors', view === 'calendar' ? 'bg-primary-600/20 text-primary-400' : 'text-app-text-tertiary hover:text-app-text-secondary')}
+              title="日历视图"
+            >
+              <CalendarDays className="w-3.5 h-3.5" />
+            </button>
+          </div>
           <Button size="sm" onClick={() => navigate('/')} className="h-8 px-3 text-xs bg-primary-600 hover:bg-primary-500">
             <Plus className="h-3.5 w-3.5 mr-1" />新建内容
           </Button>
@@ -280,7 +321,7 @@ export function ContentManagementPage() {
         {filters.map((f) => (
           <button
             key={f.value}
-            onClick={() => { setFilter(f.value); setPage(1); }}
+            onClick={() => { setFilter(f.value); setPage(1); setTagFilter(null); }}
             className={cn(
               'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
               filter === f.value
@@ -326,7 +367,7 @@ export function ContentManagementPage() {
       {/* List View */}
       {view === 'list' && (
         <AnimatePresence mode="wait">
-          {pagedContents.length === 0 ? (
+          {processedContents.length === 0 ? (
             <EmptyState
               icon={<PenLine className="w-6 h-6 text-app-text-tertiary" />}
               title={searchQuery ? '未找到匹配内容' : '暂无内容'}
@@ -375,8 +416,7 @@ export function ContentManagementPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {pagedContents.map((content, idx) => {
-                      const status = statusConfig[content.status as keyof typeof statusConfig] || statusConfig.draft;
+                    {processedContents.map((content, idx) => {
                       const platform = platformConfig[content.platform_code as keyof typeof platformConfig];
                       const wordCount = getWordCount(content.content_md);
                       return (
@@ -413,14 +453,14 @@ export function ContentManagementPage() {
                           <td className="px-3">
                             {platform ? (
                               <Badge variant={content.platform_code === 'xiaohongshu' ? 'xhs' : content.platform_code === 'wechat' ? 'wechat' : 'zhihu'} size="sm">
-                                {platform.emoji} {platform.label}
-                              </Badge>
+                            {platform.label}
+                          </Badge>
                             ) : (
                               <span className="text-[10px] text-app-text-tertiary">--</span>
                             )}
                           </td>
                           <td className="px-3">
-                            <Badge variant={status.variant} size="sm">{status.label}</Badge>
+                            <PipelineProgress status={content.status} />
                           </td>
                           <td className="px-3 hidden md:table-cell">
                             <div className="flex items-center gap-1 flex-wrap">
@@ -479,6 +519,16 @@ export function ContentManagementPage() {
           )}
         </AnimatePresence>
       )}
+
+      {/* Confirm Dialog */}
+      <ConfirmDialog
+        open={confirmDialog.open}
+        onOpenChange={(open) => setConfirmDialog(prev => ({ ...prev, open }))}
+        title={confirmDialog.title}
+        description={confirmDialog.description}
+        variant={confirmDialog.variant}
+        onConfirm={confirmDialog.onConfirm}
+      />
 
       {/* Version History Dialog */}
       <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>

@@ -1,16 +1,17 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ScrollArea } from '../components/ui/scroll-area';
 import { Badge } from '../components/ui/badge';
+import { Input } from '../components/ui/input';
 import { useAgentStore } from '../stores/useAgentStore';
+import { AgentDashboard } from '../components/agent/AgentDashboard';
 import { cn } from '../utils/helpers';
-import { Clock, CheckCircle2, XCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { Clock, CheckCircle2, XCircle, AlertCircle, Loader2, Search } from 'lucide-react';
 import type { AsyncTask } from '../types';
 
 function formatDate(ts: string) {
   if (!ts) return '-';
   const d = new Date(ts);
-  return d.toLocaleString('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleString('zh-CN', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 const STATE_CONFIG: Record<string, { icon: React.ReactNode; label: string; className: string }> = {
@@ -22,17 +23,39 @@ const STATE_CONFIG: Record<string, { icon: React.ReactNode; label: string; class
   awaiting_input: { icon: <AlertCircle className="w-3.5 h-3.5" />, label: '等待输入', className: 'text-orange-400 bg-orange-500/10 border-orange-500/20' },
 };
 
+const STATE_FILTERS = [
+  { value: 'all', label: '全部' },
+  { value: 'completed', label: '已完成' },
+  { value: 'failed', label: '失败' },
+  { value: 'running', label: '运行中' },
+  { value: 'cancelled', label: '已取消' },
+];
+
 export function AgentHistoryPage() {
   const navigate = useNavigate();
-  const { taskHistory, loadTaskHistory } = useAgentStore();
+  const { taskHistory, previousGenerations, loadTaskHistory } = useAgentStore();
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
 
   useEffect(() => {
     loadTaskHistory().finally(() => setLoading(false));
   }, [loadTaskHistory]);
 
+  const filtered = useMemo(() => {
+    let items = taskHistory;
+    if (statusFilter !== 'all') {
+      items = items.filter((t) => t.state === statusFilter);
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      items = items.filter((t) => t.prompt.toLowerCase().includes(q));
+    }
+    return items;
+  }, [taskHistory, searchQuery, statusFilter]);
+
   return (
-    <div className="max-w-4xl mx-auto space-y-4">
+    <div className="max-w-4xl mx-auto h-full flex flex-col space-y-4">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-base font-semibold text-app-text">Agent 执行历史</h1>
@@ -41,24 +64,62 @@ export function AgentHistoryPage() {
         <Badge variant="secondary" className="text-[10px]">{taskHistory.length} 条记录</Badge>
       </div>
 
+      {/* Dashboard */}
+      <AgentDashboard generations={previousGenerations} />
+
+      {/* Filter bar */}
+      <div className="flex items-center gap-3">
+        <div className="relative flex-1 max-w-xs">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-app-text-tertiary pointer-events-none" />
+          <Input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="搜索任务..."
+            className="h-8 pl-8 text-xs"
+          />
+        </div>
+        <div className="flex items-center gap-1">
+          {STATE_FILTERS.map((f) => (
+            <button
+              key={f.value}
+              onClick={() => setStatusFilter(f.value)}
+              className={cn(
+                'px-2.5 py-1 rounded text-[10px] font-medium transition-colors border',
+                statusFilter === f.value
+                  ? 'bg-primary-600/20 text-primary-400 border-primary-500/30'
+                  : 'bg-app-surface text-app-text-tertiary border-app-border hover:text-app-text-secondary'
+              )}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {loading ? (
         <div className="flex items-center justify-center py-20">
           <Loader2 className="w-6 h-6 animate-spin text-app-text-tertiary" />
         </div>
-      ) : taskHistory.length === 0 ? (
+      ) : filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <Clock className="w-10 h-10 text-app-text-tertiary mb-3" />
-          <p className="text-sm text-app-text-secondary">暂无执行记录</p>
-          <p className="text-xs text-app-text-tertiary mt-1">前往 <button onClick={() => navigate('/agent')} className="text-blue-400 hover:underline">Agent 工场</button> 开始你的第一次创作</p>
+          <p className="text-sm text-app-text-secondary">
+            {searchQuery || statusFilter !== 'all' ? '未找到匹配的记录' : '暂无执行记录'}
+          </p>
+          {!searchQuery && statusFilter === 'all' && (
+            <p className="text-xs text-app-text-tertiary mt-1">
+              前往 <button onClick={() => navigate('/agent-studio')} className="text-blue-400 hover:underline">Agent Studio</button> 开始你的第一次创作
+            </p>
+          )}
         </div>
       ) : (
-        <ScrollArea className="h-[calc(100vh-140px)]">
+        <div className="flex-1 overflow-auto">
           <div className="space-y-3">
-            {taskHistory.map((task) => (
-              <TaskCard key={task.id} task={task} onClick={() => navigate('/agent')} />
+            {filtered.map((task) => (
+              <TaskCard key={task.id} task={task} onClick={() => navigate(`/agent-studio?taskId=${task.id}`)} />
             ))}
           </div>
-        </ScrollArea>
+        </div>
       )}
     </div>
   );

@@ -94,6 +94,8 @@ export const authApi = {
     }),
 
   getMe: () => apiClient.get<ApiResponse<User>>('/api/v1/auth/me'),
+
+  deleteAccount: () => apiClient.delete<ApiResponse<null>>('/api/v1/auth/account'),
 };
 
 export const contentsApi = {

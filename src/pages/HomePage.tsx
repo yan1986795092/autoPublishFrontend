@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useAgentStore } from '../stores/useAgentStore';
+import { useEditorStore } from '../stores/useEditorStore';
 import { useUIStore } from '../stores/useUIStore';
 import { AgentThinkingStream } from '../components/agent/AgentThinkingStream';
 import { AgentLiveView } from '../components/agent/AgentLiveView';
-import { PreviewPanel } from '../components/preview/PreviewPanel';
+import { GenerationHistory } from '../components/agent/GenerationHistory';
+import { ResultPanel } from '../components/result/ResultPanel';
 import { Button } from '../components/ui/button';
 import { PromptHistoryDropdown } from '../components/ui/prompt-history-dropdown';
 import { platformsApi } from '../services/api';
@@ -13,47 +15,7 @@ import type { Platform } from '../types';
 import { useAutoSaveDraft } from '../hooks/useAutoSaveDraft';
 import { usePromptHistory } from '../hooks/usePromptHistory';
 import { cn } from '../utils/helpers';
-import type { PreviousGeneration } from '../types';
-import { Bot, Send, Square, History, RotateCcw, Sparkles, Clock, Terminal, LayoutGrid, FileText } from 'lucide-react';
-
-function PreviousResultsList({ generations, onEdit }: { generations: PreviousGeneration[]; onEdit: (id: string) => void }) {
-  return (
-    <div className="pt-4 border-t border-app-border/50">
-      <div className="flex items-center gap-2 mb-3">
-        <History className="w-4 h-4 text-app-text-secondary" />
-        <span className="text-xs font-semibold text-app-text-secondary">历史生成记录</span>
-      </div>
-      <div className="space-y-2 text-left">
-        {[...generations].reverse().map((gen) => {
-          const output = gen.result?.output;
-          const title = (output?.title as string) || ((output?.full_text as string)?.slice(0, 60)) || gen.prompt.slice(0, 60);
-          return (
-            <button
-              key={gen.id}
-              onClick={() => gen.result?.task_id && onEdit(gen.result.task_id)}
-              className="w-full rounded-xl border border-app-border bg-app-elevated p-3 hover:border-blue-500/40 hover:bg-app-hover transition-all duration-200 text-left group"
-            >
-              <div className="flex items-center gap-3">
-                <FileText className="w-4 h-4 text-app-text-tertiary flex-shrink-0" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-app-text truncate group-hover:text-blue-400 transition-colors">
-                    {title}
-                  </p>
-                  <p className="text-xs text-app-text-tertiary mt-0.5 line-clamp-1">
-                    {gen.prompt || '未知提示'}
-                  </p>
-                </div>
-                <span className="text-[10px] text-app-text-tertiary flex-shrink-0">
-                  {new Date(gen.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
-                </span>
-              </div>
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
+import { Bot, Send, Square, History, RotateCcw, Sparkles, Clock, Terminal, LayoutGrid } from 'lucide-react';
 
 function formatDuration(seconds: number) {
   if (seconds < 60) return `${seconds}s`;
@@ -99,12 +61,54 @@ export function HomePage() {
 
   const [prompt, setPrompt] = useState('');
   const [runningTimeState, setRunningTimeState] = useState(0);
-  const [previewOpen, setPreviewOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('social_media');
   const [historyDropdownOpen, setHistoryDropdownOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'cards' | 'terminal'>('cards');
   const [platforms, setPlatforms] = useState<Platform[]>([]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // ─── Streaming bridge: push agent content → editor store ───
+  const accumulatedRef = useRef('');
+  const lastEventCountRef = useRef(0);
+
+  useEffect(() => {
+    // Reset detection
+    if (streamEvents.length === 0) {
+      accumulatedRef.current = '';
+      lastEventCountRef.current = 0;
+      // Only reset editor if user hasn't manually edited
+      if (!useEditorStore.getState().isDirty) {
+        useEditorStore.getState().setContent('', '');
+      }
+      return;
+    }
+
+    // Process only new events since last render
+    let hasNewContent = false;
+    for (let i = lastEventCountRef.current; i < streamEvents.length; i++) {
+      const e = streamEvents[i];
+      if (e.type === 'llm_chunk' && e.content) {
+        accumulatedRef.current += e.content;
+        hasNewContent = true;
+      } else if (e.type === 'result') {
+        const output = (e.data as any)?.output || {};
+        const fullText = output.full_text || output.content || '';
+        if (fullText) {
+          accumulatedRef.current = fullText;
+          hasNewContent = true;
+        }
+      }
+    }
+    lastEventCountRef.current = streamEvents.length;
+
+    // Push to editor store (only if user hasn't started editing)
+    if (hasNewContent && accumulatedRef.current) {
+      const state = useEditorStore.getState();
+      if (!state.isDirty) {
+        state.setContent(accumulatedRef.current, accumulatedRef.current);
+      }
+    }
+  }, [streamEvents]);
 
   // Fetch platforms for quick templates
   useEffect(() => {
@@ -149,19 +153,16 @@ export function HomePage() {
   // Execute
   const handleExecute = useCallback(async () => {
     if (!prompt.trim() || isRunning) return;
+    // Reset editor for new generation
+    useEditorStore.getState().setContent('', '');
+    useEditorStore.getState().setDirty(false);
+    accumulatedRef.current = '';
+    lastEventCountRef.current = 0;
+
     showToast('Agent 开始执行...', 'info');
-    // Add to history before executing
     addToHistory(prompt.trim());
-    // Clear draft after successful execution trigger
     clearDraft();
-    console.log('[DEBUG] runStreaming started');
     await runStreaming(prompt.trim());
-    console.log('[DEBUG] runStreaming finished');
-    const st = useAgentStore.getState();
-    console.log('[DEBUG] isRunning:', st.isRunning, 'streamEvents:', st.streamEvents.length, 'currentResult:', !!st.currentResult);
-    const revt = st.streamEvents.find(e => e.type === 'result');
-    if (revt) console.log('[DEBUG] result data keys:', Object.keys(revt.data), 'has full_text:', !!(revt.data as any)?.output?.full_text);
-    else console.log('[DEBUG] NO result event in streamEvents');
   }, [prompt, isRunning, runStreaming, showToast, addToHistory, clearDraft]);
 
   // Stop
@@ -178,6 +179,10 @@ export function HomePage() {
     clearCurrent();
     setPrompt('');
     clearDraft();
+    useEditorStore.getState().setContent('', '');
+    useEditorStore.getState().setDirty(false);
+    accumulatedRef.current = '';
+    lastEventCountRef.current = 0;
     inputRef.current?.focus();
   }, [clearCurrent, clearDraft]);
 
@@ -219,16 +224,27 @@ export function HomePage() {
   }, [handleExecute]);
 
   const hasEvents = streamEvents.length > 0;
+  const hasError = hasEvents && streamEvents[streamEvents.length - 1]?.type === 'error';
 
-  // Build quick templates from platform data
+  // Build quick templates from platform data, fallback to QUICK_PROMPTS if API failed
   const currentTemplates: Template[] = (() => {
-    const catPlatforms = platforms.filter((p => (p.category || 'social_media') === selectedCategory));
-    const result: Template[] = [];
-    for (const p of catPlatforms) {
-      const prompts = QUICK_PROMPTS[p.code];
-      if (prompts) result.push(...prompts);
+    if (platforms.length > 0) {
+      const catPlatforms = platforms.filter((p => (p.category || 'social_media') === selectedCategory));
+      const result: Template[] = [];
+      for (const p of catPlatforms) {
+        const prompts = QUICK_PROMPTS[p.code];
+        if (prompts) result.push(...prompts);
+      }
+      if (result.length > 0) return result;
     }
-    return result;
+    // Fallback: show all QUICK_PROMPTS for the selected category
+    const categoryCodes = Object.keys(QUICK_PROMPTS);
+    const fallback: Template[] = [];
+    for (const code of categoryCodes) {
+      const prompts = QUICK_PROMPTS[code];
+      if (prompts) fallback.push(...prompts);
+    }
+    return fallback;
   })();
 
   // Fallback category tabs if platforms loaded but empty
@@ -252,13 +268,13 @@ export function HomePage() {
                     transition={{ duration: 1, repeat: Infinity }} />
                   执行中 {formatDuration(runningTimeState)}
                 </span>
-              ) : hasEvents ? (
+              ) : hasEvents && !isRunning ? (
                 <motion.span
                   initial={{ opacity: 0, y: -4 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="text-green-400"
+                  className={hasError ? 'text-red-400' : 'text-green-400'}
                 >
-                  ✓ 完成
+                  {hasError ? '执行出错' : '✓ 完成'}
                 </motion.span>
               ) : '输入需求，Agent 将协作完成'}
             </p>
@@ -266,7 +282,7 @@ export function HomePage() {
         </div>
 
         <div className="flex items-center gap-1.5 relative">
-          {/* View mode toggle */}
+          {/* View mode toggle for left panel */}
           {hasEvents && (
             <div className="flex items-center gap-0.5 mr-1">
               <button
@@ -289,7 +305,7 @@ export function HomePage() {
                     ? 'bg-green-500/20 text-green-400'
                     : 'text-app-text-tertiary hover:text-app-text hover:bg-white/5'
                 )}
-                title="终端视图（Claude Code 风格）"
+                title="终端视图"
               >
                 <Terminal className="w-3.5 h-3.5" />
               </button>
@@ -332,28 +348,17 @@ export function HomePage() {
               新会话
             </Button>
           )}
-          {previewOpen && (
-            <Button
-              variant="outline" size="sm"
-              onClick={() => setPreviewOpen(false)}
-              className="h-8 px-3 text-xs"
-            >
-              关闭预览
-            </Button>
-          )}
         </div>
       </div>
 
-      {/* ── Main area: thinking stream or empty ── */}
-      <div className="flex-1 relative min-h-0 flex">
-        <div className={cn(
-          'flex-1 min-w-0 h-full flex flex-col transition-all duration-300',
-          previewOpen && 'pr-[420px]'
-        )}>
-          {hasEvents ? (
-            /* Thinking stream — view mode toggle */
-            <div className="flex-1 overflow-y-auto px-2">
-              <div className="max-w-3xl mx-auto py-2 space-y-6">
+      {/* ── Main area: left-right split ── */}
+      <div className="flex-1 flex gap-3 min-h-0">
+        {/* ── Left panel (42%): thinking stream + input ── */}
+        <div className="w-[42%] flex flex-col min-h-0">
+          {/* Thinking stream or empty templates */}
+          <div className="flex-1 overflow-y-auto min-h-0">
+            {hasEvents ? (
+              <div className="space-y-6 pr-1">
                 {viewMode === 'terminal' ? (
                   <AgentLiveView onEdit={handleEditContent} onPublish={handlePublishContent} />
                 ) : (
@@ -363,139 +368,132 @@ export function HomePage() {
                   />
                 )}
 
-                {/* Previous generations — shown below active stream */}
-                {previousGenerations.length > 0 && (
-                  <PreviousResultsList
-                    generations={previousGenerations}
-                    onEdit={handleEditContent}
-                  />
-                )}
-              </div>
-            </div>
-          ) : (
-            /* Empty state with quick templates */
-            <div className="flex-1 overflow-y-auto">
-              <div className="max-w-2xl mx-auto text-center py-16 space-y-8">
-                <div className="flex justify-center">
-                  <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 border border-white/10 flex items-center justify-center animate-float shadow-[0_0_40px_rgba(59,130,246,0.15)]">
-                    <Sparkles className="w-10 h-10 text-blue-400" />
-                  </div>
-                </div>
-                <div>
-                  <h2 className="text-xl font-semibold text-app-text mb-2">开始创作</h2>
-                  <p className="text-sm text-app-text-secondary leading-relaxed">
-                    Multi-Agent 协作，实时思考过程 — 输入需求，Agent 团队将自动拆解任务并执行
-                  </p>
-                </div>
-
-                {/* Category tabs */}
-                <div className="flex justify-center gap-1.5 flex-wrap">
-                  {displayCategories.map((key) => (
-                    <button
-                      key={key}
-                      onClick={() => setSelectedCategory(key)}
-                      className={cn(
-                        'px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200',
-                        selectedCategory === key
-                          ? 'bg-primary-600/15 text-primary-400 border border-primary-500/30'
-                          : 'bg-app-surface text-app-text-secondary hover:bg-app-hover border border-transparent'
-                      )}
-                    >
-                      {CATEGORY_LABELS[key] || key}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Template grid */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-left">
-                  {currentTemplates.map((t) => (
-                    <button
-                      key={t.title}
-                      onClick={() => handleTemplateSelect(t.prompt)}
-                      className="rounded-xl border border-app-border bg-app-elevated p-4 hover:border-blue-500/40 hover:bg-app-hover hover:-translate-y-0.5 hover:shadow-md transition-all duration-200 group"
-                    >
-                      <div className="flex items-center gap-3">
-                        <span className="text-xl">{t.icon}</span>
-                        <div>
-                          <p className="text-sm font-medium text-app-text group-hover:text-blue-400 transition-colors">{t.title}</p>
-                          <p className="text-[11px] text-app-text-tertiary mt-0.5 leading-relaxed">{t.prompt}</p>
-                        </div>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-
                 {/* Previous generations */}
                 {previousGenerations.length > 0 && (
-                  <PreviousResultsList
+                  <GenerationHistory
                     generations={previousGenerations}
-                    onEdit={handleEditContent}
+                    onRestore={(gen) => gen.result?.task_id && handleEditContent(gen.result.task_id)}
                   />
                 )}
               </div>
-            </div>
-          )}
-        </div>
+            ) : (
+              /* Empty state with quick templates */
+              <div className="min-h-full flex flex-col">
+                <div className="flex-1 text-center py-10 space-y-6">
+                  <div className="flex justify-center">
+                    <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 border border-white/10 flex items-center justify-center animate-float shadow-[0_0_40px_rgba(59,130,246,0.15)]">
+                      <Sparkles className="w-8 h-8 text-blue-400" />
+                    </div>
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-semibold text-app-text mb-1">开始创作</h2>
+                    <p className="text-xs text-app-text-secondary leading-relaxed max-w-sm mx-auto">
+                      Multi-Agent 协作，实时思考过程 — 输入需求，Agent 团队将自动拆解任务并执行
+                    </p>
+                  </div>
 
-        {/* ── Right preview panel (slide-in) ── */}
-        <AnimatePresence>
-          {previewOpen && (
-            <motion.div
-              initial={{ x: '100%', opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              exit={{ x: '100%', opacity: 0 }}
-              transition={{ type: 'spring', damping: 28, stiffness: 300 }}
-              className="absolute right-0 top-0 bottom-0 w-[420px] z-10 overflow-hidden border-l border-app-border bg-app-bg rounded-r-lg"
-            >
-              <div className="h-full overflow-auto p-4">
-                <PreviewPanel />
+                  {/* Category tabs */}
+                  <div className="flex justify-center gap-1.5 flex-wrap">
+                    {displayCategories.map((key) => (
+                      <button
+                        key={key}
+                        onClick={() => setSelectedCategory(key)}
+                        className={cn(
+                          'px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200',
+                          selectedCategory === key
+                            ? 'bg-primary-600/15 text-primary-400 border border-primary-500/30'
+                            : 'bg-app-surface text-app-text-secondary hover:bg-app-hover border border-transparent'
+                        )}
+                      >
+                        {CATEGORY_LABELS[key] || key}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Template grid */}
+                  <div className="grid grid-cols-1 gap-2 text-left">
+                    {currentTemplates.map((t) => (
+                      <button
+                        key={t.title}
+                        onClick={() => handleTemplateSelect(t.prompt)}
+                        className="rounded-xl border border-app-border bg-app-elevated p-3 hover:border-blue-500/40 hover:bg-app-hover hover:-translate-y-0.5 hover:shadow-md transition-all duration-200 group"
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="text-lg">{t.icon}</span>
+                          <div>
+                            <p className="text-sm font-medium text-app-text group-hover:text-blue-400 transition-colors">{t.title}</p>
+                            <p className="text-[11px] text-app-text-tertiary mt-0.5 leading-relaxed">{t.prompt}</p>
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Previous generations */}
+                  {previousGenerations.length > 0 && (
+                    <GenerationHistory
+                      generations={previousGenerations}
+                      onRestore={(gen) => gen.result?.task_id && handleEditContent(gen.result.task_id)}
+                    />
+                  )}
+                </div>
               </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-
-      {/* ── Input bar ── */}
-      <div className="flex-shrink-0 pt-4">
-        <div className="rounded-xl border border-app-border bg-app-elevated p-3">
-          <div className="flex gap-3">
-            <textarea
-              ref={inputRef}
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={isRunning ? 'Agent 正在执行中...' : '输入需求，按 Cmd/Ctrl + Enter 快速执行...'}
-              className="flex-1 min-h-[44px] max-h-[120px] resize-none bg-transparent text-sm text-app-text placeholder:text-app-text-tertiary outline-none leading-relaxed"
-              disabled={false}
-              rows={Math.min(3, prompt.split('\n').length)}
-              aria-label="输入提示"
-            />
-            <div className="flex flex-col justify-end gap-1.5">
-              {isRunning ? (
-                <Button onClick={handleStop} className="h-9 px-3 text-xs" variant="destructive" aria-label="停止" aria-disabled={false}>
-                  <Square className="w-3.5 h-3.5 mr-1" /> 停止
-                </Button>
-              ) : (
-              <Button
-                onClick={handleExecute}
-                disabled={!prompt.trim()}
-                className="h-9 px-4 text-xs"
-                aria-label="执行"
-              >
-                <Send className="w-3.5 h-3.5 mr-1" /> 执行
-              </Button>
-              )}
-            </div>
-          </div>
-          <div className="flex items-center justify-between mt-2 text-[10px] text-app-text-tertiary">
-            <span>{isRunning ? '执行中，可输入下个需求' : 'Cmd/Ctrl + Enter 发送'}</span>
-            {isRunning && (
-              <span className="text-blue-400">{formatDuration(runningTimeState)}</span>
             )}
           </div>
+
+          {/* ── Input bar (fixed at bottom of left panel) ── */}
+          <div className="flex-shrink-0 pt-3">
+            <div className="rounded-xl border border-app-border bg-app-elevated p-3">
+              <div className="flex gap-3">
+                <textarea
+                  ref={inputRef}
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder={isRunning ? 'Agent 正在执行中...' : '输入需求，按 Cmd/Ctrl + Enter 快速执行...'}
+                  className="flex-1 min-h-[44px] max-h-[120px] resize-none bg-transparent text-sm text-app-text placeholder:text-app-text-tertiary outline-none leading-relaxed"
+                  disabled={false}
+                  rows={Math.min(3, prompt.split('\n').length)}
+                  aria-label="输入提示"
+                />
+                <div className="flex flex-col justify-end gap-1.5">
+                  {isRunning ? (
+                    <Button onClick={handleStop} className="h-9 px-3 text-xs" variant="destructive" aria-label="停止" aria-disabled={false}>
+                      <Square className="w-3.5 h-3.5 mr-1" /> 停止
+                    </Button>
+                  ) : (
+                  <Button
+                    onClick={handleExecute}
+                    disabled={!prompt.trim()}
+                    className="h-9 px-4 text-xs"
+                    aria-label="执行"
+                  >
+                    <Send className="w-3.5 h-3.5 mr-1" /> 执行
+                  </Button>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center justify-between mt-2 text-[10px] text-app-text-tertiary">
+                <span>{isRunning ? '执行中，可输入下个需求' : 'Cmd/Ctrl + Enter 发送'}</span>
+                {isRunning && (
+                  <span className="flex items-center gap-3">
+                    <span className="text-[9px] text-app-text-tertiary/60">ESC 停止</span>
+                    <span className="text-blue-400">{formatDuration(runningTimeState)}</span>
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Divider ── */}
+        <div className="w-px bg-app-border flex-shrink-0" />
+
+        {/* ── Right panel (flex-1 = ~58%): result ── */}
+        <div className="flex-1 min-w-0 rounded-xl border border-app-border bg-app-surface overflow-hidden">
+          <ResultPanel />
         </div>
       </div>
-
     </div>
   );
 }

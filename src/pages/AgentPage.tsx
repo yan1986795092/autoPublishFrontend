@@ -9,9 +9,13 @@ import { useUIStore } from '../stores/useUIStore';
 import { agentApi } from '../services/api';
 import { cn } from '../utils/helpers';
 import Markdown from 'react-markdown';
-import { Send, Bot, Sparkles, Plus, Copy, Check, AlertCircle, Square, Eye } from 'lucide-react';
-import type { AsyncTask, PendingDecision, DecisionSubmitRequest, ChatMessage, ThinkingStep } from '../types';
+import { Send, Bot, Sparkles, Plus, Copy, Check, AlertCircle, Square, Eye, X } from 'lucide-react';
+import type { AsyncTask, PendingDecision, DecisionSubmitRequest, ChatMessage, ThinkingStep, LLMChunk } from '../types';
 import { DecisionDialog } from '../components/agent/DecisionDialog';
+import { RecoveryDialog } from '../components/agent/RecoveryDialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
+import { getAgentLabel } from '../config/agents';
+import { useWebSocketAgent } from '../hooks/useWebSocketAgent';
 
 function formatTime(ts: number) {
   const d = new Date(ts);
@@ -43,25 +47,14 @@ const markdownComponents = {
   pre: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
 };
 
-const AGENT_LABELS: Record<string, string> = {
-  ManagerAgent: '🧠 规划',
-  WritingAgent: '✍️ 写作',
-  SEOAgent: '🔍 SEO',
-  DiagramAgent: '📊 图表',
-  ReviewAgent: '✅ 审核',
-  WebSearch: '🌐 搜索',
-  ImageAgent: '🎨 配图',
-  CodeAgent: '💻 代码',
-  HotTopicAgent: '🔥 热点',
-};
-
 export function AgentPage() {
   const {
     currentTaskId, currentTask, currentResult,
     isRunning, error, pendingDecision, messages,
-    thinkingSteps, wsConnectionState,
+    thinkingSteps, llmChunks, recoveryState, wsConnectionState,
     addMessage, updateMessage, clearMessages,
-    runAsync, previewPlan, loadTaskHistory, clearCurrent,
+    runAsync, runStreaming, previewPlan, loadTaskHistory, clearCurrent,
+    retryStep, skipStep,
     submitDecision, clearDecision, cancelTask,
     connectWebSocket, disconnectWebSocket,
   } = useAgentStore();
@@ -71,6 +64,7 @@ export function AgentPage() {
   const [runningTime, setRunningTime] = useState(0);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [showPreview, setShowPreview] = useState(false);
+  const [useStreaming, setUseStreaming] = useState(true);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -86,82 +80,46 @@ export function AgentPage() {
     }
   }, [messages, isRunning, thinkingSteps]);
 
-  // WebSocket with auto-reconnect (U-024)
-  useEffect(() => {
-    if (!currentTaskId || !isRunning) return;
-
-    let mounted = true;
-    let reconnectAttempt = 0;
-    let ws: WebSocket | null = null;
-    let reconnectTimer: ReturnType<typeof setTimeout>;
-
-    const connect = () => {
-      ws = connectWebSocket(currentTaskId!);
-      if (!ws) return;
-
-      ws.onopen = () => { reconnectAttempt = 0; };
-
-      ws.onclose = () => {
-        if (!mounted) return;
-        if (reconnectAttempt < 5 && useAgentStore.getState().isRunning) {
-          const delay = Math.min(1000 * 2 ** reconnectAttempt, 30000);
-          reconnectTimer = setTimeout(() => {
-            reconnectAttempt++;
-            connect();
-          }, delay);
-        }
-      };
-
-      ws.onerror = () => {
-        ws?.close();
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (data.type === 'progress') {
-            useAgentStore.getState().setCurrentTask(data.data as AsyncTask);
-          } else if (data.type === 'decision_required') {
-            const decision = data.data as PendingDecision;
-            useAgentStore.getState().setPendingDecision(decision);
-            showToast('Agent 需要你的决定', 'info');
-          } else if (data.type === 'result') {
-            const result = data.data;
-            useAgentStore.getState().setCurrentResult(result);
-            useAgentStore.getState().loadTaskHistory();
-            const msgs = useAgentStore.getState().messages;
-            const assistantMsg = msgs.find((m) => m.role === 'assistant' && m.status === 'running');
-            if (assistantMsg) {
-              useAgentStore.getState().updateMessage(assistantMsg.id, {
-                status: 'completed',
-                content: result.output?.full_text || result.output?.content || JSON.stringify(result.output, null, 2),
-                result,
-              });
-            }
-            showToast('Agent 任务已完成', 'success');
-          } else if (data.type === 'error') {
-            showToast(data.message || '任务执行出错', 'error');
-            const msgs = useAgentStore.getState().messages;
-            const assistantMsg = msgs.find((m) => m.role === 'assistant' && m.status === 'running');
-            if (assistantMsg) {
-              useAgentStore.getState().updateMessage(assistantMsg.id, {
-                status: 'failed',
-                content: data.message || '任务执行出错',
-              });
-            }
+  // WebSocket 连接（共享 hook，自动重连）
+  useWebSocketAgent(currentTaskId, {
+    onMessage(data) {
+      const store = useAgentStore.getState();
+      switch (data.type) {
+        case 'progress':
+          store.setCurrentTask(data.data as AsyncTask);
+          break;
+        case 'decision_required':
+          store.setPendingDecision(data.data as PendingDecision);
+          showToast('Agent 需要你的决定', 'info');
+          break;
+        case 'result': {
+          const result = data.data;
+          store.setCurrentResult(result);
+          store.loadTaskHistory();
+          const assistantMsg = store.messages.find((m) => m.role === 'assistant' && m.status === 'running');
+          if (assistantMsg) {
+            store.updateMessage(assistantMsg.id, {
+              status: 'completed',
+              content: result.output?.full_text || result.output?.content || JSON.stringify(result.output, null, 2),
+              result,
+            });
           }
-        } catch { /* ignore */ }
-      };
-    };
-
-    connect();
-
-    return () => {
-      mounted = false;
-      clearTimeout(reconnectTimer);
-      disconnectWebSocket();
-    };
-  }, [currentTaskId, isRunning, connectWebSocket, disconnectWebSocket, showToast]);
+          showToast('Agent 任务已完成', 'success');
+          break;
+        }
+        case 'error':
+          showToast((data.message as string) || '任务执行出错', 'error');
+          const errMsg = store.messages.find((m) => m.role === 'assistant' && m.status === 'running');
+          if (errMsg) {
+            store.updateMessage(errMsg.id, {
+              status: 'failed',
+              content: (data.message as string) || '任务执行出错',
+            });
+          }
+          break;
+      }
+    },
+  });
 
   // Running timer
   useEffect(() => {
@@ -200,11 +158,25 @@ export function AgentPage() {
     };
     addMessage(assistantMsg);
 
-    const taskId = await runAsync(text);
-    if (!taskId) {
-      updateMessage(assistantId, { status: 'failed', content: '提交任务失败，请重试' });
+    if (useStreaming) {
+      await runStreaming(text);
+      const store = useAgentStore.getState();
+      if (store.currentResult) {
+        updateMessage(assistantId, {
+          status: store.currentResult.status === 'completed' ? 'completed' : 'failed',
+          content: store.currentResult.output?.full_text || store.currentResult.output?.content || JSON.stringify(store.currentResult.output, null, 2),
+          result: store.currentResult,
+        });
+      } else if (store.error) {
+        updateMessage(assistantId, { status: 'failed', content: store.error });
+      }
+    } else {
+      const taskId = await runAsync(text);
+      if (!taskId) {
+        updateMessage(assistantId, { status: 'failed', content: '提交任务失败，请重试' });
+      }
     }
-  }, [prompt, isRunning, addMessage, updateMessage, runAsync]);
+  }, [prompt, isRunning, useStreaming, addMessage, updateMessage, runAsync, runStreaming]);
 
   const handlePreviewPlan = useCallback(async () => {
     if (!prompt.trim() || isRunning) return;
@@ -239,7 +211,19 @@ export function AgentPage() {
       await navigator.clipboard.writeText(text);
       setCopiedId(id);
       setTimeout(() => setCopiedId(null), 2000);
-    } catch { /* fallback */ }
+    } catch {
+      // Fallback: select text via temporary textarea
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2000);
+    }
   }, []);
 
   const handleDecisionSubmit = useCallback(async (taskId: string, data: DecisionSubmitRequest) => {
@@ -252,9 +236,8 @@ export function AgentPage() {
       cancelTask(currentTaskId);
     }
     disconnectWebSocket();
-    clearCurrent();
     showToast('任务已终止', 'info');
-  }, [currentTaskId, cancelTask, disconnectWebSocket, clearCurrent, showToast]);
+  }, [currentTaskId, cancelTask, disconnectWebSocket, showToast]);
 
   const hasActiveTask = isRunning || !!currentResult;
 
@@ -263,8 +246,8 @@ export function AgentPage() {
       {/* Header */}
       <div className="flex items-center justify-between border-b border-app-border/30 px-1 py-3">
         <div>
-          <h1 className="text-base font-semibold text-app-text">Agent 工场</h1>
-          <p className="text-[11px] text-app-text-secondary">Multi-Agent 智能协作</p>
+          <h1 className="text-base font-semibold text-app-text">快速助手</h1>
+          <p className="text-[11px] text-app-text-secondary">轻量问答 · 快速生成</p>
         </div>
         <div className="flex items-center gap-2">
           {hasActiveTask && (
@@ -280,7 +263,7 @@ export function AgentPage() {
       <ScrollArea className="flex-1 -mx-4 px-4" ref={scrollRef}>
         <div className="space-y-4 py-4">
           {messages.length === 0 && !isRunning ? (
-            <EmptyState onSelect={(s) => setPrompt(s)} onPrompt={setPrompt} />
+            <EmptyState onSelect={(s) => setPrompt(s)} />
           ) : (
             messages.map((msg) => (
               <MessageBubble
@@ -289,6 +272,7 @@ export function AgentPage() {
                 currentTask={msg.status === 'running' ? currentTask : null}
                 runningTime={msg.status === 'running' ? runningTime : 0}
                 thinkingSteps={msg.status === 'running' ? thinkingSteps : []}
+                llmChunks={msg.status === 'running' ? llmChunks : {}}
                 copiedId={copiedId}
                 onCopy={handleCopy}
               />
@@ -358,6 +342,24 @@ export function AgentPage() {
         <p className="mt-1 text-center text-[10px] text-app-text-secondary/50">
           {isRunning ? `执行中 ${formatDuration(runningTime)}` : 'Ctrl+Enter 发送 — 点击"计划"预览拆解'}
         </p>
+        <div className="mt-1 flex items-center justify-center gap-3">
+          <label className="flex items-center gap-1.5 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={useStreaming}
+              onChange={(e) => setUseStreaming(e.target.checked)}
+              disabled={isRunning}
+              className="rounded border-app-border"
+            />
+            <span className="text-[10px] text-app-text-tertiary">SSE 流式</span>
+          </label>
+          {wsConnectionState === 'connected' && (
+            <span className="flex items-center gap-1 text-[10px] text-green-400">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-400" />
+              WebSocket
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Decision Dialog */}
@@ -368,27 +370,35 @@ export function AgentPage() {
         onClose={clearDecision}
       />
 
+      {/* Recovery Dialog */}
+      <RecoveryDialog
+        recovery={recoveryState}
+        onRetry={retryStep}
+        onSkip={skipStep}
+        onCancel={clearCurrent}
+        onClose={clearCurrent}
+      />
+
       {/* Plan Preview Dialog */}
       <PlanPreviewDialog open={showPreview} onClose={() => setShowPreview(false)} />
     </div>
   );
 }
 
-/* ─── Plan Preview Dialog (U-013) ─── */
+/* ─── Plan Preview Dialog ─── */
 
 function PlanPreviewDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { currentPlan } = useAgentStore();
 
-  if (!open) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
-      <div className="mx-4 w-full max-w-lg rounded-xl border border-app-border bg-app-elevated p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <h3 className="mb-1 text-sm font-semibold text-app-text">执行计划</h3>
-        <p className="mb-3 text-xs text-app-text-secondary">
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="text-sm">执行计划</DialogTitle>
+        </DialogHeader>
+        <p className="text-xs text-app-text-secondary mb-3">
           {currentPlan?.goal || '正在生成计划...'}
         </p>
-
         {currentPlan ? (
           <div className="space-y-2">
             <div className="flex items-center gap-2 text-[11px] text-app-text-tertiary">
@@ -396,9 +406,9 @@ function PlanPreviewDialog({ open, onClose }: { open: boolean; onClose: () => vo
               <span>·</span>
               <span>{currentPlan.tasks.length} 个子任务</span>
             </div>
-            <div className="space-y-1.5">
+            <div className="max-h-64 space-y-1.5 overflow-auto">
               {currentPlan.tasks.map((task, i) => {
-                const label = AGENT_LABELS[task.agent_type as keyof typeof AGENT_LABELS] || task.agent_type;
+                const label = getAgentLabel(task.agent_type);
                 return (
                   <div key={i} className="flex items-center gap-2 rounded-lg border border-app-border bg-app-surface px-3 py-2 text-xs">
                     <span className="text-app-text-tertiary">#{i + 1}</span>
@@ -414,20 +424,14 @@ function PlanPreviewDialog({ open, onClose }: { open: boolean; onClose: () => vo
         ) : (
           <p className="py-4 text-center text-xs text-app-text-tertiary">加载中...</p>
         )}
-
-        <div className="mt-4 flex justify-end">
-          <Button size="sm" variant="outline" onClick={onClose} className="text-xs">
-            关闭
-          </Button>
-        </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
 /* ─── Sub-components ─── */
 
-function EmptyState({ onSelect, onPrompt }: { onSelect: (s: string) => void; onPrompt: (s: string) => void }) {
+function EmptyState({ onSelect }: { onSelect: (s: string) => void }) {
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -463,6 +467,7 @@ function MessageBubble({
   currentTask,
   runningTime,
   thinkingSteps,
+  llmChunks,
   copiedId,
   onCopy,
 }: {
@@ -470,6 +475,7 @@ function MessageBubble({
   currentTask: AsyncTask | null;
   runningTime: number;
   thinkingSteps: ThinkingStep[];
+  llmChunks: Record<string, LLMChunk[]>;
   copiedId: string | null;
   onCopy: (id: string, text: string) => void;
 }) {
@@ -508,18 +514,37 @@ function MessageBubble({
           {currentTask && (
             <div className="space-y-2">
               <ProgressBarInline task={currentTask} />
-              {/* U-007: Real-time Thinking Steps */}
+              {/* Thinking steps — show all, not just last 3 */}
               {thinkingSteps.length > 0 && (
-                <div className="space-y-1">
-                  {thinkingSteps.slice(-3).map((step, i) => (
+                <div className="max-h-32 overflow-y-auto space-y-0.5">
+                  {thinkingSteps.map((step, i) => (
                     <div key={i} className="flex items-center gap-1.5 text-[10px] text-app-text-tertiary">
-                      <span className="inline-block h-1 w-1 rounded-full bg-blue-400" />
+                      {step.status === 'running' ? (
+                        <span className="inline-block h-1 w-1 rounded-full bg-blue-400 animate-pulse" />
+                      ) : step.status === 'failed' ? (
+                        <span className="inline-block h-1 w-1 rounded-full bg-red-400" />
+                      ) : (
+                        <span className="inline-block h-1 w-1 rounded-full bg-green-400" />
+                      )}
                       <span className="font-medium text-app-text-secondary">
-                        {AGENT_LABELS[step.agent as keyof typeof AGENT_LABELS] || step.agent}:
+                        {getAgentLabel(step.agent)}:
                       </span>
                       <span className="truncate">{step.action}</span>
                     </div>
                   ))}
+                </div>
+              )}
+              {/* Live LLM chunks */}
+              {Object.keys(llmChunks).length > 0 && (
+                <div className="max-h-24 overflow-y-auto rounded bg-black/20 p-2 text-[10px] font-mono text-app-text-tertiary leading-relaxed">
+                  {Object.entries(llmChunks).map(([agent, chunks]) => {
+                    const lastChunk = chunks[chunks.length - 1];
+                    return (
+                      <div key={agent} className="truncate">
+                        <span className="text-blue-400">{getAgentLabel(agent)}:</span> {lastChunk?.content || ''}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>

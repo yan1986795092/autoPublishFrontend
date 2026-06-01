@@ -30,7 +30,7 @@ export function ContentEditor() {
 
   // Auto-save state
   const [autoSaveText, setAutoSaveText] = useState<string | null>(null);
-  const autoSaveTimer = useRef<ReturnType<typeof setTimeout>>();
+  const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Outline
   const [showOutline, setShowOutline] = useState(false);
@@ -40,7 +40,7 @@ export function ContentEditor() {
   useEffect(() => {
     if (!draft.id || !isDirty) return;
 
-    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    if (autoSaveTimer.current != null) clearTimeout(autoSaveTimer.current);
     autoSaveTimer.current = setTimeout(async () => {
       setSaving(true);
       setAutoSaveText('自动保存中...');
@@ -58,7 +58,7 @@ export function ContentEditor() {
     }, 3000);
 
     return () => {
-      if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+      if (autoSaveTimer.current != null) clearTimeout(autoSaveTimer.current);
     };
   }, [isDirty, content_md, draft.id]);
 

@@ -111,6 +111,7 @@ export const useAgentStore = create<AgentState>()(
   appliedSkillFull: null,
 
   setAppliedSkill: (applied, full) => set({ appliedSkill: applied, appliedSkillFull: full }),
+  setContentTypeConfig: (config) => set({ contentTypeConfig: config }),
 
   addMessage: (msg) => set((state) => ({ messages: [...state.messages, msg] })),
   updateMessage: (id, updates) => set((state) => ({
@@ -265,7 +266,7 @@ export const useAgentStore = create<AgentState>()(
     if (prevState.streamEvents.length > 0) {
       const gen: PreviousGeneration = {
         id: crypto.randomUUID(),
-        prompt: prevState.streamEvents.find(e => e.type === 'user_message')?.data?.content || '',
+        prompt: prevState.streamEvents.find(e => e.type === 'user_message')?.data?.content as string || '',
         result: prevState.currentResult,
         events: prevState.streamEvents,
         timestamp: Date.now(),
@@ -285,7 +286,6 @@ export const useAgentStore = create<AgentState>()(
       }],
     }));
 
-    const state = useAgentStore.getState();
     const controller = new AbortController();
     set({ _abortController: controller });
 
@@ -583,7 +583,7 @@ export const useAgentStore = create<AgentState>()(
     if (s.streamEvents.length > 0) {
       const gen: PreviousGeneration = {
         id: crypto.randomUUID(),
-        prompt: s.streamEvents.find(e => e.type === 'user_message')?.data?.content || '',
+        prompt: s.streamEvents.find(e => e.type === 'user_message')?.data?.content as string || '',
         result: s.currentResult,
         events: s.streamEvents,
         timestamp: Date.now(),

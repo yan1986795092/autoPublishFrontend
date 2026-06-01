@@ -18,7 +18,7 @@ import { Button } from '../ui/button';
 import { cn } from '../../utils/helpers';
 import { GripVertical, X, Play, ArrowDown } from 'lucide-react';
 import type { ExecutionPlan, AgentTask } from '../../types';
-import { getAgentIcon, getAgentLabel } from '../../config/agents';
+import { getAgentLabel } from '../../config/agents';
 import { AgentIcon } from './AgentIcon';
 
 /** Recalculate dependency indices after reorder by matching task IDs */
@@ -38,12 +38,11 @@ function recalcDeps(tasks: (AgentTask & { _id: string })[]): AgentTask[] {
 interface SortableTaskProps {
   task: AgentTask & { _skipped?: boolean; _id?: string };
   index: number;
-  total: number;
   dependencies: number[][]; // all links [from, to]
   onToggle: (index: number) => void;
 }
 
-function SortableTask({ task, index, total, dependencies, onToggle }: SortableTaskProps) {
+function SortableTask({ task, index, dependencies, onToggle }: SortableTaskProps) {
   const id = (task as any)._id || task.id || String(index);
   const {
     attributes,
@@ -226,7 +225,6 @@ export function ExecutionPlanEditor({ plan, open, onConfirm, onCancel }: Executi
                   key={task._id}
                   task={task}
                   index={index}
-                  total={localTasks.length}
                   dependencies={dependencyLinks}
                   onToggle={handleToggle}
                 />

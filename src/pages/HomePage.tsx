@@ -291,7 +291,7 @@ export function HomePage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5 relative">
+        <div className="flex items-center gap-1.5 flex-wrap max-md:gap-1">
           {/* View mode toggle for left panel */}
           {hasEvents && (
             <div className="flex items-center gap-0.5 mr-1">
@@ -379,10 +379,9 @@ export function HomePage() {
             {hasEvents ? (
               <div className="space-y-6 pr-1">
                 {viewMode === 'terminal' ? (
-                  <AgentLiveView onEdit={handleEditContent} onPublish={handlePublishContent} />
+                  <AgentLiveView />
                 ) : (
                   <AgentThinkingStream
-                    onEdit={handleEditContent}
                     onPublish={handlePublishContent}
                   />
                 )}

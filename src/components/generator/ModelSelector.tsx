@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useGeneratorStore } from '../../stores/useGeneratorStore';
 import { platformsApi } from '../../services/api';
-import { cn } from '../../utils/helpers';
 import type { ModelInfo } from '../../types';
 
 export function ModelSelector({ disabled }: { disabled?: boolean }) {

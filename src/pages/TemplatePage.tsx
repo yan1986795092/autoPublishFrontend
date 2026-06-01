@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { templatesApi, platformsApi } from '../services/api';
 import type { PromptTemplate, PromptTemplateDetail, Platform } from '../types';
 import { Badge } from '../components/ui/badge';
@@ -79,7 +79,6 @@ export function TemplatePage() {
     }));
 
   // If no platforms from API, fallback to showing all templates as uncategorized
-  const hasGroups = platformGroups.length > 0;
 
   if (loading) {
     return <SkeletonList count={4} />;

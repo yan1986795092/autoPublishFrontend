@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { contentsApi } from '../services/api';
 import type { Content, ContentVersion } from '../types';
 import { Button } from '../components/ui/button';
+import { Badge } from '../components/ui/badge';
 import { PipelineProgress } from '../components/content/PipelineProgress';
 import { Input } from '../components/ui/input';
 import { SkeletonList } from '../components/ui/Skeleton';
@@ -17,7 +18,7 @@ import { ContentCalendar } from '../components/content/ContentCalendar';
 import { useNavigate } from 'react-router-dom';
 import { useUIStore } from '../stores/useUIStore';
 import {
-  FileText, PenLine, Trash2, ExternalLink, Plus, History, Clock,
+  FileText, PenLine, Trash2, ExternalLink, Plus, History,
   Search, MoreHorizontal, ChevronUp, ChevronDown, CalendarDays, List
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
@@ -95,7 +96,7 @@ export function ContentManagementPage() {
   useEffect(() => { loadContents(page); }, [page, loadContents]);
 
   // Debounced search
-  const debouncedSearch = useMemo(() => debounce((val: string) => setSearchQuery(val), 300), []);
+  const debouncedSearch = useMemo(() => debounce((val: unknown) => { setSearchQuery(val as string); }, 300), []);
   const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchInput(e.target.value);
     debouncedSearch(e.target.value);

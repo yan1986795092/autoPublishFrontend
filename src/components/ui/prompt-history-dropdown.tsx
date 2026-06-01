@@ -1,7 +1,7 @@
 import { useEffect, useRef, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Trash2, Clock, History, Search } from 'lucide-react';
-import { cn, formatRelativeTime } from '../../utils/helpers';
+import { X, Trash2, History, Search, Clock } from 'lucide-react';
+import { formatRelativeTime } from '../../utils/helpers';
 
 interface HistoryItem {
   id: string;

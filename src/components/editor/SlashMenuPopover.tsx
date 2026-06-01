@@ -1,5 +1,6 @@
 import { Editor } from '@tiptap/react';
 import { SLASH_MENU_ITEMS } from './SlashMenuExtension';
+import type { SlashMenuStorage } from './SlashMenuExtension';
 import { cn } from '../../utils/helpers';
 
 interface Props {
@@ -9,12 +10,7 @@ interface Props {
 export function SlashMenuPopover({ editor }: Props) {
   if (!editor) return null;
 
-  const storage = editor.storage.slashMenu as {
-    isOpen: boolean;
-    position: { top: number; left: number };
-    query: string;
-    selectedIndex: number;
-  };
+  const storage = (editor.storage as unknown as { slashMenu: SlashMenuStorage }).slashMenu;
 
   if (!storage.isOpen) return null;
 
@@ -50,7 +46,7 @@ export function SlashMenuPopover({ editor }: Props) {
               const { state } = editor;
               const { $from } = state.selection;
               const endPos = $from.pos;
-              const slashPos = (editor.storage.slashMenu as { slashPos: number }).slashPos;
+              const slashPos = ((editor.storage as unknown as { slashMenu: SlashMenuStorage }).slashMenu).slashPos;
               if (slashPos >= 0 && endPos > slashPos) {
                 editor.chain().focus().command(({ tr }) => {
                   tr.delete(slashPos, endPos);

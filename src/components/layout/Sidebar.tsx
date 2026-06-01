@@ -102,6 +102,7 @@ export function Sidebar() {
           'fixed left-0 top-0 z-50 h-screen flex flex-col',
           'bg-sidebar border-r border-sidebar-border',
           'shadow-[2px_0_24px_rgba(0,0,0,0.4)]',
+          isMobile && 'z-60',
           isMobile && 'pt-0'
         )}
         role="navigation"

@@ -4,7 +4,6 @@ import { Textarea } from '../ui/textarea';
 import { Input } from '../ui/input';
 import { skillsApi } from '../../services/api';
 import { useUIStore } from '../../stores/useUIStore';
-import { CheckCircle, AlertTriangle } from 'lucide-react';
 
 const CATEGORIES = [
   { value: 'writing', label: '写作' },
@@ -61,8 +60,6 @@ export function SkillEditModal({ onSaved }: SkillEditModalProps) {
         system_prompt: form.system_prompt.trim(),
         user_prompt_template: form.user_prompt_template.trim() || undefined,
         tags: form.tags.split(',').map(t => t.trim()).filter(Boolean),
-        author: form.author.trim() || undefined,
-        version: form.version.trim() || undefined,
       });
       if (res.data.success) {
         showToast(`已创建: ${res.data.data.name}`, 'success');

@@ -1,4 +1,3 @@
-import { motion } from 'framer-motion';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { cn } from '../../utils/helpers';
@@ -135,7 +134,7 @@ export function ResultSection({ result, copiedId, onCopy }: {
         <div className="flex items-center gap-2">
           <Sparkles className="w-4 h-4 text-yellow-400" />
           <span className="text-sm font-medium text-app-text">生成结果</span>
-          <Badge variant={result.status === 'completed' ? 'default' : result.status === 'partial' ? 'secondary' : 'destructive'} className="text-[10px]">
+          <Badge variant={result.status === 'completed' ? 'default' : result.status === 'partial' ? 'secondary' : 'error'} className="text-[10px]">
             {result.status === 'completed' ? '已完成' : result.status === 'partial' ? '部分完成' : '失败'}
           </Badge>
         </div>

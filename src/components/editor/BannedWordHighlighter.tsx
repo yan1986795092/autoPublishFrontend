@@ -16,12 +16,12 @@ export function BannedWordHighlighter({ editor }: Props) {
   const { bannedWords, setBannedWords, activePlatform } = useEditorStore();
   const [collapsed, setCollapsed] = useState(false);
   const [loading, setLoading] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Debounced check on editor changes
   useEffect(() => {
     const handleUpdate = () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
+      if (timerRef.current != null) clearTimeout(timerRef.current);
       timerRef.current = setTimeout(async () => {
         const text = editor.state.doc.textContent;
         if (!text.trim()) {
@@ -44,7 +44,7 @@ export function BannedWordHighlighter({ editor }: Props) {
     editor.on('update', handleUpdate);
     return () => {
       editor.off('update', handleUpdate);
-      if (timerRef.current) clearTimeout(timerRef.current);
+      if (timerRef.current != null) clearTimeout(timerRef.current);
     };
   }, [editor, activePlatform, setBannedWords]);
 

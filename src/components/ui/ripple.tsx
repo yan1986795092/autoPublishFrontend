@@ -31,7 +31,7 @@ function usePrefersReducedMotion() {
 export function RippleEffect({ children, className, disabled }: RippleEffectProps) {
   const [ripples, setRipples] = useState<Ripple[]>([]);
   const containerRef = useRef<HTMLDivElement>(null);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const prefersReducedMotion = usePrefersReducedMotion();
 
   const handleClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
@@ -53,7 +53,7 @@ export function RippleEffect({ children, className, disabled }: RippleEffectProp
   }, []);
 
   return (
-    <div ref={containerRef} onClick={handleClick} className={cn('relative overflow-hidden cursor-pointer', className)}>
+    <div ref={containerRef} onClick={handleClick} className={cn('relative overflow-hidden', !disabled && 'cursor-pointer', className)}>
       {children}
       <AnimatePresence>
         {ripples.map((r) => (

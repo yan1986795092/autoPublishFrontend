@@ -1,13 +1,10 @@
 import { useState, useCallback } from 'react';
-import { motion } from 'framer-motion';
 import { Button } from '../ui/button';
-import { Card, CardContent } from '../ui/card';
-import { ScrollArea } from '../ui/scroll-area';
 import { Textarea } from '../ui/textarea';
 import { skillsApi } from '../../services/api';
 import { useUIStore } from '../../stores/useUIStore';
 import type { Skill } from '../../types';
-import { ExternalLink, Upload, Globe, FileText, CheckCircle, AlertTriangle } from 'lucide-react';
+import { ExternalLink, Globe, FileText, CheckCircle } from 'lucide-react';
 
 interface SkillImportModalProps {
   onImported?: () => void;

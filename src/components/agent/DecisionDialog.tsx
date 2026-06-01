@@ -23,7 +23,6 @@ export function DecisionDialog({ decision, taskId, onSubmit, onClose }: Decision
   const [selected, setSelected] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // Reset state when decision changes
   useEffect(() => {
     if (decision) {
       setSelected(null);
@@ -43,7 +42,6 @@ export function DecisionDialog({ decision, taskId, onSubmit, onClose }: Decision
     });
   }, [submitting, onSubmit, taskId, decision]);
 
-  // Keyboard shortcuts: 1/2/3
   useEffect(() => {
     if (!decision) return;
     const handler = (e: KeyboardEvent) => {
@@ -57,6 +55,8 @@ export function DecisionDialog({ decision, taskId, onSubmit, onClose }: Decision
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [decision, submitting, handleSelect]);
+
+  const contextPreview = decision.context && String((decision.context as Record<string, unknown>).output_preview ?? '');
 
   return (
     <Dialog open={!!decision} onOpenChange={(open) => { if (!open) onClose(); }}>
@@ -74,29 +74,24 @@ export function DecisionDialog({ decision, taskId, onSubmit, onClose }: Decision
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* Question */}
           <div className="rounded-lg border border-app-border/50 bg-app-surface/50 p-3">
             <div className="flex items-start gap-2">
               <HelpCircle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-blue-400" />
-              <p className="text-sm leading-relaxed text-app-text">
-                {decision.question}
-              </p>
+              <p className="text-sm leading-relaxed text-app-text">{decision.question}</p>
             </div>
           </div>
 
-          {/* Context Preview */}
-          {decision.context && decision.context.output_preview && (
+          {contextPreview ? (
             <div className="rounded-lg border border-app-border/30 bg-app-surface/30 p-2.5">
               <p className="mb-1 text-[10px] font-medium text-app-text-tertiary uppercase tracking-wider">
                 输出预览
               </p>
               <p className="text-xs text-app-text-secondary leading-relaxed line-clamp-3 font-mono">
-                {decision.context.output_preview as string}
+                {contextPreview}
               </p>
             </div>
-          )}
+          ) : null}
 
-          {/* Options */}
           <div className="space-y-2">
             <AnimatePresence mode="wait">
               {decision.options.map((option, i) => {
@@ -146,7 +141,6 @@ export function DecisionDialog({ decision, taskId, onSubmit, onClose }: Decision
             </AnimatePresence>
           </div>
 
-          {/* Footer */}
           <div className="flex items-center justify-between border-t border-app-border/30 pt-3">
             <span className="text-[10px] text-app-text-tertiary">
               Agent 会在你决定后继续执行

@@ -4,7 +4,7 @@ import { useGeneratorStore } from '../../stores/useGeneratorStore';
 import { personasApi } from '../../services/api';
 import { cn } from '../../utils/helpers';
 import type { Persona } from '../../types';
-import { UserCircle, Loader2, Plus, Check, Trash2, Edit3, X } from 'lucide-react';
+import { UserCircle, Loader2, Plus, Check, Trash2 } from 'lucide-react';
 
 export function PersonaEditor({ disabled }: { disabled?: boolean }) {
   const { draft, setPersonaId, setParameters } = useGeneratorStore();

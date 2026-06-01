@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { cn } from '../../utils/helpers';
 import { ChevronDown, Brain } from 'lucide-react';
 import type { ThinkingStep, AgentResult } from '../../types';
-import { getAgentIcon, getAgentColor, AGENT_ACTION_LABELS } from '../../config/agents';
+import { getAgentColor, AGENT_ACTION_LABELS } from '../../config/agents';
 import { AgentIcon } from './AgentIcon';
 
 interface AgentThinkingPanelProps {

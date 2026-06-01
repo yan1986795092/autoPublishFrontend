@@ -1,10 +1,8 @@
 import { useState } from 'react';
 import { Editor } from '@tiptap/react';
-import { useEditorStore } from '../../stores/useEditorStore';
-import { aiEditApi } from '../../services/api';
 import { useUIStore } from '../../stores/useUIStore';
+import { aiEditApi } from '../../services/api';
 import { Sparkles, Loader2, Check, RefreshCw } from 'lucide-react';
-import { cn } from '../../utils/helpers';
 
 interface Props {
   editor: Editor;
@@ -51,7 +49,7 @@ export function HeadlineGenerator({ editor }: Props) {
       }
     });
     if (!found) {
-      editor.chain().focus().setContent(`<h1>${headline}</h1>${editor.getHTML()}`, true).run();
+      editor.chain().focus().setContent(`<h1>${headline}</h1>${editor.getHTML()}`, { emitUpdate: true }).run();
     }
     showToast('已应用标题', 'success');
   };

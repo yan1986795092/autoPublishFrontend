@@ -3,8 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAgentStore } from '../../stores/useAgentStore';
 import { cn } from '../../utils/helpers';
 import {
-  Bot, CheckCircle, AlertCircle, Loader2, ChevronDown,
-  Terminal, Type, Lightbulb, Zap, RotateCcw, Pause, Play
+  CheckCircle, AlertCircle, Loader2, ChevronDown,
+  Terminal, Type, Lightbulb, Zap, Pause, Play
 } from 'lucide-react';
 import type { StreamEvent, LLMChunk, ReasoningChunk, StreamToolUse } from '../../types';
 import { getAgentColor, getAgentActionDesc } from '../../config/agents';
@@ -19,8 +19,6 @@ function LLMTerminalLine({ agent, chunks }: { agent: string; chunks: LLMChunk[] 
   // When new chunks arrive (target text changes), reset and start fresh
   useEffect(() => {
     if (chunks.length === 0) return;
-    const last = chunks[chunks.length - 1];
-    const target = last.content;
     setDisplayed('');
     setDone(false);
   }, [chunks]);
@@ -68,7 +66,7 @@ function LLMTerminalLine({ agent, chunks }: { agent: string; chunks: LLMChunk[] 
 }
 
 /* ─── Reasoning Block（LLM 思考过程，类似 Cursor AI 的思考显示）── */
-function ReasoningBlock({ agent, chunks }: { agent: string; chunks: ReasoningChunk[] }) {
+function ReasoningBlock({ chunks }: { chunks: ReasoningChunk[] }) {
   const [expanded, setExpanded] = useState(true);
   const text = chunks.map(c => c.content).join('');
 
@@ -153,7 +151,7 @@ function RichAgentLine({ event }: { event: StreamEvent }) {
           )}>
             {actionDesc}
           </span>
-          {event.data?.time_elapsed && (
+          {event.data?.time_elapsed != null && (
             <span className="ml-auto text-[10px] text-gray-500 tabular-nums flex-shrink-0">
               {(event.data.time_elapsed as number).toFixed(1)}s
             </span>
@@ -217,7 +215,7 @@ function LiveProgressBar({ progress, message }: { progress: number; message: str
 }
 
 /* ─── Plan Summary with Step States（终端风格，带执行状态）── */
-interface StepState { agent_type: string; status: 'pending' | 'running' | 'done' | 'failed' }
+interface StepState { agent_type: string; status: 'pending' | 'running' | 'done' | 'completed' | 'failed' }
 
 function PlanSummary({ event, stepStates }: { event: StreamEvent; stepStates: StepState[] }) {
   const tasks = (event.data?.tasks as any[]) || [];
@@ -268,7 +266,7 @@ function PlanSummary({ event, stepStates }: { event: StreamEvent; stepStates: St
           );
         })}
       </div>
-      {event.data?.reasoning && (
+      {!!event.data?.reasoning && (
         <p className="mt-1 text-[9px] text-gray-600 font-mono leading-relaxed">
           {'// '}{event.data.reasoning as string}
         </p>
@@ -278,9 +276,8 @@ function PlanSummary({ event, stepStates }: { event: StreamEvent; stepStates: St
 }
 
 /* ─── Main Component ─── */
-export function AgentLiveView({ onEdit, onPublish }: {
+export function AgentLiveView({ onEdit }: {
   onEdit?: (contentId: string) => void;
-  onPublish?: (contentId: string) => void;
 }) {
   const { streamEvents, llmChunks, reasoningChunks, currentTask, isRunning, wsConnectionState } = useAgentStore();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -398,7 +395,6 @@ export function AgentLiveView({ onEdit, onPublish }: {
   const totalSteps = planTasks.length;
   const doneSteps = planTasks.filter(s => s.status === 'done' || s.status === 'completed').length;
   const failedSteps = planTasks.filter(s => s.status === 'failed').length;
-  const message = currentTask?.progress_message || '';
 
   return (
     <div className="flex flex-col h-full bg-[#0d1117] rounded-xl overflow-hidden border border-[#30363d]">
@@ -516,7 +512,7 @@ export function AgentLiveView({ onEdit, onPublish }: {
               {(item.type === 'flush') && item.agent && (
                 <div className="pl-2">
                   {item.reasoningChunks && item.reasoningChunks.length > 0 && (
-                    <ReasoningBlock agent={item.agent} chunks={item.reasoningChunks} />
+                    <ReasoningBlock chunks={item.reasoningChunks} />
                   )}
                   {item.llmChunks && item.llmChunks.length > 0 && (
                     <LLMTerminalLine agent={item.agent} chunks={item.llmChunks} />

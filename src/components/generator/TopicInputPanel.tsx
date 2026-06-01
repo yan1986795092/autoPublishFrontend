@@ -12,7 +12,7 @@ import { HotTopicsPanel } from './HotTopicsPanel';
 import { Sparkles, Loader2, RefreshCw, SlidersHorizontal, Wand2, Layers } from 'lucide-react';
 import { generateStream, contentsApi, platformsApi } from '../../services/api';
 import { cn } from '../../utils/helpers';
-import type { GenerateParams, Platform } from '../../types';
+import type { Platform } from '../../types';
 
 const exampleTopics = [
   '如何高效学习编程？',
@@ -49,7 +49,6 @@ export function TopicInputPanel() {
     error,
     setTopic,
     setPlatformCode,
-    setParameters,
     setGeneratedContent,
     setStreamingContent,
     setStatus,
@@ -182,7 +181,6 @@ export function TopicInputPanel() {
         topic: draft.topic,
         platforms: platforms.map((p) => p.code),
         parameters: draft.parameters,
-        model: draft.model || undefined,
       });
 
       if (res.data.success && res.data.data) {

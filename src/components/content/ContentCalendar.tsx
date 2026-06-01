@@ -26,22 +26,28 @@ export function ContentCalendar() {
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [calendarData, setCalendarData] = useState<Record<string, CalendarItem[]>>({});
-  const [loading, setLoading] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
   useEffect(() => {
     const fetch = async () => {
-      setLoading(true);
       try {
         const res = await contentsApi.calendar(year, month);
         const data = res.data.data;
-        if (data) {
-          setCalendarData(data.calendar || {});
+        if (data && data.calendar) {
+          const calendar: Record<string, CalendarItem[]> = {};
+          for (const [date, items] of Object.entries(data.calendar)) {
+            calendar[date] = (items as Array<{ id: string; title: string; type: string; platform_code: string; status: string }>).map(item => ({
+              id: item.id,
+              title: item.title,
+              type: (item.type as 'created' | 'scheduled') || 'created',
+              platform_code: item.platform_code,
+              status: item.status,
+            }));
+          }
+          setCalendarData(calendar);
         }
       } catch {
         showToast('加载日历数据失败', 'error');
-      } finally {
-        setLoading(false);
       }
     };
     fetch();

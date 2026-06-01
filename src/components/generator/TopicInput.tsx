@@ -3,11 +3,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useGeneratorStore } from '../../stores/useGeneratorStore';
 import { useUIStore } from '../../stores/useUIStore';
 import { Button } from '../ui/button';
-import { Input } from '../ui/input';
 import { Sparkles, Loader2, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import { contentsApi } from '../../services/api';
 import { cn } from '../../utils/helpers';
-import type { GenerateParams } from '../../types';
 import {
   Dialog,
   DialogContent,

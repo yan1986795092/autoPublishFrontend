@@ -10,10 +10,11 @@ const AUDIENCE_OPTIONS = [
 ] as const;
 
 export function AudienceParams({ disabled }: { disabled?: boolean }) {
-  const { parameters, setParameters } = useGeneratorStore();
+  const { draft, setParameters } = useGeneratorStore();
+  const parameters = draft.parameters;
   const [keywordInput, setKeywordInput] = useState('');
 
-  const keywords = (parameters.keywords || '').split(',').filter(Boolean);
+  const keywords = (parameters.keywords || '').split(',').filter(Boolean) as string[];
 
   const addKeyword = useCallback((tag: string) => {
     const trimmed = tag.trim();
@@ -24,7 +25,7 @@ export function AudienceParams({ disabled }: { disabled?: boolean }) {
   }, [keywords, setParameters]);
 
   const removeKeyword = useCallback((tag: string) => {
-    const next = keywords.filter((k) => k !== tag).join(',');
+    const next = keywords.filter((k: string) => k !== tag).join(',');
     setParameters({ keywords: next });
   }, [keywords, setParameters]);
 

@@ -1,5 +1,4 @@
 import { ChevronRight } from 'lucide-react';
-import { cn } from '../../utils/helpers';
 
 export interface BreadcrumbItem {
   label: string;

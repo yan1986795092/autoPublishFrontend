@@ -97,9 +97,7 @@ export function PlatformDiffView({ sourceContent, adaptedContent, sourceLabel, a
 
             {/* Diff rows */}
             <div className="px-3 pb-3 max-h-48 overflow-y-auto space-y-0.5">
-              {segments.map((seg, i) => {
-                const isChange = seg.type !== 'equal';
-                return (
+              {segments.map((seg, i) => (
                   <div
                     key={i}
                     className={cn(
@@ -116,8 +114,7 @@ export function PlatformDiffView({ sourceContent, adaptedContent, sourceLabel, a
                       {seg.type === 'insert' ? seg.text : seg.type === 'equal' ? seg.text : ''}
                     </div>
                   </div>
-                );
-              })}
+              ))}
             </div>
           </motion.div>
         )}

@@ -11,7 +11,7 @@ import { SkillEditModal } from './SkillEditModal';
 import {
   Search, Plus, Download, ChevronDown, ChevronUp,
   BookOpen, BarChart2, Code2, Globe, Palette, Megaphone, Sparkles,
-  Star, Trash2, X, Loader2, Check,
+  Star, Trash2, Loader2,
 } from 'lucide-react';
 
 const CATEGORY_ICONS: Record<string, React.ElementType> = {
@@ -110,7 +110,7 @@ export function SkillSelector({ onApply, className }: SkillSelectorProps) {
           skill_id: skillMeta.id,
           skill_name: skillMeta.name,
         }, full);
-        showToast(`${skillMeta.icon} ${skillMeta.name} 已应用`, 'success', 1500);
+        showToast(`${skillMeta.icon} ${skillMeta.name} 已应用`, 'success', { label: '好的', onClick: () => {} });
       }
     } catch {
       showToast('加载 Skill 失败', 'error');
@@ -247,7 +247,6 @@ export function SkillSelector({ onApply, className }: SkillSelectorProps) {
                 {filtered.map(skill => {
                   const isExpanded = expanded === skill.id;
                   const isApplying = applyingId === skill.id;
-                  const Icon = CATEGORY_ICONS[skill.category] || Sparkles;
                   const colorClass = CATEGORY_COLORS[skill.category] || CATEGORY_COLORS.custom;
 
                   return (
@@ -326,10 +325,10 @@ export function SkillSelector({ onApply, className }: SkillSelectorProps) {
                           >
                             <div className="mt-1 p-2.5 rounded-lg border border-app-border bg-app-surface/50 space-y-2">
                               <p className="text-[10px] text-app-text-secondary leading-relaxed">{skill.description}</p>
-                              {skill.preset_plan && (
+                              {Boolean((skill as unknown as Record<string, unknown>).preset_plan) && (
                                 <div className="text-[10px] text-app-text-tertiary">
                                   <span className="font-medium">Agent 流程:</span>{' '}
-                                  {((skill as any).preset_plan?.agent_sequence as string[] || []).join(' → ')}
+                                  {((skill as unknown as Record<string, unknown>).preset_plan as { agent_sequence?: string[] } | null | undefined)?.agent_sequence?.join(' → ') || ''}
                                 </div>
                               )}
                             </div>

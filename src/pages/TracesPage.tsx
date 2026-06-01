@@ -2,10 +2,24 @@ import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import {
   Search, RefreshCw, ChevronLeft, ChevronRight, AlertTriangle,
-  CheckCircle2, Clock, Zap, Activity, Filter, X, ExternalLink,
+  CheckCircle2, Activity, Filter, X, ExternalLink,
 } from 'lucide-react';
-import { observabilityApi, type TraceSearchResult, type TraceStats } from '../../services/api';
-import { cn } from '../../utils/helpers';
+import { observabilityApi, type TraceSearchResult, type TraceStats, type TraceDetail } from '../services/api';
+import { cn } from '../utils/helpers';
+
+interface TraceSpan {
+  span_id: string;
+  trace_id: string;
+  parent_span_id?: string;
+  operation_name: string;
+  service_name: string;
+  start_time: string;
+  relative_start_ms: number;
+  duration_ms: number;
+  is_error: boolean;
+  tags: Record<string, unknown>;
+  logs: Array<{ timestamp: string; fields: Record<string, unknown> }>;
+}
 
 const TIME_OPTIONS = [
   { label: '最近 1 小时', value: '1h' },
@@ -122,7 +136,9 @@ export function TracesPage() {
       setResult(resultData);
       setStats(statsData);
     } catch (e: unknown) {
-      setError((e as Record<string, unknown>)?.response?.data?.detail || (e as Error)?.message || '加载失败');
+      const err = e as Record<string, unknown>;
+      const errMsg = (err?.response as Record<string, unknown>)?.data as Record<string, unknown>;
+      setError((errMsg?.detail as string) || (e as Error)?.message || '加载失败');
     } finally {
       setLoading(false);
     }
@@ -333,7 +349,7 @@ export function TracesPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-app-border/20">
-              {result?.spans.map((span, i) => (
+              {(result?.spans as unknown as TraceSpan[]).map((span, i) => (
                 <tr
                   key={`${span.trace_id}-${span.span_id}-${i}`}
                   className="hover:bg-app-elevated/50 transition-colors cursor-pointer"
@@ -436,18 +452,25 @@ export function TracesPage() {
 // ── Trace Detail Drawer ─────────────────────────────────────────────────────
 
 function TraceDrawer({ traceId, onClose }: { traceId: string; onClose: () => void }) {
-  const [detail, setDetail] = useState<Record<string, unknown> | null>(null);
+  const [detail, setDetail] = useState<TraceDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeSpanId, setActiveSpanId] = useState<string | null>(null);
 
   useEffect(() => {
     observabilityApi.getTrace(traceId).then((d) => {
-      setDetail(d as Record<string, unknown>);
+      // Build span_map from spans array for component compatibility
+      const spanMap: Record<string, TraceSpan> = {};
+      if (d.spans) {
+        for (const s of d.spans) {
+          spanMap[s.span_id] = s;
+        }
+      }
+      setDetail({ ...d, span_map: spanMap } as TraceDetail);
       setLoading(false);
     }).catch(() => setLoading(false));
   }, [traceId]);
 
-  const activeSpan = (detail?.span_map as Record<string, unknown> | undefined)?.[activeSpanId ?? ''] as Record<string, unknown> | undefined;
+  const activeSpan = detail?.span_map?.[activeSpanId ?? ''];
 
   return (
     <div className="fixed inset-0 z-50 flex">
@@ -527,7 +550,7 @@ function TraceTimeline({
   activeSpanId,
   onSelectSpan,
 }: {
-  spans: Record<string, unknown>[];
+  spans: TraceSpan[];
   activeSpanId: string | null;
   onSelectSpan: (id: string | null) => void;
 }) {
@@ -550,9 +573,9 @@ function TraceTimeline({
           </div>
 
           {/* Spans */}
-          {spans.map((span) => {
-            const left = (span.relative_start_ms / msPerPx) * 600 / 600;
-            const width = Math.max(4, (span.duration_ms / msPerPx) * 600 / 600);
+          {spans.map((span: TraceSpan) => {
+            const left = ((span.relative_start_ms as number) / msPerPx) * 600 / 600;
+            const width = Math.max(4, ((span.duration_ms as number) / msPerPx) * 600 / 600);
             const isActive = span.span_id === activeSpanId;
 
             return (
@@ -613,7 +636,7 @@ function TraceTimeline({
 
 // ── Span Detail Panel ──────────────────────────────────────────────────────
 
-function SpanDetailPanel({ span }: { span: Record<string, unknown> }) {
+function SpanDetailPanel({ span }: { span: TraceSpan }) {
   const tags = span.tags || {};
   const importantKeys = [
     'agent.system', 'agent.node', 'agent.skill.name', 'agent.complexity',
@@ -673,11 +696,11 @@ function SpanDetailPanel({ span }: { span: Record<string, unknown> }) {
       </div>
 
       {/* Log Events */}
-      {span.logs?.length > 0 && (
+      {(span.logs as Array<{ timestamp: string; fields: Record<string, unknown> }>)?.length > 0 && (
         <div className="p-4">
           <p className="text-[9px] text-app-text-tertiary uppercase tracking-wider mb-2">日志事件 ({span.logs.length})</p>
           <div className="space-y-1">
-            {span.logs?.map((log: Record<string, unknown>, i: number) => (
+            {(span.logs as Array<{ timestamp: string; fields: Record<string, unknown> }>)?.map((log, i: number) => (
               <div key={i} className="flex items-start gap-2 text-[10px]">
                 <span className="text-app-text-tertiary flex-shrink-0 font-mono">{formatTime(log.timestamp as string)}</span>
                 <div className="flex-1 space-y-0.5">

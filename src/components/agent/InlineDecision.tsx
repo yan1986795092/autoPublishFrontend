@@ -15,7 +15,7 @@ export function InlineDecision({ event, onSubmit, onSkip }: InlineDecisionProps)
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  const data = event.data as PendingDecision;
+  const data = event.data as unknown as PendingDecision;
   const question = data?.question || '需要你的决定';
   const options = data?.options || [];
   const context = data?.context;

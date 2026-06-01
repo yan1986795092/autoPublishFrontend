@@ -16,7 +16,8 @@ const CTA_OPTIONS: Array<{ value: GenerateParams['call_to_action']; label: strin
 ];
 
 export function AdvancedParams({ disabled }: { disabled?: boolean }) {
-  const { parameters, setParameters } = useGeneratorStore();
+  const { draft, setParameters } = useGeneratorStore();
+  const parameters = draft.parameters;
 
   return (
     <div className="space-y-3">

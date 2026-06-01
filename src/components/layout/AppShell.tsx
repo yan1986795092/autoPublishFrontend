@@ -39,10 +39,9 @@ export function AppShell() {
       <div
         className={cn(
           'flex flex-1 min-h-0 transition-all duration-200',
-          sidebarCollapsed ? 'ml-[--sidebar-w-collapsed]' : 'ml-[--sidebar-w]',
+          sidebarCollapsed ? `ml-[${SIDEBAR.WIDTH_COLLAPSED}px]` : `ml-[${SIDEBAR.WIDTH}px]`,
           'max-md:ml-0 max-md:pt-14 max-md:px-3'
         )}
-        style={{ '--sidebar-w': `${SIDEBAR.WIDTH}px`, '--sidebar-w-collapsed': `${SIDEBAR.WIDTH_COLLAPSED}px` } as React.CSSProperties}
       >
         <main className="flex-1 overflow-auto p-6 max-md:p-3" role="main" aria-label="主内容区域">
           <AnimatePresence mode="wait">

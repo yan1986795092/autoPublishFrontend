@@ -28,7 +28,8 @@ const POV_OPTIONS: Array<{ value: GenerateParams['point_of_view']; label: string
 ];
 
 export function StyleParams({ disabled }: { disabled?: boolean }) {
-  const { parameters, setParameters } = useGeneratorStore();
+  const { draft, setParameters } = useGeneratorStore();
+  const parameters = draft.parameters;
 
   return (
     <div className="space-y-3">

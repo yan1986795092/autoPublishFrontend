@@ -479,6 +479,7 @@ export interface TraceSpan {
   tags: Record<string, unknown>;
   logs: Array<{ timestamp: string; fields: Record<string, unknown> }>;
   score: number;
+  relative_start_ms: number;
 }
 
 export interface TraceSearchResult {
@@ -496,6 +497,7 @@ export interface TraceDetail {
   span_count: number;
   error_count: number;
   spans: TraceSpan[];
+  span_map?: Record<string, TraceSpan>;
 }
 
 export interface TraceStats {

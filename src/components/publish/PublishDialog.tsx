@@ -12,7 +12,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useGeneratorStore } from '../../stores/useGeneratorStore';
 import { useUIStore } from '../../stores/useUIStore';
 import { publishApi, platformsApi } from '../../services/api';
-import { Send, Loader2, AlertCircle, CheckCircle2, FileText, Clock, TrendingUp } from 'lucide-react';
+import { Send, Loader2, AlertCircle, CheckCircle2, FileText, Clock } from 'lucide-react';
 import { cn } from '../../utils/helpers';
 import type { PublishResponse, Platform } from '../../types';
 import { BestTimeSuggest } from './BestTimeSuggest';
@@ -97,7 +97,7 @@ export function PublishDialog() {
           platform_code: selectedPlatforms[0],
           publish_mode: mode,
           schedule_time: effectiveScheduleTime,
-        });
+        } as unknown as Parameters<typeof publishApi.publish>[0]);
 
         if (res.data.success && res.data.data) {
           setResult({ type: 'single', records: [res.data.data] });

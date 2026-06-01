@@ -6,11 +6,9 @@ import { Badge } from '../components/ui/badge';
 import { ScrollArea } from '../components/ui/scroll-area';
 import { useAgentStore } from '../stores/useAgentStore';
 import { useUIStore } from '../stores/useUIStore';
-import { agentApi } from '../services/api';
-import { cn } from '../utils/helpers';
 import Markdown from 'react-markdown';
-import { Send, Bot, Sparkles, Plus, Copy, Check, AlertCircle, Square, Eye, X } from 'lucide-react';
-import type { AsyncTask, PendingDecision, DecisionSubmitRequest, ChatMessage, ThinkingStep, LLMChunk } from '../types';
+import { Send, Bot, Sparkles, Plus, Copy, Check, AlertCircle, Square, Eye } from 'lucide-react';
+import type { AsyncTask, PendingDecision, DecisionSubmitRequest, ChatMessage, ThinkingStep, LLMChunk, AgentResult } from '../types';
 import { DecisionDialog } from '../components/agent/DecisionDialog';
 import { RecoveryDialog } from '../components/agent/RecoveryDialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
@@ -52,11 +50,11 @@ export function AgentPage() {
     currentTaskId, currentTask, currentResult,
     isRunning, error, pendingDecision, messages,
     thinkingSteps, llmChunks, recoveryState, wsConnectionState,
-    addMessage, updateMessage, clearMessages,
-    runAsync, runStreaming, previewPlan, loadTaskHistory, clearCurrent,
+    addMessage, updateMessage,
+    runAsync, runStreaming, previewPlan, clearCurrent,
     retryStep, skipStep,
     submitDecision, clearDecision, cancelTask,
-    connectWebSocket, disconnectWebSocket,
+    disconnectWebSocket,
   } = useAgentStore();
 
   const showToast = useUIStore((s) => s.showToast);
@@ -93,14 +91,14 @@ export function AgentPage() {
           showToast('Agent 需要你的决定', 'info');
           break;
         case 'result': {
-          const result = data.data;
+          const result = data.data as AgentResult;
           store.setCurrentResult(result);
           store.loadTaskHistory();
           const assistantMsg = store.messages.find((m) => m.role === 'assistant' && m.status === 'running');
           if (assistantMsg) {
             store.updateMessage(assistantMsg.id, {
               status: 'completed',
-              content: result.output?.full_text || result.output?.content || JSON.stringify(result.output, null, 2),
+              content: (result.output?.full_text as string) || (result.output?.content as string) || JSON.stringify(result.output, null, 2),
               result,
             });
           }
@@ -164,7 +162,7 @@ export function AgentPage() {
       if (store.currentResult) {
         updateMessage(assistantId, {
           status: store.currentResult.status === 'completed' ? 'completed' : 'failed',
-          content: store.currentResult.output?.full_text || store.currentResult.output?.content || JSON.stringify(store.currentResult.output, null, 2),
+          content: (store.currentResult.output?.full_text as string) || (store.currentResult.output?.content as string) || (typeof store.currentResult.output === 'object' ? JSON.stringify(store.currentResult.output, null, 2) : String(store.currentResult.output ?? '')),
           result: store.currentResult,
         });
       } else if (store.error) {

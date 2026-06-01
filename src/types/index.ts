@@ -211,6 +211,19 @@ export type {
   PreviousGeneration,
   ContentType,
   ContentStyle,
+  StreamEvent,
+  LLMChunk,
+  ReasoningChunk,
+  StreamToolUse,
+  RecoveryState,
+  PlanEventData,
+  ThinkingStepEventData,
+  ProgressEventData,
+  ResultEventData,
+  ErrorEventData,
+  LLMToolEventData,
+  DecisionRequiredData,
+  AgentMetrics,
 } from './agent';
 
 export type {

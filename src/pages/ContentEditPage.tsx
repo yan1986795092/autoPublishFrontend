@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { contentsApi, publishApi } from '../services/api';
+import { contentsApi } from '../services/api';
 import type { Content, ContentVersion } from '../types';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
@@ -9,13 +9,11 @@ import { Textarea } from '../components/ui/textarea';
 import { SkeletonCard, SkeletonText } from '../components/ui/Skeleton';
 import { TagInput } from '../components/ui/TagInput';
 import { formatRelativeTime, cn } from '../utils/helpers';
-import {
-  ArrowLeft, Save, RotateCcw, Eye, History, FileText, Loader2, Download, ClipboardCopy, Palette, MessageSquare, Lightbulb
-} from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useUIStore } from '../stores/useUIStore';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
+import { History as HistoryIcon, Loader2, Save, RotateCcw, Eye, Download, ClipboardCopy, ArrowLeft, FileText, Lightbulb, MessageSquare, Palette } from 'lucide-react';
 
 const platformConfig: Record<string, { label: string; icon: React.ReactNode }> = {
   xiaohongshu: { label: '小红书', icon: <Palette className="w-3 h-3" /> },
@@ -45,12 +43,6 @@ export function ContentEditPage() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [diffMode, setDiffMode] = useState(false);
   const [diffBase, setDiffBase] = useState<string | null>(null);
-  // Publish records (reserved for future use)
-  const [publishRecords, setPublishRecords] = useState<Array<{
-    id: string; platform_code: string; status: string;
-    platform_post_id?: string; platform_url?: string;
-    error_message?: string; published_at?: string; created_at: string;
-  }>>([]);
 
   useEffect(() => {
     if (!id) { navigate('/content'); return; }
@@ -69,12 +61,6 @@ export function ContentEditPage() {
         setEditTags(data.tags || []);
         setPlatform(data.platform_code || 'xiaohongshu');
         if (data.versions) setVersions(data.versions);
-        try {
-          const pubRes = await publishApi.getContentHistory(contentId);
-          if (pubRes.data.success && pubRes.data.data) {
-            setPublishRecords(pubRes.data.data.records || []);
-          }
-        } catch { /* publish history unavailable */ }
       }
     } catch {
       showToast('加载内容失败', 'error');
@@ -95,7 +81,7 @@ export function ContentEditPage() {
     if (!id) return;
     setSaving(true);
     try {
-      await contentsApi.update(id, { title: editTitle, content_md: editContentMd, tags: editTags.join(',') });
+      await contentsApi.update(id, { title: editTitle, content_md: editContentMd });
       showToast('保存成功', 'success');
       setIsDirty(false);
       loadContent(id);
@@ -197,7 +183,7 @@ export function ContentEditPage() {
           </Button>
           {versions.length > 0 && (
             <Button variant="outline" size="sm" onClick={() => setHistoryOpen(true)} className="h-8 text-xs">
-              <History className="h-3.5 w-3.5 mr-1" />
+              <HistoryIcon className="h-3.5 w-3.5 mr-1" />
               历史
             </Button>
           )}
@@ -302,7 +288,7 @@ export function ContentEditPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center justify-between text-sm">
               <div className="flex items-center gap-2">
-                <History className="w-4 h-4 text-primary-400" />
+                <HistoryIcon className="w-4 h-4 text-primary-400" />
                 版本历史
               </div>
               {versions.length >= 2 && (
@@ -352,8 +338,6 @@ export function ContentEditPage() {
                 return null;
               })()}
               {versions.map((version, idx) => {
-                const isBase = diffMode && diffBase === version.id;
-                const isSelected = diffMode && versions.filter(v => v.id === diffBase || diffBase === null).length < 2;
                 return (
                 <div key={version.id}
                   onClick={() => {
@@ -363,7 +347,7 @@ export function ContentEditPage() {
                   }}
                   className={cn(
                     'rounded-lg border bg-app-surface p-3 transition-colors',
-                    isBase ? 'border-blue-500/50 bg-blue-500/5' : 'border-app-border',
+                    diffMode && diffBase === version.id ? 'border-blue-500/50 bg-blue-500/5' : 'border-app-border',
                     diffMode ? 'cursor-pointer hover:border-blue-500/30' : ''
                   )}
                 >
@@ -372,9 +356,9 @@ export function ContentEditPage() {
                       {diffMode && (
                         <div className={cn(
                           'w-3.5 h-3.5 rounded border flex items-center justify-center',
-                          isBase ? 'border-blue-500 bg-blue-500' : 'border-app-border'
+                          diffMode && diffBase === version.id ? 'border-blue-500 bg-blue-500' : 'border-app-border'
                         )}>
-                          {isBase && <span className="text-white text-[8px]">✓</span>}
+                          {diffMode && diffBase === version.id && <span className="text-white text-[8px]">✓</span>}
                         </div>
                       )}
                       <Badge variant={idx === 0 ? 'primary' : 'outline'} size="sm">v{version.version_number}</Badge>

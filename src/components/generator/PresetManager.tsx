@@ -7,7 +7,7 @@ import { Save, FolderOpen, Trash2, Loader2 } from 'lucide-react';
 
 export function PresetManager() {
   const { presets, loading, fetchPresets, loadPreset, deletePreset } = usePresetStore();
-  const { draft, setTopic, setPlatformCode, setParameters, setTemplateId } = useGeneratorStore();
+  const { setTopic, setPlatformCode, setParameters, setTemplateId } = useGeneratorStore();
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
 

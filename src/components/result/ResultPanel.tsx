@@ -1,19 +1,20 @@
-import { useState, useCallback, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useState, useCallback } from 'react';
+import { motion } from 'framer-motion';
 import { useEditorStore } from '../../stores/useEditorStore';
 import { useAgentStore } from '../../stores/useAgentStore';
 import { useUIStore } from '../../stores/useUIStore';
 import { useContentPipelineStore, PIPELINE_STAGE_LABELS, PIPELINE_STAGE_COLORS, PIPELINE_STAGE_ORDER } from '../../stores/useContentPipelineStore';
+import { useGeneratorStore } from '../../stores/useGeneratorStore';
 import { ContentEditor } from '../editor/ContentEditor';
 import { Button } from '../ui/button';
 import { cn } from '../../utils/helpers';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Eye, PenLine, Copy, Download, FileText, Sparkles, Loader2, Check, Send, CheckCircle2, ArrowUp } from 'lucide-react';
+import { Eye, PenLine, Copy, Download, FileText, Sparkles, Loader2, Check } from 'lucide-react';
 
 export function ResultPanel() {
-  const { content_md, title } = useEditorStore();
-  const { isRunning, streamEvents } = useAgentStore();
+  const { content_md } = useEditorStore();
+  const { isRunning } = useAgentStore();
   const { showToast } = useUIStore();
   const { stage, setStage } = useContentPipelineStore();
   const [isEditMode, setIsEditMode] = useState(false);
@@ -21,8 +22,8 @@ export function ResultPanel() {
 
   const hasContent = content_md.trim().length > 0;
 
-  // Derive a filename from the generated title or a fallback
-  const exportName = (title || 'content').replace(/[<>:"/\\|?*]/g, '_').slice(0, 80) || 'content';
+  // Derive a filename from the draft title or a fallback
+  const { draft } = useGeneratorStore();
 
   const handleCopy = useCallback(async () => {
     if (!content_md) return;
@@ -51,10 +52,10 @@ export function ResultPanel() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${exportName}.md`;
+    a.download = `${(draft.title || 'content').replace(/[<>:"/\\|?*]/g, '_').slice(0, 80) || 'content'}.md`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [content_md, exportName]);
+  }, [content_md, draft.title]);
 
   const handleToggleMode = useCallback(() => {
     setIsEditMode(prev => !prev);

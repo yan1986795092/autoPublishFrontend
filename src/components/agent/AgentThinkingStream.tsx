@@ -9,146 +9,11 @@ import {
   ChevronDown, MessageSquare, ListChecks,
   FileText, Eye, Send
 } from 'lucide-react';
-import type { StreamEvent, AgentResult, LLMChunk, ReasoningChunk, StreamToolUse } from '../../types';
-import { getAgentMeta, getAgentActionDesc, getAgentIcon, getAgentColor } from '../../config/agents';
+import type { StreamEvent } from '../../types';
+import { TimelineStep } from './TimelineStep';
 import { AgentIcon } from './AgentIcon';
 import { ToolCard } from './ToolCard';
-
-/* ─── Timeline Step ─── */
-function TimelineStep({
-  event,
-  isLast,
-}: {
-  event: StreamEvent;
-  isLast: boolean;
-}) {
-  const [showReasoning, setShowReasoning] = useState(false);
-  const [showInterim, setShowInterim] = useState(false);
-  const isRunning = event.status === 'running';
-  const isDone = event.status === 'done' || event.status === 'completed';
-  const isFailed = event.status === 'failed';
-  const agent = event.agent || '';
-  const meta = getAgentMeta(agent);
-  const intermediateOutput = (event.data?.intermediate_output as string) || '';
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.2 }}
-      className="flex gap-3 group"
-    >
-      {/* Timeline gutter */}
-      <div className="flex flex-col items-center flex-shrink-0 w-4">
-        <div
-          className={cn(
-            'w-2 h-2 rounded-full border-2 transition-colors',
-            isDone
-              ? 'bg-green-500 border-green-500'
-              : isFailed
-                ? 'bg-red-500 border-red-500'
-                : isRunning
-                  ? 'bg-blue-500 border-blue-500 animate-pulse'
-                  : 'bg-app-text-tertiary/30 border-app-text-tertiary/30'
-          )}
-        />
-        {!isLast && <div className="w-px flex-1 bg-app-border/50 min-h-[8px]" />}
-      </div>
-
-      {/* Content */}
-      <div className={cn('pb-5 min-w-0 flex-1', isLast && 'pb-0')}>
-        {/* Top row: agent + action + time */}
-        <div className="flex items-center gap-2 min-w-0">
-          {/* Agent badge */}
-          <span
-            className={cn(
-              'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium border flex-shrink-0',
-              getAgentColor(agent),
-              isDone && 'opacity-70',
-              isRunning && ''
-            )}
-          >
-            <AgentIcon agentType={agent} size={12} className={cn('w-3 h-3', agent ? 'text-inherit' : '')} />
-            {meta.label}
-          </span>
-
-          {/* Action description */}
-          <span className="text-xs text-app-text-secondary truncate">
-            {getAgentActionDesc(agent, event.status || 'running')}
-          </span>
-
-          {/* Time elapsed */}
-          {event.data?.time_elapsed != null && (
-            <span className="text-[10px] text-app-text-tertiary tabular-nums ml-auto flex-shrink-0">
-              {(event.data.time_elapsed as number).toFixed(1)}s
-            </span>
-          )}
-        </div>
-
-        {/* Reasoning (collapsed by default, but show a hint if present) */}
-        {event.reasoning && (
-          <div className="mt-1">
-            <button
-              onClick={() => setShowReasoning(!showReasoning)}
-              className="inline-flex items-center gap-1 text-[10px] text-yellow-400/50 hover:text-yellow-400 transition-colors"
-            >
-              <Brain className="w-3 h-3" />
-              {showReasoning ? '收起' : '查看思考'}
-              <ChevronDown className={cn('w-2.5 h-2.5 transition-transform', showReasoning && 'rotate-180')} />
-            </button>
-            <AnimatePresence>
-              {showReasoning && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: 'auto', opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ duration: 0.15 }}
-                  className="overflow-hidden"
-                >
-                  <p className="mt-1 text-[11px] text-yellow-300/50 leading-relaxed pl-3 border-l-2 border-yellow-500/30">
-                    {event.reasoning}
-                  </p>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-        )}
-
-        {/* Output summary */}
-        {isDone && event.output_summary && (
-          <p className="mt-1 text-[10px] text-app-text-tertiary leading-relaxed line-clamp-2">
-            {event.output_summary}
-          </p>
-        )}
-
-        {/* Tokens */}
-        {event.data?.tokens_used && (
-          <p className="mt-0.5 text-[10px] text-app-text-tertiary/60">
-            tokens: {event.data.tokens_used as number}
-          </p>
-        )}
-
-        {/* Intermediate output (collapsible) */}
-        {intermediateOutput && (
-          <div className="mt-1 rounded border border-cyan-500/20 bg-cyan-500/5 p-1.5">
-            <button
-              onClick={() => setShowInterim(!showInterim)}
-              className="flex items-center gap-1 text-[10px] text-cyan-400/70 hover:text-cyan-400 transition-colors"
-            >
-              <ChevronDown className={cn('w-2.5 h-2.5 transition-transform', showInterim && 'rotate-180')} />
-              查看中间结果
-            </button>
-            {showInterim && (
-              <pre className="text-[10px] mt-1 text-app-text-secondary font-mono whitespace-pre-wrap leading-relaxed max-h-32 overflow-y-auto">
-                {intermediateOutput}
-              </pre>
-            )}
-          </div>
-        )}
-      </div>
-    </motion.div>
-  );
-}
+import { getAgentMeta, getAgentActionDesc, getAgentColor } from '../../config/agents';
 
 /* ─── Plan Summary (compact banner) ─── */
 function PlanSummaryCard({ event }: { event: StreamEvent }) {
@@ -196,7 +61,7 @@ function PlanSummaryCard({ event }: { event: StreamEvent }) {
                 </span>
               ))}
             </div>
-            {event.data?.reasoning && (
+            {!!event.data?.reasoning && (
               <p className="mt-2 text-[11px] text-app-text-tertiary leading-relaxed">
                 {event.data.reasoning as string}
               </p>
@@ -245,12 +110,11 @@ function ProgressCard({ event }: { event: StreamEvent }) {
 }
 
 /* ─── Result Summary (compact, since right panel has full result) ─── */
-function ResultCard({ event, onEdit, onPublish }: {
+function ResultCard({ event, onPublish }: {
   event: StreamEvent;
-  onEdit?: (contentId: string) => void;
   onPublish?: (contentId: string) => void;
 }) {
-  const result = event.data as AgentResult;
+  const result = event.data as unknown as AgentResult;
   const contentId = (result?.output?._content_id as string) || '';
   const [expanded, setExpanded] = useState(false);
   const fullText = (result?.output?.full_text as string) || (result?.output?.content as string) || '';
@@ -304,7 +168,7 @@ function ResultCard({ event, onEdit, onPublish }: {
           >
             <div className="rounded-lg border border-app-border bg-app-surface p-3 max-h-40 overflow-y-auto">
               <div className="prose prose-invert max-w-none text-[11px] text-app-text-secondary leading-relaxed">
-                <Markdown>{fullText.slice(0, 500)}{fullText.length > 500 ? '...' : ''}</Markdown>
+                <Markdown>{`${fullText.slice(0, 500)}${fullText.length > 500 ? '...' : ''}`}</Markdown>
               </div>
             </div>
           </motion.div>
@@ -325,7 +189,7 @@ function ErrorCard({ event }: { event: StreamEvent }) {
       <AlertCircle className="w-3.5 h-3.5 text-red-400 flex-shrink-0 mt-0.5" />
       <div>
         <span className="text-xs font-medium text-red-400">执行出错</span>
-        <p className="text-[11px] text-red-400/70 mt-0.5">{event.data?.message || '未知错误'}</p>
+        <p className="text-[11px] text-red-400/70 mt-0.5">{String(event.data?.message ?? '未知错误')}</p>
       </div>
     </motion.div>
   );
@@ -389,7 +253,7 @@ function LLMStreamCard({ agent, chunks }: { agent: string; chunks: LLMChunk[] })
 }
 
 /* ─── Reasoning Chain (compact, default collapsed) ─── */
-function ReasoningCard({ agent, chunks }: { agent: string; chunks: ReasoningChunk[] }) {
+function ReasoningCard({ chunks }: { agent: string; chunks: ReasoningChunk[] }) {
   const [expanded, setExpanded] = useState(false);
   const text = chunks.map(c => c.content).join('');
 
@@ -415,7 +279,7 @@ function ReasoningCard({ agent, chunks }: { agent: string; chunks: ReasoningChun
             className="overflow-hidden"
           >
             <p className="mt-1 text-[10px] text-yellow-300/40 leading-relaxed whitespace-pre-wrap pl-2 border-l border-yellow-500/20">
-              {text}
+              {text as string}
             </p>
           </motion.div>
         )}
@@ -425,11 +289,10 @@ function ReasoningCard({ agent, chunks }: { agent: string; chunks: ReasoningChun
 }
 
 /* ─── Main Component ─── */
-export function AgentThinkingStream({ onEdit, onPublish }: {
-  onEdit?: (contentId: string) => void;
+export function AgentThinkingStream({ onPublish }: {
   onPublish?: (contentId: string) => void;
 }) {
-  const { streamEvents, currentTaskId, pendingDecision, submitDecision, llmChunks, reasoningChunks } = useAgentStore();
+  const { streamEvents, currentTaskId, pendingDecision, submitDecision } = useAgentStore();
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -510,7 +373,7 @@ export function AgentThinkingStream({ onEdit, onPublish }: {
             </>
           )}
           {event.type === 'progress' && <ProgressCard event={event} />}
-          {event.type === 'result' && <ResultCard event={event} onEdit={onEdit} onPublish={onPublish} />}
+          {event.type === 'result' && <ResultCard event={event} onPublish={onPublish} />}
           {event.type === 'error' && <ErrorCard event={event} />}
           {event.type === 'tool_use' && (
             <div className="pl-7 pr-1 pb-2">
@@ -576,7 +439,7 @@ export function AgentThinkingStream({ onEdit, onPublish }: {
             id: 'pending-decision',
             type: 'decision_required',
             timestamp: Date.now(),
-            data: pendingDecision,
+            data: pendingDecision as unknown as Record<string, unknown>,
           }}
           onSubmit={handleDecision}
         />

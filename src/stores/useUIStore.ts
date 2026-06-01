@@ -7,7 +7,7 @@ export interface ToastAction {
   onClick: () => void;
 }
 
-interface UIState {
+export interface UIState {
   sidebarCollapsed: boolean;
   sidebarMobileOpen: boolean;
   activeTab: 'create' | 'content' | 'agent' | 'settings';
@@ -21,6 +21,7 @@ interface UIState {
   viewDensity: Density;
 
   toggleSidebar: () => void;
+  toggleSidebarMobile: () => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
   setActiveTab: (tab: UIState['activeTab']) => void;
   openPublishDialog: (contentId: string) => void;

@@ -15,7 +15,8 @@ const TONE_OPTIONS: Array<{ value: GenerateParams['tone']; label: string }> = [
 ];
 
 export function BasicParams({ disabled }: { disabled?: boolean }) {
-  const { parameters, setParameters } = useGeneratorStore();
+  const { draft, setParameters } = useGeneratorStore();
+  const parameters = draft.parameters;
 
   return (
     <div className="space-y-3">

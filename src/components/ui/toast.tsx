@@ -26,7 +26,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         open={!!toastMessage}
         onOpenChange={(open) => { if (!open) clearToast(); }}
         className={`
-          fixed bottom-6 right-6 z-[100] flex items-center gap-3
+          fixed bottom-6 right-6 z-[80] flex items-center gap-3
           rounded-xl border border-app-border bg-app-surface p-4
           shadow-lg
           data-[state=open]:animate-in data-[state=closed]:animate-out

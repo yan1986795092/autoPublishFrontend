@@ -3,7 +3,7 @@ import { Editor } from '@tiptap/react';
 import { useEditorStore } from '../../stores/useEditorStore';
 import { aiEditApi } from '../../services/api';
 import { cn } from '../../utils/helpers';
-import { BarChart3, Loader2, ChevronDown, ChevronUp, AlertTriangle, Info, AlertCircle, RefreshCw } from 'lucide-react';
+import { BarChart3, Loader2, ChevronDown, ChevronUp, AlertTriangle, Info, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { SEOScore } from '../../types';
 
@@ -34,7 +34,7 @@ export function SEOScorePanel({ editor }: Props) {
   const [score, setScore] = useState<SEOScore | null>(null);
   const [loading, setLoading] = useState(false);
   const [collapsed, setCollapsed] = useState(true);
-  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchScore = async (text: string) => {
     if (!text.trim() || text.length < 20) {
@@ -58,7 +58,7 @@ export function SEOScorePanel({ editor }: Props) {
   // Debounced auto-check on editor changes
   useEffect(() => {
     const handleUpdate = () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
+      if (timerRef.current != null) clearTimeout(timerRef.current);
       timerRef.current = setTimeout(() => {
         fetchScore(editor.state.doc.textContent);
       }, 1500);
@@ -67,7 +67,7 @@ export function SEOScorePanel({ editor }: Props) {
     editor.on('update', handleUpdate);
     return () => {
       editor.off('update', handleUpdate);
-      if (timerRef.current) clearTimeout(timerRef.current);
+      if (timerRef.current != null) clearTimeout(timerRef.current);
     };
   }, [editor, activePlatform]);
 

@@ -1,10 +1,19 @@
-import { Extension, Editor } from '@tiptap/core';
+import { Extension } from '@tiptap/core';
+import type { Editor } from '@tiptap/core';
 
 export interface MenuItem {
   label: string;
   icon: string;
   description: string;
   command: (editor: Editor) => void;
+}
+
+export interface SlashMenuStorage {
+  isOpen: boolean;
+  position: { top: number; left: number };
+  query: string;
+  selectedIndex: number;
+  slashPos: number;
 }
 
 export const SLASH_MENU_ITEMS: MenuItem[] = [
@@ -42,10 +51,26 @@ export const SLASH_MENU_ITEMS: MenuItem[] = [
   },
 ];
 
+function runItemCommand(editor: Editor, storage: SlashMenuStorage) {
+  const { slashPos } = storage;
+  storage.isOpen = false;
+
+  const { $from } = editor.state.selection;
+  const endPos = $from.pos;
+
+  if (slashPos >= 0 && endPos > slashPos) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    editor.chain().focus().command(({ tr }: any) => {
+      tr.delete(slashPos, endPos);
+      return true;
+    }).run();
+  }
+}
+
 export const SlashMenuExtension = Extension.create({
   name: 'slashMenu',
 
-  addStorage() {
+  addStorage(): SlashMenuStorage {
     return {
       isOpen: false,
       position: { top: 0, left: 0 },
@@ -56,6 +81,7 @@ export const SlashMenuExtension = Extension.create({
   },
 
   onUpdate() {
+    const storage = this.storage as SlashMenuStorage;
     const { selection } = this.editor.state;
     const { $from } = selection;
     const textBefore = $from.parent.textBetween(0, $from.parentOffset);
@@ -66,7 +92,6 @@ export const SlashMenuExtension = Extension.create({
       if (!query.includes(' ') && !query.includes('\n')) {
         const coords = this.editor.view.coordsAtPos($from.pos);
         const editorRect = this.editor.view.dom.getBoundingClientRect();
-        const storage = this.editor.storage.slashMenu as SlashMenuStorage;
         storage.isOpen = true;
         storage.query = query;
         storage.slashPos = $from.pos - query.length - 1;
@@ -79,24 +104,28 @@ export const SlashMenuExtension = Extension.create({
       }
     }
 
-    const storage = this.editor.storage.slashMenu as SlashMenuStorage;
     if (storage.isOpen) {
       storage.isOpen = false;
     }
   },
 
   addKeyboardShortcuts() {
+    const storage = this.storage as SlashMenuStorage;
+    const editor = this.editor;
+    const items = SLASH_MENU_ITEMS;
     return {
       Enter: () => {
-        const storage = this.editor.storage.slashMenu as SlashMenuStorage;
         if (storage.isOpen) {
-          this.executeCommand(storage.selectedIndex);
+          const item = items[storage.selectedIndex];
+          if (item) {
+            runItemCommand(editor, storage);
+            item.command(editor);
+          }
           return true;
         }
         return false;
       },
       ArrowUp: () => {
-        const storage = this.editor.storage.slashMenu as SlashMenuStorage;
         if (storage.isOpen) {
           storage.selectedIndex = Math.max(0, storage.selectedIndex - 1);
           return true;
@@ -104,18 +133,13 @@ export const SlashMenuExtension = Extension.create({
         return false;
       },
       ArrowDown: () => {
-        const storage = this.editor.storage.slashMenu as SlashMenuStorage;
         if (storage.isOpen) {
-          storage.selectedIndex = Math.min(
-            SLASH_MENU_ITEMS.length - 1,
-            storage.selectedIndex + 1,
-          );
+          storage.selectedIndex = Math.min(items.length - 1, storage.selectedIndex + 1);
           return true;
         }
         return false;
       },
       Escape: () => {
-        const storage = this.editor.storage.slashMenu as SlashMenuStorage;
         if (storage.isOpen) {
           storage.isOpen = false;
           return true;
@@ -124,37 +148,4 @@ export const SlashMenuExtension = Extension.create({
       },
     };
   },
-
-  executeCommand(index: number) {
-    const item = SLASH_MENU_ITEMS[index];
-    if (!item) return;
-    const storage = this.editor.storage.slashMenu as SlashMenuStorage;
-    const { slashPos } = storage;
-    storage.isOpen = false;
-
-    const { state } = this.editor;
-    const { $from } = state.selection;
-    const endPos = $from.pos;
-
-    if (slashPos >= 0 && endPos > slashPos) {
-      this.editor
-        .chain()
-        .focus()
-        .command(({ tr }) => {
-          tr.delete(slashPos, endPos);
-          return true;
-        })
-        .run();
-    }
-
-    item.command(this.editor);
-  },
 });
-
-interface SlashMenuStorage {
-  isOpen: boolean;
-  position: { top: number; left: number };
-  query: string;
-  selectedIndex: number;
-  slashPos: number;
-}

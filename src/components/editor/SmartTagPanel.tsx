@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { Editor } from '@tiptap/react';
 import { aiEditApi } from '../../services/api';
 import { useUIStore } from '../../stores/useUIStore';
@@ -15,7 +15,6 @@ export function SmartTagPanel({ editor, currentTags, onAddTag }: Props) {
   const [suggestedTags, setSuggestedTags] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const { showToast } = useUIStore();
-  const timerRef = useRef<ReturnType<typeof setTimeout>>();
 
   const fetchSuggestions = useCallback(async () => {
     const text = editor.state.doc.textContent.trim();

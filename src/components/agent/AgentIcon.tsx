@@ -1,3 +1,4 @@
+import type { ComponentType } from 'react';
 import {
   ListChecks, Pen, Search, BarChart2, Check, Globe, Image,
   Code2, Flame, Smartphone, Languages, Link2, Bot as BotIcon,
@@ -5,7 +6,7 @@ import {
 } from 'lucide-react';
 import { getAgentIconName } from '../../config/agents';
 
-const iconMap: Record<string, React.ComponentType<LucideProps>> = {
+const iconMap: Record<string, ComponentType<LucideProps>> = {
   'list-checks': ListChecks,
   'pen': Pen,
   'search': Search,

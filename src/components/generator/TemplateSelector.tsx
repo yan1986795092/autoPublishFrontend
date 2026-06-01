@@ -8,6 +8,66 @@ interface Props {
   disabled?: boolean;
 }
 
+// Helper: group templates by platform and render
+function PlatformGroups({
+  platforms,
+  templates,
+  draft,
+  onSelect,
+}: {
+  platforms: Platform[];
+  templates: PromptTemplate[];
+  draft: { template_id: string | null };
+  onSelect: (id: string) => void;
+}) {
+  const platformNameMap: Record<string, string> = {};
+  for (const p of platforms) {
+    platformNameMap[p.code] = p.name;
+  }
+
+  const codes = [...new Set(templates.map((t) => t.platform_code || null))];
+  codes.sort((a, b) => {
+    if (a === null) return 1;
+    if (b === null) return -1;
+    return (platformNameMap[a] || a).localeCompare(platformNameMap[b] || b);
+  });
+
+  return (
+    <>
+      {codes.map((platform) => {
+        const group = templates.filter((t) => (t.platform_code || null) === platform);
+        if (group.length === 0) return null;
+        const platformName = platform ? (platformNameMap[platform] || platform) : '通用';
+        return (
+          <div key={platform || '通用'}>
+            <div className="px-2.5 py-1 text-[8px] text-app-text-tertiary uppercase tracking-wider bg-app-surface/50">
+              {platformName}
+            </div>
+            {group.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => onSelect(t.id)}
+                className={cn(
+                  'w-full px-2.5 py-2 text-[10px] text-left hover:bg-white/[0.06] transition-colors flex items-center justify-between',
+                  draft.template_id === t.id && 'text-primary-400 bg-primary-600/10'
+                )}
+              >
+                <div>
+                  <div className="font-medium">{t.name}</div>
+                  {t.description && (
+                    <div className="text-[8px] text-app-text-tertiary truncate max-w-[200px]">{t.description}</div>
+                  )}
+                </div>
+                <span className="text-[8px] text-app-text-tertiary ml-2">使用 {t.use_count} 次</span>
+              </button>
+            ))}
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
 export function TemplateSelector({ disabled }: Props) {
   const { draft, setTemplateId } = useGeneratorStore();
   const [templates, setTemplates] = useState<PromptTemplate[]>([]);
@@ -32,12 +92,6 @@ export function TemplateSelector({ disabled }: Props) {
   useEffect(() => {
     fetchTemplates();
   }, [fetchTemplates]);
-
-  // Build platform name lookup
-  const platformNameMap: Record<string, string> = {};
-  for (const p of platforms) {
-    platformNameMap[p.code] = p.name;
-  }
 
   const selected = templates.find((t) => t.id === draft.template_id);
 
@@ -83,44 +137,7 @@ export function TemplateSelector({ disabled }: Props) {
               )}
 
               {/* Group by platform */}
-              {(() => {
-                // Collect unique platform codes from templates, sorted
-                const codes = [...new Set(templates.map((t) => t.platform_code || null))];
-                codes.sort((a, b) => {
-                  if (a === null) return 1;
-                  if (b === null) return -1;
-                  return (platformNameMap[a] || a).localeCompare(platformNameMap[b] || b);
-                });
-                return codes.map((platform) => {
-                  const group = templates.filter((t) => (t.platform_code || null) === platform);
-                  if (group.length === 0) return null;
-                  const platformName = platform ? (platformNameMap[platform] || platform) : '通用';
-                  return (
-                    <div key={platform || '通用'}>
-                    <div className="px-2.5 py-1 text-[8px] text-app-text-tertiary uppercase tracking-wider bg-app-surface/50">
-                      {platformName}
-                    </div>
-                    {group.map((t) => (
-                      <button
-                        key={t.id}
-                        onClick={() => { setTemplateId(t.id); setOpen(false); }}
-                        className={cn(
-                          'w-full px-2.5 py-2 text-[10px] text-left hover:bg-white/[0.06] transition-colors flex items-center justify-between',
-                          draft.template_id === t.id && 'text-primary-400 bg-primary-600/10'
-                        )}
-                      >
-                        <div>
-                          <div className="font-medium">{t.name}</div>
-                          {t.description && (
-                            <div className="text-[8px] text-app-text-tertiary truncate max-w-[200px]">{t.description}</div>
-                          )}
-                        </div>
-                        <span className="text-[8px] text-app-text-tertiary ml-2">使用 {t.use_count} 次</span>
-                      </button>
-                    ))}
-                  </div>
-                );
-              })}
+              <PlatformGroups platforms={platforms} templates={templates} draft={draft} onSelect={(id) => { setTemplateId(id); setOpen(false); }} />
             </div>
           </>
         )}

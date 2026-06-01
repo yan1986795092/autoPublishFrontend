@@ -155,7 +155,7 @@ export function MetricsPage() {
         <StatCard
           icon={Database}
           label="LLM Provider"
-          value={metrics.config.default_llm_provider}
+          value={metrics.config.default_llm_provider || 'N/A'}
           color="text-purple-400"
         />
       </div>

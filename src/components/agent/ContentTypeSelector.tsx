@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Card, CardContent } from '../ui/card';
+import { Switch } from '../ui/switch';
 import { cn } from '../../utils/helpers';
 import type { ContentType, ContentStyle } from '../../types';
 
@@ -162,20 +163,15 @@ export function ContentTypeSelector({ onChange, className }: ContentTypeSelector
         {/* 功能开关 */}
         <div>
           <label className="mb-2 block text-xs font-medium text-app-text-secondary">附加功能</label>
-          <div className="flex flex-wrap gap-2">
+          <div className="space-y-2">
             {FEATURES.map((feature) => (
-              <button
-                key={feature.key}
-                onClick={() => handleFeatureToggle(feature.key)}
-                className={cn(
-                  'rounded-lg border px-3 py-1.5 text-xs transition-colors',
-                  features[feature.key]
-                    ? 'border-green-500/30 bg-green-500/10 text-green-400'
-                    : 'border-app-border text-app-text-secondary hover:border-app-border/50'
-                )}
-              >
-                {features[feature.key] ? '✓ ' : ''}{feature.label}
-              </button>
+              <div key={feature.key} className="flex items-center justify-between">
+                <span className="text-xs text-app-text-secondary">{feature.label}</span>
+                <Switch
+                  checked={features[feature.key]}
+                  onCheckedChange={() => handleFeatureToggle(feature.key)}
+                />
+              </div>
             ))}
           </div>
         </div>

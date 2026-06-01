@@ -19,6 +19,7 @@ import { cn } from '../../utils/helpers';
 import { GripVertical, X, Play, ArrowDown } from 'lucide-react';
 import type { ExecutionPlan, AgentTask } from '../../types';
 import { getAgentIcon, getAgentLabel } from '../../config/agents';
+import { AgentIcon } from './AgentIcon';
 
 /** Recalculate dependency indices after reorder by matching task IDs */
 function recalcDeps(tasks: (AgentTask & { _id: string })[]): AgentTask[] {
@@ -104,7 +105,7 @@ function SortableTask({ task, index, total, dependencies, onToggle }: SortableTa
         </button>
 
         <span className="text-xs text-app-text-tertiary w-5">{index + 1}</span>
-        <span className="text-lg">{getAgentIcon(task.agent_type)}</span>
+        <AgentIcon agentType={task.agent_type} size={20} className="text-app-text" />
         <div className="flex-1 min-w-0">
           <p className={cn('text-sm font-medium', skipped ? 'text-app-text-tertiary line-through' : 'text-app-text')}>
             {getAgentLabel(task.agent_type)}

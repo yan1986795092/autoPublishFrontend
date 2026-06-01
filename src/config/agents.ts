@@ -145,6 +145,10 @@ export function getAgentIcon(agentType: string): string {
   return getAgentMeta(agentType).icon;
 }
 
+export function getAgentIconName(agentType: string): string {
+  return getAgentMeta(agentType).iconName;
+}
+
 export function getAgentLabel(agentType: string): string {
   return getAgentMeta(agentType).labelCn;
 }

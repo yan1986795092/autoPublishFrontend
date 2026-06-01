@@ -12,6 +12,8 @@ import { LoginPage } from './pages/LoginPage';
 import { AgentPage } from './pages/AgentPage';
 import { AgentStudioPage } from './pages/AgentStudioPage';
 import { AgentHistoryPage } from './pages/AgentHistoryPage';
+import { MetricsPage } from './pages/MetricsPage';
+import { TracesPage } from './pages/TracesPage';
 import { TemplatePage } from './pages/TemplatePage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -54,6 +56,8 @@ export default function App() {
           <Route path="/agent" element={<ErrorBoundary><AgentPage /></ErrorBoundary>} />
           <Route path="/agent-studio" element={<ErrorBoundary><AgentStudioPage /></ErrorBoundary>} />
           <Route path="/agent-history" element={<ErrorBoundary><AgentHistoryPage /></ErrorBoundary>} />
+          <Route path="/agent-metrics" element={<ErrorBoundary><MetricsPage /></ErrorBoundary>} />
+          <Route path="/traces" element={<ErrorBoundary><TracesPage /></ErrorBoundary>} />
           <Route path="/templates" element={<ErrorBoundary><TemplatePage /></ErrorBoundary>} />
           <Route path="/content" element={<ErrorBoundary><ContentManagementPage /></ErrorBoundary>} />
           <Route path="/content/:id" element={<ErrorBoundary><ContentEditPage /></ErrorBoundary>} />

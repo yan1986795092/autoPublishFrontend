@@ -212,3 +212,13 @@ export type {
   ContentType,
   ContentStyle,
 } from './agent';
+
+export type {
+  Skill,
+  SkillMeta,
+  SkillCategory,
+  SkillSource,
+  SkillImportInput,
+  SkillImportResult,
+  AppliedSkill,
+} from './skill';

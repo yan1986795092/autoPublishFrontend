@@ -5,6 +5,7 @@ import { cn } from '../../utils/helpers';
 import { ChevronDown, Brain } from 'lucide-react';
 import type { ThinkingStep, AgentResult } from '../../types';
 import { getAgentIcon, getAgentColor, AGENT_ACTION_LABELS } from '../../config/agents';
+import { AgentIcon } from './AgentIcon';
 
 interface AgentThinkingPanelProps {
   result?: AgentResult | null;
@@ -52,11 +53,11 @@ function StepCard({ step, index }: { step: ThinkingStep; index: number }) {
         {/* Content */}
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className={cn(
+              <span className={cn(
               'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium border',
               getAgentColor(step.agent)
             )}>
-              {getAgentIcon(step.agent)} {step.agent.replace('Agent', '')}
+              <AgentIcon agentType={step.agent} size={12} className="w-3 h-3" /> {step.agent.replace('Agent', '')}
             </span>
             <span className="text-xs font-medium text-app-text">
               {AGENT_ACTION_LABELS[step.action] || step.action}
@@ -192,7 +193,7 @@ export function AgentThinkingPanel({ result, className, compact = false }: Agent
 
         <CardContent className="space-y-2 p-4 pt-2">
           {displaySteps.map((step, i) => (
-            <StepCard key={i} step={step} index={i} />
+            <StepCard key={step.step_number ?? `${step.agent}-${step.action}-${i}`} step={step} index={i} />
           ))}
 
           {compact && steps.length > 3 && !showAll && (

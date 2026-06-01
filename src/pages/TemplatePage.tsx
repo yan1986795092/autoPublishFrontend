@@ -114,7 +114,7 @@ export function TemplatePage() {
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.1 }}
-              className="glass-card p-4"
+              className="rounded-lg border border-app-border bg-app-elevated p-4"
             >
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-lg bg-app-surface border border-white/[0.06] flex items-center justify-center">
@@ -157,7 +157,7 @@ export function TemplatePage() {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: idx * 0.03 }}
                   onClick={() => handleViewTemplate(template)}
-                  className="glass-card p-4 cursor-pointer group hover:border-primary-500/30 transition-all duration-200"
+                  className="rounded-lg border border-app-border bg-app-elevated p-4 cursor-pointer group hover:border-primary-500/30 transition-all duration-200"
                 >
                   <div className="flex items-start justify-between mb-2">
                     <h3 className="text-sm font-semibold text-app-text group-hover:text-primary-400 transition-colors">
@@ -196,7 +196,7 @@ export function TemplatePage() {
           ) : selectedTemplate ? (
             <div className="flex-1 overflow-auto space-y-4 pr-1">
               {selectedTemplate.description && (
-                <div className="glass-card p-3">
+                <div className="rounded-lg border border-app-border bg-app-elevated p-3">
                   <p className="text-xs text-app-text-secondary">{selectedTemplate.description}</p>
                 </div>
               )}

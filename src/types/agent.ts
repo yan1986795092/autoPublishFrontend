@@ -1,5 +1,58 @@
 // ===================== Agent System Types =====================
 
+/** 已知事件类型的 data payload shapes */
+export interface PlanEventData {
+  goal: string;
+  reasoning: string;
+  estimated_steps: number;
+  tasks: Array<{ id: string; agent_type: string; input: Record<string, unknown>; dependencies: number[] }>;
+}
+
+export interface ThinkingStepEventData {
+  step_number: number;
+  agent: string;
+  action: string;
+  reasoning: string;
+  input_summary: string;
+  output_summary: string;
+  tokens_used: number;
+  time_elapsed: number;
+  status: string;
+  [key: string]: unknown;
+}
+
+export interface ProgressEventData {
+  task_id?: string;
+  progress: number;
+  progress_message: string;
+  current_step: string;
+  completed_steps: number;
+  total_steps: number;
+}
+
+export interface ResultEventData {
+  status?: string;
+  output?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export interface ErrorEventData {
+  message: string;
+}
+
+export interface LLMToolEventData {
+  agent: string;
+  content: string;
+}
+
+export interface DecisionRequiredData {
+  task_id: string;
+  decision_id: string;
+  question: string;
+  options: Array<{ value: string; label: string }>;
+  context?: Record<string, unknown>;
+}
+
 export interface AgentTask {
   id: string;
   agent_type: string;
@@ -110,7 +163,8 @@ export interface StreamEvent {
   id: string;
   type: 'user_message' | 'plan' | 'thinking_step' | 'progress' | 'decision_required' | 'result' | 'error' | 'done' | 'llm_chunk' | 'reasoning' | 'tool_use' | 'tool_result';
   timestamp: number;
-  data: any;
+  /** Event payload — always a flat Record. Use typed accessors below. */
+  data: Record<string, unknown>;
   // thinking step 快捷字段
   agent?: string;
   agent_type?: string;
@@ -120,6 +174,29 @@ export interface StreamEvent {
   output_summary?: string;
   // llm_chunk / reasoning 快捷字段
   content?: string;
+}
+
+/** Typed accessors — use these instead of casting data. */
+export function asPlanEventData(data: Record<string, unknown>): PlanEventData {
+  return data as unknown as PlanEventData;
+}
+export function asThinkingStepData(data: Record<string, unknown>): ThinkingStepEventData {
+  return data as unknown as ThinkingStepEventData;
+}
+export function asProgressData(data: Record<string, unknown>): ProgressEventData {
+  return data as unknown as ProgressEventData;
+}
+export function asResultData(data: Record<string, unknown>): ResultEventData {
+  return data as unknown as ResultEventData;
+}
+export function asErrorData(data: Record<string, unknown>): ErrorEventData {
+  return data as unknown as ErrorEventData;
+}
+export function asLLMToolData(data: Record<string, unknown>): LLMToolEventData {
+  return data as unknown as LLMToolEventData;
+}
+export function asDecisionRequired(data: Record<string, unknown>): DecisionRequiredData {
+  return data as unknown as DecisionRequiredData;
 }
 
 // LLM 流式 token（用于打字机效果）
@@ -158,4 +235,40 @@ export interface RecoveryState {
   retryCount: number;
   errorMessage: string;
   planSnapshot: ExecutionPlan | null;
+}
+
+/** 系统监控指标 from GET /agent/metrics */
+export interface AgentMetrics {
+  cache: {
+    agent_cache: {
+      entries: number;
+      max_entries: number;
+      hits: number;
+      misses: number;
+      hit_rate: number;
+    };
+    llm_cache: {
+      size: number;
+      max_size: number;
+      hits: number;
+      misses: number;
+      hit_rate: number;
+    };
+  };
+  tasks: {
+    active: number;
+    dlq_size: number;
+  };
+  worker: {
+    running: boolean;
+  };
+  config: {
+    debug: boolean;
+    log_level: string;
+    default_llm_provider: string;
+    enable_reflection: boolean;
+    enable_message_bus: boolean;
+    enable_hitl: boolean;
+    worker_max_retries: number;
+  };
 }

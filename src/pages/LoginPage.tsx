@@ -7,6 +7,7 @@ import { authApi } from '../services/api';
 import { useAuthStore } from '../stores/useAuthStore';
 import { useUIStore } from '../stores/useUIStore';
 import { LogIn, UserPlus, Loader2, Sparkles } from 'lucide-react';
+import { Switch } from '../components/ui/switch';
 
 export function LoginPage() {
   const [email, setEmail] = useState('');
@@ -14,6 +15,7 @@ export function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isRegister, setIsRegister] = useState(false);
   const [nickname, setNickname] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
   const navigate = useNavigate();
   const { setUser, setTokens } = useAuthStore();
   const { showToast } = useUIStore();
@@ -172,7 +174,7 @@ export function LoginPage() {
               {/* Remember me + Forgot password */}
               <div className="flex items-center justify-between">
                 <label className="flex items-center gap-1.5 cursor-pointer">
-                  <input type="checkbox" className="rounded border-app-border bg-app-surface accent-primary-500 w-3 h-3" />
+                  <Switch checked={rememberMe} onCheckedChange={setRememberMe} />
                   <span className="text-[11px] text-app-text-secondary">记住我</span>
                 </label>
                 <button type="button" className="text-[11px] text-primary-400 hover:text-primary-300 transition-colors">

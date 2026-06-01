@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAgentStore } from '../stores/useAgentStore';
 import { useEditorStore } from '../stores/useEditorStore';
 import { useUIStore } from '../stores/useUIStore';
@@ -15,7 +15,7 @@ import type { Platform } from '../types';
 import { useAutoSaveDraft } from '../hooks/useAutoSaveDraft';
 import { usePromptHistory } from '../hooks/usePromptHistory';
 import { cn } from '../utils/helpers';
-import { Bot, Send, Square, History, RotateCcw, Sparkles, Clock, Terminal, LayoutGrid } from 'lucide-react';
+import { Bot, Send, Square, History, RotateCcw, Sparkles, Clock, Terminal, LayoutGrid, Keyboard } from 'lucide-react';
 
 function formatDuration(seconds: number) {
   if (seconds < 60) return `${seconds}s`;
@@ -51,6 +51,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 export function HomePage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { showToast } = useUIStore();
 
   const {
@@ -66,6 +67,15 @@ export function HomePage() {
   const [viewMode, setViewMode] = useState<'cards' | 'terminal'>('cards');
   const [platforms, setPlatforms] = useState<Platform[]>([]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // ─── Receive template prompt from TemplatePage ───
+  useEffect(() => {
+    const state = location.state as { templatePrompt?: string } | null;
+    if (state?.templatePrompt) {
+      setPrompt(state.templatePrompt);
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state]);
 
   // ─── Streaming bridge: push agent content → editor store ───
   const accumulatedRef = useRef('');
@@ -348,6 +358,15 @@ export function HomePage() {
               新会话
             </Button>
           )}
+          {/* Keyboard shortcuts hint */}
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent('shortcut:toggle-help'))}
+            className="p-1.5 rounded-md text-app-text-tertiary hover:text-app-text-secondary hover:bg-white/5 transition-colors"
+            title="键盘快捷键"
+            aria-label="键盘快捷键"
+          >
+            <Keyboard className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
 
@@ -377,42 +396,92 @@ export function HomePage() {
                 )}
               </div>
             ) : (
-              /* Empty state with quick templates */
-              <div className="min-h-full flex flex-col">
-                <div className="flex-1 text-center py-10 space-y-6">
-                  <div className="flex justify-center">
-                    <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 border border-white/10 flex items-center justify-center animate-float shadow-[0_0_40px_rgba(59,130,246,0.15)]">
-                      <Sparkles className="w-8 h-8 text-blue-400" />
+            /* Empty state with guided onboarding */
+            <div className="min-h-full flex flex-col">
+              <div className="flex-1 text-center py-8 space-y-6">
+                {/* ── Hero ── */}
+                <div className="flex justify-center">
+                  <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 border border-white/10 flex items-center justify-center animate-float shadow-[0_0_40px_rgba(59,130,246,0.15)]">
+                    <Sparkles className="w-8 h-8 text-blue-400" />
+                  </div>
+                </div>
+                <div>
+                  <h2 className="text-lg font-semibold text-app-text mb-1">开始创作</h2>
+                  <p className="text-xs text-app-text-secondary leading-relaxed max-w-sm mx-auto">
+                    Multi-Agent 协作，实时思考过程 — 输入需求，Agent 团队将自动拆解任务并执行
+                  </p>
+                </div>
+
+                {/* ── Capability cards: What can I do ── */}
+                <div className="max-w-sm mx-auto">
+                  <p className="text-[10px] text-app-text-tertiary uppercase tracking-wider mb-3">你可以这样开始</p>
+                  <div className="grid grid-cols-1 gap-2 text-left">
+                    <div className="rounded-xl border border-app-border bg-app-elevated/60 p-3">
+                      <div className="flex items-start gap-2.5">
+                        <div className="w-7 h-7 rounded-lg bg-primary-500/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-primary-400"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                        </div>
+                        <div>
+                          <p className="text-xs font-medium text-app-text">直接描述你的需求</p>
+                          <p className="text-[10px] text-app-text-tertiary mt-0.5 leading-relaxed">
+                            例如：「写一篇关于 AI 辅助编程的技术博客，2000字，面向有一定编程经验的读者」
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-app-border bg-app-elevated/60 p-3">
+                      <div className="flex items-start gap-2.5">
+                        <div className="w-7 h-7 rounded-lg bg-purple-500/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-purple-400"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+                        </div>
+                        <div>
+                          <p className="text-xs font-medium text-app-text">多轮对话迭代优化</p>
+                          <p className="text-[10px] text-app-text-tertiary mt-0.5 leading-relaxed">
+                            生成后继续对话：「把开头改得更吸引人一些」或「增加更多实际案例」
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-app-border bg-app-elevated/60 p-3">
+                      <div className="flex items-start gap-2.5">
+                        <div className="w-7 h-7 rounded-lg bg-green-500/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-green-400"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                        </div>
+                        <div>
+                          <p className="text-xs font-medium text-app-text">跟踪实时执行进度</p>
+                          <p className="text-[10px] text-app-text-tertiary mt-0.5 leading-relaxed">
+                            左面板实时展示 Agent 团队的思考和执行过程，你可以随时介入决策
+                          </p>
+                        </div>
+                      </div>
                     </div>
                   </div>
-                  <div>
-                    <h2 className="text-lg font-semibold text-app-text mb-1">开始创作</h2>
-                    <p className="text-xs text-app-text-secondary leading-relaxed max-w-sm mx-auto">
-                      Multi-Agent 协作，实时思考过程 — 输入需求，Agent 团队将自动拆解任务并执行
-                    </p>
-                  </div>
+                </div>
 
-                  {/* Category tabs */}
-                  <div className="flex justify-center gap-1.5 flex-wrap">
-                    {displayCategories.map((key) => (
-                      <button
-                        key={key}
-                        onClick={() => setSelectedCategory(key)}
-                        className={cn(
-                          'px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200',
-                          selectedCategory === key
-                            ? 'bg-primary-600/15 text-primary-400 border border-primary-500/30'
-                            : 'bg-app-surface text-app-text-secondary hover:bg-app-hover border border-transparent'
-                        )}
-                      >
-                        {CATEGORY_LABELS[key] || key}
-                      </button>
-                    ))}
+                {/* ── Quick examples ── */}
+                <div className="max-w-sm mx-auto">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-[10px] text-app-text-tertiary uppercase tracking-wider">试试这些示例</p>
+                    {/* Category tabs */}
+                    <div className="flex gap-1">
+                      {displayCategories.slice(0, 3).map((key) => (
+                        <button
+                          key={key}
+                          onClick={() => setSelectedCategory(key)}
+                          className={cn(
+                            'px-2 py-1 rounded-md text-[10px] font-medium transition-all duration-200',
+                            selectedCategory === key
+                              ? 'bg-primary-600/15 text-primary-400 border border-primary-500/30'
+                              : 'text-app-text-tertiary hover:text-app-text-secondary border border-transparent'
+                          )}
+                        >
+                          {CATEGORY_LABELS[key] || key}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-
-                  {/* Template grid */}
                   <div className="grid grid-cols-1 gap-2 text-left">
-                    {currentTemplates.map((t) => (
+                    {currentTemplates.slice(0, 4).map((t) => (
                       <button
                         key={t.title}
                         onClick={() => handleTemplateSelect(t.prompt)}
@@ -422,27 +491,53 @@ export function HomePage() {
                           <span className="text-lg">{t.icon}</span>
                           <div>
                             <p className="text-sm font-medium text-app-text group-hover:text-blue-400 transition-colors">{t.title}</p>
-                            <p className="text-[11px] text-app-text-tertiary mt-0.5 leading-relaxed">{t.prompt}</p>
+                            <p className="text-[11px] text-app-text-tertiary mt-0.5 leading-relaxed line-clamp-1">{t.prompt}</p>
                           </div>
                         </div>
                       </button>
                     ))}
                   </div>
-
-                  {/* Previous generations */}
-                  {previousGenerations.length > 0 && (
-                    <GenerationHistory
-                      generations={previousGenerations}
-                      onRestore={(gen) => gen.result?.task_id && handleEditContent(gen.result.task_id)}
-                    />
-                  )}
                 </div>
+
+                {/* Previous generations */}
+                {previousGenerations.length > 0 && (
+                  <GenerationHistory
+                    generations={previousGenerations}
+                    onRestore={(gen) => gen.result?.task_id && handleEditContent(gen.result.task_id)}
+                  />
+                )}
               </div>
+            </div>
             )}
           </div>
 
           {/* ── Input bar (fixed at bottom of left panel) ── */}
-          <div className="flex-shrink-0 pt-3">
+          <div className="flex-shrink-0 pt-3 space-y-2">
+            {/* ── Capability hints (only show when no prompt) ── */}
+            {!prompt && !isRunning && (
+              <div className="flex items-center gap-2 px-1 overflow-x-auto scrollbar-hide">
+                {[
+                  { label: '写作', hint: '帮我写一篇...' },
+                  { label: '改写', hint: '把这篇文章改得更...' },
+                  { label: '分析', hint: '分析一下这篇内容...' },
+                  { label: '续写', hint: '继续写下去...' },
+                  { label: '润色', hint: '帮我润色这段文字...' },
+                ].map((item) => (
+                  <button
+                    key={item.label}
+                    onClick={() => {
+                      setPrompt(item.hint);
+                      inputRef.current?.focus();
+                    }}
+                    className="flex-shrink-0 px-2.5 py-1 rounded-full border border-app-border/60 bg-app-elevated/40 text-[10px] text-app-text-tertiary hover:text-app-text hover:border-blue-500/30 hover:bg-blue-500/5 transition-all duration-150"
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* ── Main input ── */}
             <div className="rounded-xl border border-app-border bg-app-elevated p-3">
               <div className="flex gap-3">
                 <textarea
@@ -450,7 +545,13 @@ export function HomePage() {
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  placeholder={isRunning ? 'Agent 正在执行中...' : '输入需求，按 Cmd/Ctrl + Enter 快速执行...'}
+                  placeholder={
+                    isRunning
+                      ? 'Agent 正在执行中，可继续输入新的需求...'
+                      : hasEvents
+                        ? '输入后续指令，例如：「把开头改得更吸引人」「增加更多案例」...'
+                        : '描述你想创作的内容，Agent 团队会自动规划并执行...'
+                  }
                   className="flex-1 min-h-[44px] max-h-[120px] resize-none bg-transparent text-sm text-app-text placeholder:text-app-text-tertiary outline-none leading-relaxed"
                   disabled={false}
                   rows={Math.min(3, prompt.split('\n').length)}
@@ -474,11 +575,18 @@ export function HomePage() {
                 </div>
               </div>
               <div className="flex items-center justify-between mt-2 text-[10px] text-app-text-tertiary">
-                <span>{isRunning ? '执行中，可输入下个需求' : 'Cmd/Ctrl + Enter 发送'}</span>
+                <span>
+                  {isRunning
+                    ? <span className="flex items-center gap-1.5"><span className="w-1 h-1 rounded-full bg-blue-400 animate-pulse" />执行中，可输入下个需求</span>
+                    : hasEvents
+                      ? '继续对话或 Ctrl+Enter 发送新指令'
+                      : '↑↓ 选择提示词 · Ctrl+Enter 发送'
+                  }
+                </span>
                 {isRunning && (
                   <span className="flex items-center gap-3">
                     <span className="text-[9px] text-app-text-tertiary/60">ESC 停止</span>
-                    <span className="text-blue-400">{formatDuration(runningTimeState)}</span>
+                    <span className="text-blue-400 tabular-nums">{formatDuration(runningTimeState)}</span>
                   </span>
                 )}
               </div>

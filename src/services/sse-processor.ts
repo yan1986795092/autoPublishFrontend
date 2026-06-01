@@ -45,14 +45,17 @@ export class SSEProcessor {
     callbacks?: {
       onHeartbeat?: () => void;
       onError?: (error: string) => void;
-    }
+    },
+    externalSignal?: AbortSignal,
   ): Promise<void> {
-    this._abortController = new AbortController();
+    // Use external signal if provided (e.g., from store's _abortController),
+    // so that cancelTask aborts this stream too. Otherwise create an internal one.
+    this._abortController = externalSignal ? null : new AbortController();
 
     try {
       const response = await fetch(url, {
         ...options,
-        signal: this._abortController.signal,
+        signal: externalSignal ?? this._abortController!.signal,
       });
 
       if (!response.ok) {
@@ -105,9 +108,10 @@ export class SSEProcessor {
       }
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') {
-        return; // intentional abort
+        // intentional abort — cleanup is handled below
+      } else {
+        callbacks?.onError?.(String(e));
       }
-      callbacks?.onError?.(String(e));
     } finally {
       this.cleanup();
     }
@@ -120,18 +124,25 @@ export class SSEProcessor {
     }
   }
 
-  abort() {
-    this._abortController?.abort();
-  }
-
   private cleanup() {
-    if (this._heartbeatTimer) {
+    if (this._heartbeatTimer !== null) {
       clearInterval(this._heartbeatTimer);
       this._heartbeatTimer = null;
     }
-    this._abortController = null;
+    if (this._abortController !== null) {
+      this._abortController.abort();
+      this._abortController = null;
+    }
   }
 
+  abort() {
+    // External signal abort is handled by the caller (store's _abortController)
+    if (this._abortController !== null) {
+      this._abortController.abort();
+    }
+  }
+
+  /** Returns true if there's an active fetch running */
   get isRunning() {
     return this._abortController !== null;
   }

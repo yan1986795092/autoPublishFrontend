@@ -74,7 +74,7 @@ export function PreviewPanel() {
   const displayContent = adaptedContent[activePlatform] || content;
 
   return (
-    <div className="h-full flex flex-col glass-card overflow-hidden">
+    <div className="h-full flex flex-col rounded-lg border border-app-border bg-app-elevated overflow-hidden">
       {/* Header */}
       <div className="px-4 py-3 border-b border-white/[0.04] flex-shrink-0">
         <div className="flex items-center gap-2 mb-2.5">

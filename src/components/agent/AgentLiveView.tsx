@@ -7,28 +7,45 @@ import {
   Terminal, Type, Lightbulb, Zap, RotateCcw, Pause, Play
 } from 'lucide-react';
 import type { StreamEvent, LLMChunk, ReasoningChunk, StreamToolUse } from '../../types';
-import { getAgentIcon, getAgentColor, getAgentActionDesc } from '../../config/agents';
+import { getAgentColor, getAgentActionDesc } from '../../config/agents';
+import { AgentIcon } from './AgentIcon';
 import { ToolCard } from './ToolCard';
 
 /* ─── LLM Chunk Line（打字机行，类似 Claude Code 终端行）── */
 function LLMTerminalLine({ agent, chunks }: { agent: string; chunks: LLMChunk[] }) {
-  const accumulated = chunks.map(c => c.content).join('');
   const [displayed, setDisplayed] = useState('');
   const [done, setDone] = useState(false);
 
+  // When new chunks arrive (target text changes), reset and start fresh
   useEffect(() => {
     if (chunks.length === 0) return;
     const last = chunks[chunks.length - 1];
     const target = last.content;
-    if (displayed.length < target.length) {
-      const timer = setTimeout(() => {
-        setDisplayed(target.slice(0, displayed.length + 1));
-      }, 8);
-      return () => clearTimeout(timer);
-    } else {
+    setDisplayed('');
+    setDone(false);
+  }, [chunks]);
+
+  // Typing animation: increment displayed by 1 char per tick
+  useEffect(() => {
+    if (chunks.length === 0) return;
+    const last = chunks[chunks.length - 1];
+    const target = last.content;
+    if (displayed.length >= target.length) {
       setDone(true);
+      return;
     }
-  }, [chunks, displayed]);
+    const timer = setTimeout(() => {
+      setDisplayed((prev) => {
+        if (prev.length < target.length) {
+          return target.slice(0, prev.length + 1);
+        }
+        return prev;
+      });
+    }, 8);
+    return () => clearTimeout(timer);
+    // Only depend on `displayed` — target is stable within a chunks epoch
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [displayed]);
 
   if (chunks.length === 0) return null;
 
@@ -36,7 +53,7 @@ function LLMTerminalLine({ agent, chunks }: { agent: string; chunks: LLMChunk[] 
     <div className="font-mono text-xs leading-relaxed pl-4 border-l-2 border-blue-500/40 ml-2 mt-1">
       <div className="flex items-center gap-1.5 mb-1 text-blue-400/60">
         <Type className="w-3 h-3" />
-        <span className="text-[10px]">{getAgentIcon(agent)} {agent}</span>
+        <span className="text-[10px]"><AgentIcon agentType={agent} className="inline w-3 h-3" size={12} /> {agent}</span>
         {done && <CheckCircle className="w-2.5 h-2.5 text-green-400 ml-auto" />}
         {!done && <Loader2 className="w-2.5 h-2.5 animate-spin ml-auto" />}
       </div>
@@ -128,7 +145,7 @@ function RichAgentLine({ event }: { event: StreamEvent }) {
             'inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium border flex-shrink-0',
             getAgentColor(agent),
           )}>
-            {getAgentIcon(agent)} {agent.replace('Agent', '')}
+            <AgentIcon agentType={agent} size={12} className={cn('w-3 h-3', agent ? 'text-inherit' : '')} /> {agent.replace('Agent', '')}
           </span>
           <span className={cn(
             'text-xs truncate',
@@ -240,7 +257,7 @@ function PlanSummary({ event, stepStates }: { event: StreamEvent; stepStates: St
               <span className="w-4 text-center flex-shrink-0">
                 {isDone ? '✓' : isFailed ? '✗' : isCurrent ? '→' : '○'}
               </span>
-              <span>{getAgentIcon(task.agent_type || '')}</span>
+              <AgentIcon agentType={task.agent_type || ''} size={14} className="flex-shrink-0" />
               <span className="truncate">{task.agent_type?.replace('Agent', '') || '?'}</span>
               {task.input?.query && (
                 <span className="text-[9px] text-gray-600 truncate ml-1 hidden sm:inline">
@@ -312,69 +329,70 @@ export function AgentLiveView({ onEdit, onPublish }: {
     setPlanTasks(stepStates);
   }, [streamEvents, planEvent]);
 
-  // Group events for rendering
-  const renderItems: Array<{
-    id: string; type: string; agent?: string;
-    llmChunks?: LLMChunk[]; reasoningChunks?: ReasoningChunk[];
-    event?: StreamEvent;
-  }> = [];
-  let lastAgent: string | null = null;
-  let flushCounter = 0;
-  let planRendered = false;
+  // Group events for rendering — useMemo to avoid recalculating on every render
+  const renderItems = useMemo(() => {
+    const items: Array<{
+      id: string; type: string; agent?: string;
+      llmChunks?: LLMChunk[]; reasoningChunks?: ReasoningChunk[];
+      event?: StreamEvent;
+    }> = [];
+    let lastAgent: string | null = null;
+    let flushCounter = 0;
+    let planRendered = false;
 
-  for (const evt of streamEvents) {
-    if (evt.type === 'thinking_step') {
-      const agent = evt.agent || '';
-      // Emit plan first if not yet rendered and we have it
-      if (planEvent && !planRendered) {
-        renderItems.push({ id: 'plan-summary', type: 'plan', event: planEvent });
-        planRendered = true;
+    for (const evt of streamEvents) {
+      if (evt.type === 'thinking_step') {
+        const agent = evt.agent || '';
+        if (planEvent && !planRendered) {
+          items.push({ id: 'plan-summary', type: 'plan', event: planEvent });
+          planRendered = true;
+        }
+        if (lastAgent && (llmChunks[lastAgent]?.length || reasoningChunks[lastAgent]?.length)) {
+          items.push({
+            id: `flush-${flushCounter++}`,
+            type: 'flush',
+            agent: lastAgent,
+            llmChunks: [...(llmChunks[lastAgent] || [])],
+            reasoningChunks: [...(reasoningChunks[lastAgent] || [])],
+          });
+        }
+        items.push({ id: evt.id, type: 'step', agent, event: evt });
+        lastAgent = agent;
+      } else if (evt.type === 'llm_chunk' || evt.type === 'reasoning') {
+        // Skip individual, will be grouped via flush
+      } else if (evt.type === 'tool_use' || evt.type === 'tool_result') {
+        items.push({ id: evt.id, type: evt.type, event: evt });
+      } else if (evt.type === 'plan') {
+        // Don't emit here; emit before first thinking_step
+      } else if (evt.type === 'progress') {
+        items.push({ id: evt.id, type: 'progress', event: evt });
+      } else if (evt.type === 'result' || evt.type === 'error' || evt.type === 'done') {
+        if (lastAgent) {
+          items.push({
+            id: `flush-${flushCounter++}`,
+            type: 'flush',
+            agent: lastAgent,
+            llmChunks: [...(llmChunks[lastAgent] || [])],
+            reasoningChunks: [...(reasoningChunks[lastAgent] || [])],
+          });
+          lastAgent = null;
+        }
+        items.push({ id: evt.id, type: evt.type, event: evt });
       }
-      // Flush pending chunks for previous agent
-      if (lastAgent && (llmChunks[lastAgent]?.length || reasoningChunks[lastAgent]?.length)) {
-        renderItems.push({
-          id: `flush-${flushCounter++}`,
-          type: 'flush',
-          agent: lastAgent,
-          llmChunks: [...(llmChunks[lastAgent] || [])],
-          reasoningChunks: [...(reasoningChunks[lastAgent] || [])],
-        });
-      }
-      renderItems.push({ id: evt.id, type: 'step', agent, event: evt });
-      lastAgent = agent;
-    } else if (evt.type === 'llm_chunk' || evt.type === 'reasoning') {
-      // Skip individual, will be grouped
-    } else if (evt.type === 'tool_use' || evt.type === 'tool_result') {
-      renderItems.push({ id: evt.id, type: evt.type, event: evt });
-    } else if (evt.type === 'plan') {
-      // Don't emit here; emit before first thinking_step
-    } else if (evt.type === 'progress') {
-      renderItems.push({ id: evt.id, type: 'progress', event: evt });
-    } else if (evt.type === 'result' || evt.type === 'error' || evt.type === 'done') {
-      if (lastAgent) {
-        renderItems.push({
-          id: `flush-${flushCounter++}`,
-          type: 'flush',
-          agent: lastAgent,
-          llmChunks: [...(llmChunks[lastAgent] || [])],
-          reasoningChunks: [...(reasoningChunks[lastAgent] || [])],
-        });
-        lastAgent = null;
-      }
-      renderItems.push({ id: evt.id, type: evt.type, event: evt });
     }
-  }
 
-  // Flush remaining
-  if (lastAgent && (llmChunks[lastAgent]?.length || reasoningChunks[lastAgent]?.length)) {
-    renderItems.push({
-      id: `flush-${flushCounter++}`,
-      type: 'flush',
-      agent: lastAgent,
-      llmChunks: [...(llmChunks[lastAgent] || [])],
-      reasoningChunks: [...(reasoningChunks[lastAgent] || [])],
-    });
-  }
+    if (lastAgent && (llmChunks[lastAgent]?.length || reasoningChunks[lastAgent]?.length)) {
+      items.push({
+        id: `flush-${flushCounter++}`,
+        type: 'flush',
+        agent: lastAgent,
+        llmChunks: [...(llmChunks[lastAgent] || [])],
+        reasoningChunks: [...(reasoningChunks[lastAgent] || [])],
+      });
+    }
+
+    return items;
+  }, [streamEvents, llmChunks, reasoningChunks, planEvent]);
 
   const progress = currentTask?.progress || 0;
   const totalSteps = planTasks.length;
@@ -389,12 +407,18 @@ export function AgentLiveView({ onEdit, onPublish }: {
         <div className="flex items-center gap-2">
           <Terminal className="w-3.5 h-3.5 text-green-400" />
           <span className="text-xs font-mono font-semibold text-gray-300">
-            Agent 实时视图
+            实时视图
           </span>
           {isRunning && (
             <span className="flex items-center gap-1">
               <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
               <span className="text-[10px] text-gray-500 font-mono">运行中</span>
+            </span>
+          )}
+          {!isRunning && streamEvents.length > 0 && (
+            <span className="flex items-center gap-1">
+              <CheckCircle className="w-3 h-3 text-gray-500" />
+              <span className="text-[10px] text-gray-500 font-mono">已完成</span>
             </span>
           )}
           {/* WebSocket Connection Status */}
@@ -414,6 +438,11 @@ export function AgentLiveView({ onEdit, onPublish }: {
           {progress > 0 && (
             <span className="text-[10px] font-mono text-gray-500">
               {Math.round(progress)}%
+            </span>
+          )}
+          {totalSteps > 0 && (
+            <span className="text-[10px] font-mono text-gray-500">
+              {doneSteps + failedSteps}/{totalSteps} 步
             </span>
           )}
           <button

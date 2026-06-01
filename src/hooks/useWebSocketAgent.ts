@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useLayoutEffect } from 'react';
 import { useAgentStore } from '../stores/useAgentStore';
 
 interface UseWebSocketAgentOptions {
@@ -29,11 +29,22 @@ export function useWebSocketAgent(taskId: string | null, options: UseWebSocketAg
 
   // 用 ref 持有 onMessage，避免回调引用变化导致重连
   const onMessageRef = useRef(onMessage);
-  onMessageRef.current = onMessage;
+  // 使用 useLayoutEffect 而非直接赋值，避免在渲染阶段变更 ref
+  useLayoutEffect(() => {
+    onMessageRef.current = onMessage;
+  });
 
+  // Store selectors (stable references — create() memoizes selectors)
   const connectWebSocket = useAgentStore((s) => s.connectWebSocket);
   const disconnectWebSocket = useAgentStore((s) => s.disconnectWebSocket);
+  // Stable primitive values only — use getState() for action functions
   const isRunning = useAgentStore((s) => s.isRunning);
+
+  // Stable refs for action functions to avoid dependency changes
+  const connectRef = useRef(connectWebSocket);
+  const disconnectRef = useRef(disconnectWebSocket);
+  connectRef.current = connectWebSocket;
+  disconnectRef.current = disconnectWebSocket;
 
   useEffect(() => {
     if (!taskId || !isRunning || !enabled) return;
@@ -44,7 +55,7 @@ export function useWebSocketAgent(taskId: string | null, options: UseWebSocketAg
     let reconnectTimer: ReturnType<typeof setTimeout>;
 
     const connect = () => {
-      ws = connectWebSocket(taskId);
+      ws = connectRef.current(taskId);
       if (!ws) return;
 
       ws.onopen = () => { retries = 0; };
@@ -75,8 +86,8 @@ export function useWebSocketAgent(taskId: string | null, options: UseWebSocketAg
     return () => {
       mounted = false;
       clearTimeout(reconnectTimer);
-      disconnectWebSocket();
+      disconnectRef.current();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [taskId, isRunning, enabled, maxRetries, connectWebSocket, disconnectWebSocket]);
+  }, [taskId, isRunning, enabled, maxRetries]);
 }

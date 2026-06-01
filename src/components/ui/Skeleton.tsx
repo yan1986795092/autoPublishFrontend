@@ -60,7 +60,7 @@ export function SkeletonCardGrid({ count = 4 }: { count?: number }) {
 
 export function SkeletonCard() {
   return (
-    <div className="glass-card p-4 space-y-3">
+    <div className="rounded-lg border border-app-border bg-app-elevated p-4 space-y-3">
       <div className="flex items-center gap-3">
         <Skeleton variant="avatar" className="h-8 w-8" />
         <div className="space-y-1.5 flex-1">

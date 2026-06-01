@@ -9,11 +9,12 @@ interface ShortcutItem {
 }
 
 const shortcuts: ShortcutItem[] = [
-  { keys: ['Ctrl', 'S'], label: '保存当前内容', scope: '编辑页' },
-  { keys: ['Ctrl', 'N'], label: '新建内容', scope: '全局' },
-  { keys: ['Ctrl', '/'], label: '显示/隐藏此面板', scope: '全局' },
   { keys: ['Ctrl', 'Enter'], label: '快速执行', scope: '首页' },
-  { keys: ['Esc'], label: '关闭此面板', scope: '全局' },
+  { keys: ['Ctrl', 'N'], label: '新建会话', scope: '首页' },
+  { keys: ['Esc'], label: '停止 Agent', scope: '执行中' },
+  { keys: ['Ctrl', 'S'], label: '保存内容', scope: '编辑页' },
+  { keys: ['Ctrl', '/'], label: '显示/隐藏此面板', scope: '全局' },
+  { keys: ['Ctrl', 'K'], label: '打开快捷命令', scope: '全局' },
 ];
 
 export function ShortcutHelpOverlay() {

@@ -102,7 +102,7 @@ export function ResultPanel() {
           )}
           {/* Pipeline stage indicator */}
           {hasContent && !isRunning && (
-            <div className="flex items-center gap-1.5 ml-2">
+            <div className="flex items-center gap-1.5 ml-2" title="点击切换流水线阶段">
               <div className="flex items-center gap-0.5">
                 {PIPELINE_STAGE_ORDER.map((s, i) => {
                   const currentIdx = PIPELINE_STAGE_ORDER.indexOf(stage);
@@ -207,19 +207,56 @@ export function ResultPanel() {
             <p className="text-xs text-app-text-tertiary">等待 Agent 生成内容</p>
           </div>
         ) : (
-          /* Empty state */
+          /* Empty state with workflow guide */
           <motion.div
             key="empty"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="h-full flex flex-col items-center justify-center text-center px-8"
+            className="h-full flex flex-col items-center justify-center px-8"
           >
             <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500/[0.08] to-purple-500/[0.08] border border-white/[0.06] flex items-center justify-center mb-5">
               <Sparkles className="w-8 h-8 text-blue-400/40" />
             </div>
             <h3 className="text-sm font-medium text-app-text-secondary mb-1.5">等待创作</h3>
-            <p className="text-xs text-app-text-tertiary max-w-[200px] leading-relaxed">
+            <p className="text-xs text-app-text-tertiary max-w-[200px] leading-relaxed mb-8">
               在左侧输入需求，Agent 团队将协作生成内容
+            </p>
+
+            {/* ── Workflow guide ── */}
+            <div className="flex items-center gap-3">
+              {[
+                { step: '01', label: '输入需求', icon: (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-blue-400"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+                ), desc: '描述你的创作需求' },
+                { step: '02', label: 'Agent 规划', icon: (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-purple-400"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+                ), desc: '团队协作拆解任务' },
+                { step: '03', label: '生成内容', icon: (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-green-400"><polyline points="20 6 9 17 4 12"/></svg>
+                ), desc: '实时生成完整内容' },
+              ].map((item, i) => (
+                <div key={item.step} className="flex items-center gap-3">
+                  <div className="flex flex-col items-center gap-1.5">
+                    <div className="w-9 h-9 rounded-xl border border-app-border bg-app-elevated flex items-center justify-center">
+                      {item.icon}
+                    </div>
+                    <p className="text-[10px] font-medium text-app-text">{item.label}</p>
+                    <p className="text-[9px] text-app-text-tertiary text-center max-w-[60px] leading-tight">{item.desc}</p>
+                  </div>
+                  {i < 2 && (
+                    <div className="flex-shrink-0 mb-5">
+                      <svg width="20" height="8" viewBox="0 0 20 8" fill="none">
+                        <path d="M0 4h16m0 0l-4-3m4 3l-4 3" stroke="currentColor" strokeWidth="1" className="text-app-border"/>
+                      </svg>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* ── Tip ── */}
+            <p className="text-[10px] text-app-text-tertiary/60 mt-8">
+              生成完成后，点击「编辑」进入富文本编辑器进一步修改
             </p>
           </motion.div>
         )}

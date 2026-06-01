@@ -225,7 +225,7 @@ export function TopicInputPanel() {
   const charColor = charCount > 500 ? 'text-red-400' : charCount > 300 ? 'text-amber-400' : 'text-app-text-tertiary';
 
   return (
-    <div className="glass-card flex flex-col h-full">
+    <div className="rounded-lg border border-app-border bg-app-elevated flex flex-col h-full">
       {/* Header */}
       <div className="px-4 py-3 border-b border-white/[0.04] flex items-center gap-2.5">
         <div className="w-7 h-7 rounded-lg bg-gradient-primary flex items-center justify-center">

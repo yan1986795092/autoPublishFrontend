@@ -30,6 +30,7 @@ interface AgentState {
   // WebSocket 状态
   wsConnectionState: 'connecting' | 'connected' | 'disconnected';
   _ws: WebSocket | null;
+  _reconnectTimer: ReturnType<typeof setTimeout> | null;
 
   // 任务历史
   taskHistory: AsyncTask[];
@@ -65,6 +66,15 @@ interface AgentState {
   _abortController: AbortController | null;
   clearCurrent: () => void;
 
+  // Content type config (from ContentTypeSelector)
+  contentTypeConfig: import('../components/agent/ContentTypeSelector').ContentTypeConfig | null;
+  setContentTypeConfig: (config: import('../components/agent/ContentTypeSelector').ContentTypeConfig | null) => void;
+
+  // Applied Skill
+  appliedSkill: import('../types').AppliedSkill | null;
+  appliedSkillFull: import('../types').Skill | null;
+  setAppliedSkill: (applied: import('../types').AppliedSkill | null, full: import('../types').Skill | null) => void;
+
   // Stream events
   addStreamEvent: (event: StreamEvent) => void;
 
@@ -90,11 +100,17 @@ export const useAgentStore = create<AgentState>()(
   reasoningChunks: {},
   wsConnectionState: 'disconnected',
   _ws: null,
+  _reconnectTimer: null,
   taskHistory: [],
   _abortController: null,
   recoveryState: null,
   previousGenerations: [],
   messages: [],
+  contentTypeConfig: null,
+  appliedSkill: null,
+  appliedSkillFull: null,
+
+  setAppliedSkill: (applied, full) => set({ appliedSkill: applied, appliedSkillFull: full }),
 
   addMessage: (msg) => set((state) => ({ messages: [...state.messages, msg] })),
   updateMessage: (id, updates) => set((state) => ({
@@ -172,16 +188,19 @@ export const useAgentStore = create<AgentState>()(
   },
 
   disconnectWebSocket: () => {
-    const { _ws } = get();
+    const { _ws, _reconnectTimer } = get();
+    if (_reconnectTimer) {
+      clearTimeout(_reconnectTimer);
+    }
     if (_ws) {
       _ws.close();
-      set({ _ws: null, wsConnectionState: 'disconnected' });
+      set({ _ws: null, _reconnectTimer: null, wsConnectionState: 'disconnected' });
     }
   },
 
   previewPlan: async (prompt: string) => {
     try {
-      set({ isRunning: true, error: null });
+      set({ isRunning: true, error: null, thinkingSteps: [], currentResult: null });
       const response = await agentApi.plan({ prompt });
       if (response.data.success && response.data.data) {
         const plan = response.data.data as unknown as ExecutionPlan;
@@ -199,7 +218,11 @@ export const useAgentStore = create<AgentState>()(
   runSync: async (prompt: string) => {
     try {
       set({ isRunning: true, error: null, currentResult: null });
-      const response = await agentApi.run({ prompt });
+      const { appliedSkill } = get();
+      const response = await agentApi.run({
+        prompt,
+        skill_id: appliedSkill?.skill_id,
+      });
       if (response.data.success && response.data.data) {
         const result = response.data.data as unknown as AgentResult;
         set({ currentResult: result, isRunning: false });
@@ -216,7 +239,11 @@ export const useAgentStore = create<AgentState>()(
   runAsync: async (prompt: string) => {
     try {
       set({ isRunning: true, error: null, thinkingSteps: [] });
-      const response = await agentApi.submitAsync({ prompt });
+      const { appliedSkill } = get();
+      const response = await agentApi.submitAsync({
+        prompt,
+        skill_id: appliedSkill?.skill_id,
+      });
       if (response.data.success && response.data.data) {
         const taskId = response.data.data.task_id;
         set({ currentTaskId: taskId, isRunning: true });
@@ -393,14 +420,19 @@ export const useAgentStore = create<AgentState>()(
       set({ isRunning: false, currentTaskId: null, _abortController: null });
     });
 
-    // Connect and process stream
+    // Connect and process stream — wire external signal so cancelTask aborts the fetch
+    const appliedSkill = useAgentStore.getState().appliedSkill;
+    const bodyPayload: Record<string, unknown> = { prompt };
+    if (appliedSkill?.skill_id) {
+      bodyPayload.skill_id = appliedSkill.skill_id;
+    }
     await processor.connect(agentApi.streamUrl(), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ prompt }),
+      body: JSON.stringify(bodyPayload),
     }, {
       onError(errorMsg) {
         if (errorOccurred) return; // already handled by error event
@@ -420,7 +452,7 @@ export const useAgentStore = create<AgentState>()(
           streamEvents: [...s.streamEvents, { id: crypto.randomUUID(), type: 'error', timestamp: Date.now(), data: { message: errorMsg } }],
         }));
       },
-    });
+    }, controller.signal);
 
     if (!errorOccurred) {
       set({ _abortController: null });
@@ -453,7 +485,7 @@ export const useAgentStore = create<AgentState>()(
         set({ taskHistory: data.tasks });
       }
     } catch (e) {
-      // silent
+      console.error('loadTaskHistory failed:', e);
     }
   },
 
@@ -468,14 +500,14 @@ export const useAgentStore = create<AgentState>()(
         return true;
       }
       return false;
-    } catch {
+    } catch (e) {
+      console.error('submitDecision failed:', e);
       return false;
     }
   },
   clearDecision: () => set({ pendingDecision: null }),
 
   cancelTask: async (taskId: string) => {
-    // 先 abort 前端 fetch stream
     const { _abortController } = useAgentStore.getState();
     if (_abortController) {
       _abortController.abort();
@@ -492,7 +524,8 @@ export const useAgentStore = create<AgentState>()(
         return true;
       }
       return false;
-    } catch {
+    } catch (e) {
+      console.error('cancelTask failed:', e);
       return false;
     }
   },
@@ -500,12 +533,22 @@ export const useAgentStore = create<AgentState>()(
   retryStep: async () => {
     const state = useAgentStore.getState();
     if (!state.recoveryState) return;
-    // 清除错误和恢复状态，重新执行
-    set({ error: null, recoveryState: null, isRunning: true });
-    // 从最后已知的 prompt 重新触发
+    // Abort any in-flight SSE stream before starting a new one
+    const { _abortController } = state;
+    if (_abortController) {
+      _abortController.abort();
+    }
     const lastPrompt = state.streamEvents.find(e => e.type === 'user_message')?.data?.content as string || '';
-    if (lastPrompt) {
-      await state.runStreaming(lastPrompt);
+    set({ error: null, recoveryState: null, isRunning: true });
+    try {
+      if (lastPrompt) {
+        // runStreaming is an async action; await it to ensure isRunning is managed correctly
+        await state.runStreaming(lastPrompt);
+      } else {
+        set({ isRunning: false });
+      }
+    } catch {
+      set({ isRunning: false, error: '重试失败' });
     }
   },
 
@@ -524,13 +567,12 @@ export const useAgentStore = create<AgentState>()(
       time_elapsed: 0,
       status: 'done',
     };
-    const { errorMessage, planSnapshot } = state.recoveryState;
     // 清除错误和恢复状态
     set((s) => ({
       error: null,
       recoveryState: null,
       thinkingSteps: [...s.thinkingSteps, skippedStep],
-      isRunning: false, // 需要用户手动重新提交
+      isRunning: false,
     }));
   },
 
@@ -562,6 +604,9 @@ export const useAgentStore = create<AgentState>()(
       llmChunks: {},
       reasoningChunks: {},
       messages: [],
+      contentTypeConfig: null,
+      appliedSkill: null,
+      appliedSkillFull: null,
       _abortController: null,
     });
   },
@@ -569,9 +614,13 @@ export const useAgentStore = create<AgentState>()(
   name: 'agent-store',
   partialize: (state) => ({
     messages: state.messages,
-    previousGenerations: state.previousGenerations,
-    taskHistory: state.taskHistory,
+    // Limit persisted generations to 20 to prevent localStorage bloat
+    previousGenerations: state.previousGenerations.slice(-20),
+    taskHistory: state.taskHistory.slice(-50),
     currentTaskId: state.currentTaskId,
+    contentTypeConfig: state.contentTypeConfig,
+    // Skill: only persist meta (lightweight), full data is re-fetched lazily on Apply
+    appliedSkill: state.appliedSkill,
   }),
 }
 ));

@@ -4,7 +4,7 @@ import { useAuthStore } from '../../stores/useAuthStore';
 import { useUIStore } from '../../stores/useUIStore';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { cn } from '../../utils/helpers';
-import { PenLine, FileText, Settings, ChevronLeft, Menu, X, LogOut, Bot, Cpu, Library, History as HistoryIcon } from 'lucide-react';
+import { PenLine, FileText, Settings, ChevronLeft, Menu, X, LogOut, Bot, Cpu, Library, History as HistoryIcon, BarChart3, Activity } from 'lucide-react';
 import { SIDEBAR } from '../../config/layout';
 
 const navItems = [
@@ -14,6 +14,8 @@ const navItems = [
   { id: 'templates' as const, label: '模板管理', path: '/templates', icon: Library },
   { id: 'content' as const, label: '内容管理', path: '/content', icon: FileText },
   { id: 'agent-history' as const, label: '执行历史', path: '/agent-history', icon: HistoryIcon },
+  { id: 'agent-metrics' as const, label: '系统监控', path: '/agent-metrics', icon: BarChart3 },
+  { id: 'traces' as const, label: '链路追踪', path: '/traces', icon: Activity },
   { id: 'settings' as const, label: '设置', path: '/settings', icon: Settings },
 ];
 
@@ -128,6 +130,7 @@ export function Sidebar() {
               <button
                 key={item.id}
                 onClick={() => handleNav(item)}
+                title={sidebarCollapsed ? item.label : undefined}
                 className={cn(
                   'flex items-center gap-3 w-full rounded-md px-2.5 py-2 text-sm transition-colors',
                   isActive

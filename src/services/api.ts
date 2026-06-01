@@ -80,7 +80,7 @@ apiClient.interceptors.response.use(
 
 export const authApi = {
   register: (email: string, password: string, nickname?: string) =>
-    apiClient.post<ApiResponse<{ user_id: string; email: string; nickname: string }>>(
+    apiClient.post<ApiResponse<AuthResponse>>(
       '/api/v1/auth/register',
       { email, password, nickname }
     ),
@@ -291,13 +291,13 @@ agentApiClient.interceptors.response.use(
 );
 
 export const agentApi = {
-  run: (data: { prompt: string; context?: Record<string, unknown> }) =>
+  run: (data: { prompt: string; context?: Record<string, unknown>; skill_id?: string }) =>
     agentApiClient.post<ApiResponse<AgentResult>>('/api/v1/agent/run', data),
 
-  plan: (data: { prompt: string }) =>
+  plan: (data: { prompt: string; skill_id?: string }) =>
     agentApiClient.post<ApiResponse<ExecutionPlan>>('/api/v1/agent/plan', data),
 
-  submitAsync: (data: { prompt: string }) =>
+  submitAsync: (data: { prompt: string; skill_id?: string }) =>
     agentApiClient.post<{ success: boolean; data: { task_id: string } }>('/api/v1/agent/async/submit', data),
 
   getAsyncStatus: (taskId: string) =>
@@ -320,6 +320,67 @@ export const agentApi = {
 
   /** SSE 流式执行：通过 fetch + ReadableStream 接收实时事件 */
   streamUrl: () => `${API_BASE_URL}/api/v1/agent/stream`,
+
+  /** 获取系统监控指标 */
+  getMetrics: () =>
+    apiClient.get<{ success: boolean; data: import('../types').AgentMetrics }>('/api/v1/agent/metrics'),
+};
+
+// ===================== Skills API =====================
+
+export const skillsApi = {
+  list: (params?: { category?: string; source?: string }) =>
+    apiClient.get<{ success: boolean; data: import('../types').SkillMeta[] }>('/api/v1/skills', { params }),
+
+  get: (id: string) =>
+    apiClient.get<{ success: boolean; data: import('../types').Skill }>(`/api/v1/skills/${id}`),
+
+  listBuiltins: () =>
+    apiClient.get<{ success: boolean; data: import('../types').Skill[] }>('/api/v1/skills/builtins'),
+
+  getBuiltin: (id: string) =>
+    apiClient.get<{ success: boolean; data: import('../types').Skill }>(`/api/v1/skills/builtins/${id}`),
+
+  create: (data: {
+    name: string;
+    description?: string;
+    category?: string;
+    icon?: string;
+    system_prompt: string;
+    user_prompt_template?: string;
+    preset_plan?: Record<string, unknown>;
+    content_types?: string[];
+    config_schema?: Record<string, unknown>;
+    tags?: string[];
+  }) =>
+    apiClient.post<{ success: boolean; data: import('../types').SkillMeta }>('/api/v1/skills', data),
+
+  update: (id: string, data: Record<string, unknown>) =>
+    apiClient.put<{ success: boolean; data: import('../types').SkillMeta }>(`/api/v1/skills/${id}`, data),
+
+  delete: (id: string) =>
+    apiClient.delete<{ success: boolean }>(`/api/v1/skills/${id}`),
+
+  importUrl: (url: string, nameOverride?: string) =>
+    apiClient.post<{ success: boolean; data: import('../types').SkillMeta }>('/api/v1/skills/import/url', {
+      url,
+      name_override: nameOverride,
+    }),
+
+  importFile: (fileContent: string, fileName: string) =>
+    apiClient.post<{ success: boolean; data: import('../types').SkillMeta }>('/api/v1/skills/import/file', {
+      file_content: fileContent,
+      file_name: fileName,
+    }),
+
+  previewImport: (fileContent: string, fileName: string) =>
+    apiClient.post<{ success: boolean; data: Record<string, unknown> }>('/api/v1/skills/import/preview', {
+      file_content: fileContent,
+      file_name: fileName,
+    }),
+
+  recordUse: (id: string) =>
+    apiClient.post<{ success: boolean }>(`/api/v1/skills/${id}/use`),
 };
 
 /** SSE 流式生成：通过 fetch + ReadableStream 逐 token 解析 */
@@ -355,42 +416,178 @@ export const generateStream = (
     const decoder = new TextDecoder();
     let buffer = '';
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-      buffer += decoder.decode(value, { stream: true });
-      buffer = buffer.replace(/\r\n/g, '\n');
-      const events = buffer.split('\n\n');
-      buffer = events.pop() || '';
+        buffer += decoder.decode(value, { stream: true });
+        buffer = buffer.replace(/\r\n/g, '\n');
+        const events = buffer.split('\n\n');
+        buffer = events.pop() || '';
 
-      for (const event of events) {
-        for (const line of event.split('\n')) {
-          if (line.startsWith('data: ')) {
-            try {
-              const parsed = JSON.parse(line.slice(6));
-              switch (parsed.type) {
-                case 'token':
-                  callbacks.onToken(parsed.content);
-                  break;
-                case 'title':
-                  callbacks.onTitle(parsed.content);
-                  break;
-                case 'done':
-                  callbacks.onDone(parsed);
-                  break;
-                case 'error':
-                  callbacks.onError(parsed.message);
-                  break;
+        for (const event of events) {
+          for (const line of event.split('\n')) {
+            if (line.startsWith('data: ')) {
+              try {
+                const parsed = JSON.parse(line.slice(6));
+                switch (parsed.type) {
+                  case 'token':
+                    callbacks.onToken(parsed.content);
+                    break;
+                  case 'title':
+                    callbacks.onTitle(parsed.content);
+                    break;
+                  case 'done':
+                    callbacks.onDone(parsed);
+                    break;
+                  case 'error':
+                    callbacks.onError(parsed.message);
+                    break;
+                }
+              } catch {
+                // skip malformed JSON
               }
-            } catch {
-              // skip malformed JSON
             }
           }
         }
       }
+    } catch (err) {
+      // reader.read() or decoder.decode() threw — cancel the stream on abort
+      if (signal?.aborted) {
+        reader.cancel().catch(() => {});
+      }
+      throw err;
     }
   });
 };
 
 export default apiClient;
+
+// ── Observability API ──────────────────────────────────────────────────────────
+
+export interface TraceSpan {
+  span_id: string;
+  trace_id: string;
+  parent_span_id: string;
+  operation_name: string;
+  service_name: string;
+  start_time: string;
+  duration_ms: number;
+  is_error: boolean;
+  kind: string;
+  tags: Record<string, unknown>;
+  logs: Array<{ timestamp: string; fields: Record<string, unknown> }>;
+  score: number;
+}
+
+export interface TraceSearchResult {
+  total: number;
+  page: number;
+  page_size: number;
+  spans: TraceSpan[];
+}
+
+export interface TraceDetail {
+  trace_id: string;
+  total_duration_ms: number;
+  start_time: string;
+  end_time: string;
+  span_count: number;
+  error_count: number;
+  spans: TraceSpan[];
+}
+
+export interface TraceStats {
+  total_traces: number;
+  total_spans: number;
+  error_count: number;
+  error_rate: number;
+  by_service: Array<{ service: string; count: number }>;
+  by_operation: Array<{ operation: string; count: number }>;
+  p50_duration_ms: number;
+  p95_duration_ms: number;
+  p99_duration_ms: number;
+}
+
+export interface DashboardOverview {
+  trace_stats_hour: TraceStats;
+  trace_stats_day: TraceStats;
+  metrics: Record<string, number | null>;
+  generated_at: string;
+}
+
+const obsClient: AxiosInstance = axios.create({
+  baseURL: API_BASE_URL,
+  timeout: 30000,
+  headers: { 'Content-Type': 'application/json' },
+});
+
+obsClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
+  const token = useAuthStore.getState().accessToken;
+  if (token && config.headers) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+export const observabilityApi = {
+  searchTraces(params: {
+    service?: string;
+    operation?: string;
+    trace_id?: string;
+    keyword?: string;
+    span_type?: string;
+    status?: 'error' | 'ok' | 'all';
+    time?: string;
+    page?: number;
+    page_size?: number;
+  }): Promise<TraceSearchResult> {
+    return obsClient
+      .get<{ data: TraceSearchResult }>('/api/v1/observability/traces', { params })
+      .then((r) => r.data.data);
+  },
+
+  getTrace(traceId: string): Promise<TraceDetail> {
+    return obsClient
+      .get<{ data: TraceDetail }>(`/api/v1/observability/traces/${traceId}`)
+      .then((r) => r.data.data);
+  },
+
+  getSpan(traceId: string, spanId: string): Promise<Record<string, unknown>> {
+    return obsClient
+      .get(`/api/v1/observability/traces/${traceId}/spans/${spanId}`)
+      .then((r) => r.data as Record<string, unknown>);
+  },
+
+  getStats(params: { service?: string; time?: string }): Promise<TraceStats> {
+    return obsClient
+      .get<{ data: TraceStats }>('/api/v1/observability/stats', { params })
+      .then((r) => r.data.data);
+  },
+
+  getDashboardOverview(): Promise<DashboardOverview> {
+    return obsClient
+      .get<{ data: DashboardOverview }>('/api/v1/observability/dashboard/overview')
+      .then((r) => r.data.data);
+  },
+
+  searchLogs(params: {
+    keyword: string;
+    service?: string;
+    level?: string;
+    time?: string;
+    page?: number;
+    page_size?: number;
+  }): Promise<{ total: number; page: number; page_size: number; hits: unknown[] }> {
+    return obsClient
+      .get('/api/v1/observability/logs', { params })
+      .then((r) => r.data);
+  },
+
+  queryMetrics(query: string): Promise<unknown> {
+    return obsClient
+      .get('/api/v1/observability/metrics', { params: { query } })
+      .then((r) => r.data);
+  },
+};

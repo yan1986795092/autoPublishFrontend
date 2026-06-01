@@ -10,7 +10,8 @@ import {
   FileText, Eye, Send
 } from 'lucide-react';
 import type { StreamEvent, AgentResult, LLMChunk, ReasoningChunk, StreamToolUse } from '../../types';
-import { getAgentMeta, getAgentActionDesc, getAgentIcon } from '../../config/agents';
+import { getAgentMeta, getAgentActionDesc, getAgentIcon, getAgentColor } from '../../config/agents';
+import { AgentIcon } from './AgentIcon';
 import { ToolCard } from './ToolCard';
 
 /* ─── Timeline Step ─── */
@@ -56,26 +57,27 @@ function TimelineStep({
 
       {/* Content */}
       <div className={cn('pb-5 min-w-0 flex-1', isLast && 'pb-0')}>
+        {/* Top row: agent + action + time */}
         <div className="flex items-center gap-2 min-w-0">
-          {/* Agent label */}
+          {/* Agent badge */}
           <span
             className={cn(
-              'text-xs font-medium flex-shrink-0',
-              isDone && 'text-green-400',
-              isFailed && 'text-red-400',
-              isRunning && 'text-blue-400',
-              !isRunning && !isDone && !isFailed && 'text-app-text-tertiary'
+              'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium border flex-shrink-0',
+              getAgentColor(agent),
+              isDone && 'opacity-70',
+              isRunning && ''
             )}
           >
+            <AgentIcon agentType={agent} size={12} className={cn('w-3 h-3', agent ? 'text-inherit' : '')} />
             {meta.label}
           </span>
 
-          {/* Action */}
+          {/* Action description */}
           <span className="text-xs text-app-text-secondary truncate">
             {getAgentActionDesc(agent, event.status || 'running')}
           </span>
 
-          {/* Time */}
+          {/* Time elapsed */}
           {event.data?.time_elapsed != null && (
             <span className="text-[10px] text-app-text-tertiary tabular-nums ml-auto flex-shrink-0">
               {(event.data.time_elapsed as number).toFixed(1)}s
@@ -83,15 +85,15 @@ function TimelineStep({
           )}
         </div>
 
-        {/* Reasoning (collapsed by default) */}
+        {/* Reasoning (collapsed by default, but show a hint if present) */}
         {event.reasoning && (
           <div className="mt-1">
             <button
               onClick={() => setShowReasoning(!showReasoning)}
-              className="inline-flex items-center gap-1 text-[10px] text-app-text-tertiary hover:text-app-text-secondary transition-colors"
+              className="inline-flex items-center gap-1 text-[10px] text-yellow-400/50 hover:text-yellow-400 transition-colors"
             >
               <Brain className="w-3 h-3" />
-              {showReasoning ? '收起思考' : '查看思考'}
+              {showReasoning ? '收起' : '查看思考'}
               <ChevronDown className={cn('w-2.5 h-2.5 transition-transform', showReasoning && 'rotate-180')} />
             </button>
             <AnimatePresence>
@@ -103,7 +105,7 @@ function TimelineStep({
                   transition={{ duration: 0.15 }}
                   className="overflow-hidden"
                 >
-                  <p className="mt-1 text-[11px] text-app-text-tertiary leading-relaxed pl-3 border-l border-app-border">
+                  <p className="mt-1 text-[11px] text-yellow-300/50 leading-relaxed pl-3 border-l-2 border-yellow-500/30">
                     {event.reasoning}
                   </p>
                 </motion.div>
@@ -189,8 +191,8 @@ function PlanSummaryCard({ event }: { event: StreamEvent }) {
                   key={i}
                   className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium border border-app-border bg-app-surface text-app-text-secondary"
                 >
-                  {getAgentIcon(task.agent_type || '')}
-                  {' '}{getAgentMeta(task.agent_type || '').label}
+                  <AgentIcon agentType={task.agent_type || ''} size={12} className="w-3 h-3" />
+                  {getAgentMeta(task.agent_type || '').label}
                 </span>
               ))}
             </div>
@@ -550,9 +552,14 @@ export function AgentThinkingStream({ onEdit, onPublish }: {
       style={{ maxHeight: '100%' }}
     >
       {renderedGroups.length === 0 ? (
-        <div className="flex items-center gap-2 px-1 py-4">
-          <Loader2 className="w-3.5 h-3.5 text-blue-400 animate-spin" />
-          <span className="text-xs text-app-text-secondary">等待 Agent 开始执行...</span>
+        <div className="flex flex-col items-center justify-center py-10 px-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <Loader2 className="w-3.5 h-3.5 text-blue-400 animate-spin" />
+            <span className="text-xs text-app-text-secondary">等待 Agent 开始执行...</span>
+          </div>
+          <p className="text-[10px] text-app-text-tertiary text-center max-w-[160px] leading-relaxed">
+            Manager Agent 正在理解你的需求，制定执行计划
+          </p>
         </div>
       ) : (
         <div>

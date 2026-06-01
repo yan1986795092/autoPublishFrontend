@@ -5,7 +5,8 @@ import { cn } from '../../utils/helpers';
 import Markdown from 'react-markdown';
 import { Bot, Sparkles, Copy, Check } from 'lucide-react';
 import type { ExecutionPlan, AsyncTask, AgentResult } from '../../types';
-import { getAgentLabel, getAgentIcon } from '../../config/agents';
+import { getAgentLabel } from '../../config/agents';
+import { AgentIcon } from './AgentIcon';
 
 export function EmptyStudioState({ onSelect }: { onSelect: (s: string) => void }) {
   const templates = [
@@ -103,7 +104,7 @@ export function PlanSummaryCard({ plan, onStart }: { plan: ExecutionPlan; onStar
         {plan.tasks.map((task, i) => (
           <div key={i} className="flex items-center gap-2 rounded-lg border border-app-border/50 bg-app-surface p-2 text-xs">
             <span className="text-app-text-tertiary w-5">{i + 1}.</span>
-            <span className="text-base">{getAgentIcon(task.agent_type)}</span>
+            <AgentIcon agentType={task.agent_type} size={16} className="text-app-text-secondary" />
             <span className="font-medium text-app-text">{getAgentLabel(task.agent_type)}</span>
           </div>
         ))}

@@ -8,16 +8,16 @@ import { useWebSocketAgent } from '../hooks/useWebSocketAgent';
 import { cn } from '../utils/helpers';
 import {
   Send, Square, Eye, Code2, Sparkles,
-  Bot, ChevronRight, Copy, X,
+  Bot, ChevronRight, X,
 } from 'lucide-react';
-import type { ExecutionPlan, AsyncTask, ChatMessage, ThinkingStep, AgentResult } from '../types';
+import type { ExecutionPlan, ChatMessage } from '../types';
 import { DecisionDialog } from '../components/agent/DecisionDialog';
 import { RecoveryDialog } from '../components/agent/RecoveryDialog';
-import { Switch } from '../components/ui/switch';
 import { AgentThinkingPanel } from '../components/agent/AgentThinkingPanel';
 import { AgentLiveView } from '../components/agent/AgentLiveView';
 import { AgentDebugView } from '../components/agent/AgentDebugView';
-import { ContentTypeSelector } from '../components/agent/ContentTypeSelector';
+import { Switch } from '../components/ui/switch';
+import { SkillSelector } from '../components/skill/SkillSelector';
 import { TaskProgressBar } from '../components/agent/TaskProgressBar';
 import { ExecutionPlanEditor } from '../components/agent/ExecutionPlanEditor';
 import { ResultPreview } from '../components/agent/ResultPreview';
@@ -37,20 +37,21 @@ function formatDuration(seconds: number) {
 export function AgentStudioPage() {
   const {
     currentTaskId, currentTask, currentResult, currentPlan,
-    isRunning, error, pendingDecision,
+    isRunning, pendingDecision,
     thinkingSteps, recoveryState, previousGenerations,
-    addMessage, clearMessages,
+    addMessage,
     runAsync, runStreaming,
     retryStep, skipStep,
     submitDecision, clearDecision, cancelTask,
-    connectWebSocket, disconnectWebSocket,
+    disconnectWebSocket, clearCurrent,
     previewPlan, loadTaskStatus,
+    appliedSkill, appliedSkillFull,
+    setAppliedSkill,
   } = useAgentStore();
 
   const showToast = useUIStore((s) => s.showToast);
 
   const [prompt, setPrompt] = useState('');
-  const [contentType, setContentType] = useState('');
   const [showPlanEditor, setShowPlanEditor] = useState(false);
   const [runningTime, setRunningTime] = useState(0);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -59,11 +60,42 @@ export function AgentStudioPage() {
   const [useStreaming, setUseStreaming] = useState(true);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Enrich prompt with content type context
+  // Enrich prompt with skill template + content type context
+  // Note: For streaming mode, skill_id is sent separately and skill_system_prompt
+  // is injected by the backend. For non-streaming mode, we enrich here (but skill
+  // is not loaded server-side in that path, so this mainly applies content config).
   const enrichPrompt = useCallback((text: string) => {
-    if (!contentType || contentType === 'auto') return text;
-    return `${text}\n\n[内容类型: ${contentType}]`;
-  }, [contentType]);
+    const parts: string[] = [];
+
+    // Skill: only apply template (not system_prompt — that's injected server-side)
+    const skill = appliedSkillFull;
+    if (skill) {
+      if (skill.user_prompt_template) {
+        // Replace placeholders in template
+        let template = skill.user_prompt_template;
+        template = template.replace(/\{topic\}/g, text.split('\n')[0]);
+        template = template.replace(/\{content\}/g, text);
+        return template;
+      }
+      // No template but has system_prompt → pass through; backend handles injection
+      return text;
+    }
+
+    // Content type config (fallback when no skill)
+    const config = useAgentStore.getState().contentTypeConfig;
+    if (config && config.type !== 'auto') {
+      const typeParts = [`[内容类型: ${config.type}]`];
+      if (config.style) typeParts.push(`[写作风格: ${config.style}]`);
+      if (config.length) typeParts.push(`[篇幅: ${config.length}]`);
+      const enabled = Object.entries(config.features || {})
+        .filter(([, v]) => v)
+        .map(([k]) => k);
+      if (enabled.length > 0) typeParts.push(`[附加功能: ${enabled.join(', ')}]`);
+      parts.push(...typeParts);
+    }
+
+    return parts.length > 0 ? `${text}\n\n${parts.join('\n')}` : text;
+  }, [appliedSkillFull]);
 
   useEffect(() => { inputRef.current?.focus(); }, []);
 
@@ -75,7 +107,8 @@ export function AgentStudioPage() {
       loadTaskStatus(taskId);
       showToast('正在恢复任务状态...', 'info');
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentionally runs once on mount
 
   // Running timer
   useEffect(() => {
@@ -157,14 +190,6 @@ export function AgentStudioPage() {
     showToast('任务已终止', 'info');
   }, [currentTaskId, cancelTask, disconnectWebSocket, showToast]);
 
-  // New session
-  const handleNewSession = useCallback(() => {
-    clearMessages();
-    setPrompt('');
-    setActiveRightTab('preview');
-    inputRef.current?.focus();
-  }, [clearMessages]);
-
   // Copy
   const handleCopy = useCallback(async (text: string) => {
     try {
@@ -238,7 +263,28 @@ export function AgentStudioPage() {
                   </div>
                 </div>
 
-                <ContentTypeSelector onChange={(type) => setContentType(type)} />
+                {/* Applied skill indicator */}
+                {appliedSkill && (
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-blue-500/30 bg-blue-500/5">
+                    <span className="text-sm">{appliedSkillFull?.icon || '✨'}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-blue-300 truncate">{appliedSkill.skill_name}</p>
+                      <p className="text-[9px] text-blue-400/60">Skill 已应用</p>
+                    </div>
+                    <button
+                      onClick={() => setAppliedSkill(null, null)}
+                      className="p-1 text-blue-400/60 hover:text-blue-300 transition-colors"
+                      title="移除 Skill"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+
+                {/* Skill selector */}
+                <SkillSelector onApply={(applied, full) => {
+                  setAppliedSkill(applied, full);
+                }} />
 
                 <QuickTemplates onSelect={(t) => setPrompt(t)} />
 

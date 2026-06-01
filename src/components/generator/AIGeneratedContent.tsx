@@ -16,7 +16,7 @@ export function AIGeneratedContent() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="h-full flex flex-col items-center justify-center text-center p-6 glass-card"
+          className="h-full flex flex-col items-center justify-center text-center p-6 rounded-lg border border-app-border bg-app-elevated"
         >
           <motion.div
             animate={{ scale: [1, 1.05, 1] }}
@@ -36,7 +36,7 @@ export function AIGeneratedContent() {
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0 }}
-          className="h-full flex flex-col items-center justify-center p-6 glass-card"
+          className="h-full flex flex-col items-center justify-center p-6 rounded-lg border border-app-border bg-app-elevated"
         >
           <div className="w-14 h-14 rounded-2xl bg-primary-600/20 border border-primary-500/30 flex items-center justify-center mb-4">
             <Brain className="w-6 h-6 text-primary-400" />
@@ -75,7 +75,7 @@ export function AIGeneratedContent() {
           initial={{ opacity: 0, x: -10 }}
           animate={{ opacity: 1, x: 0 }}
           exit={{ opacity: 0 }}
-          className="h-full flex flex-col items-center justify-center p-6 glass-card border-red-500/30"
+          className="h-full flex flex-col items-center justify-center p-6 rounded-lg border border-red-500/30 bg-app-elevated"
         >
           <motion.div
             initial={{ scale: 1 }}
@@ -96,7 +96,7 @@ export function AIGeneratedContent() {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0 }}
-          className="h-full flex flex-col glass-card overflow-hidden"
+          className="h-full flex flex-col rounded-lg border border-app-border bg-app-elevated overflow-hidden"
         >
           {/* Header */}
           <div className="px-4 py-3 border-b border-white/[0.04] flex-shrink-0">
@@ -161,7 +161,7 @@ export function AIGeneratedContent() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="h-full flex flex-col items-center justify-center p-6 glass-card"
+          className="h-full flex flex-col items-center justify-center p-6 rounded-lg border border-app-border bg-app-elevated"
         >
           <CheckCircle2 className="w-8 h-8 text-green-400 mb-2" />
           <p className="text-xs text-app-text-tertiary">内容已生成，请查看编辑器</p>

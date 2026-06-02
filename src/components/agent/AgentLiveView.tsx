@@ -241,7 +241,7 @@ function PlanSummary({ event, stepStates }: { event: StreamEvent; stepStates: St
           const isFailed = state?.status === 'failed';
           return (
             <motion.div
-              key={i}
+              key={`${task.agent_type}-${i}`}
               animate={isCurrent ? { opacity: [1, 0.6, 1] } : {}}
               transition={isCurrent ? { duration: 1.5, repeat: Infinity } : {}}
               className={cn(

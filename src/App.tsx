@@ -9,8 +9,6 @@ import { ContentManagementPage } from './pages/ContentManagementPage';
 import { ContentEditPage } from './pages/ContentEditPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { LoginPage } from './pages/LoginPage';
-import { AgentPage } from './pages/AgentPage';
-import { AgentStudioPage } from './pages/AgentStudioPage';
 import { AgentHistoryPage } from './pages/AgentHistoryPage';
 import { MetricsPage } from './pages/MetricsPage';
 import { TracesPage } from './pages/TracesPage';
@@ -52,9 +50,10 @@ export default function App() {
             </ProtectedRoute>
           }
         >
+          {/* Redirect old routes to unified workspace */}
+          <Route path="/agent" element={<Navigate to="/?mode=chat" replace />} />
+          <Route path="/agent-studio" element={<Navigate to="/?mode=studio" replace />} />
           <Route path="/" element={<ErrorBoundary><HomePage /></ErrorBoundary>} />
-          <Route path="/agent" element={<ErrorBoundary><AgentPage /></ErrorBoundary>} />
-          <Route path="/agent-studio" element={<ErrorBoundary><AgentStudioPage /></ErrorBoundary>} />
           <Route path="/agent-history" element={<ErrorBoundary><AgentHistoryPage /></ErrorBoundary>} />
           <Route path="/agent-metrics" element={<ErrorBoundary><MetricsPage /></ErrorBoundary>} />
           <Route path="/traces" element={<ErrorBoundary><TracesPage /></ErrorBoundary>} />

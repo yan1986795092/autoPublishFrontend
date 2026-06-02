@@ -4,13 +4,11 @@ import { useAuthStore } from '../../stores/useAuthStore';
 import { useUIStore } from '../../stores/useUIStore';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { cn } from '../../utils/helpers';
-import { PenLine, FileText, Settings, ChevronLeft, Menu, X, LogOut, Bot, Cpu, Library, History as HistoryIcon, BarChart3, Activity } from 'lucide-react';
+import { PenLine, FileText, Settings, ChevronLeft, Menu, X, LogOut, Library, History as HistoryIcon, BarChart3, Activity } from 'lucide-react';
 import { SIDEBAR } from '../../config/layout';
 
 const navItems = [
-  { id: 'create' as const, label: '创作工场', path: '/', icon: PenLine },
-  { id: 'agent' as const, label: 'Agent 工场', path: '/agent', icon: Bot },
-  { id: 'agent-studio' as const, label: 'Agent Studio', path: '/agent-studio', icon: Cpu },
+  { id: 'create' as const, label: '创作中心', path: '/', icon: PenLine },
   { id: 'templates' as const, label: '模板管理', path: '/templates', icon: Library },
   { id: 'content' as const, label: '内容管理', path: '/content', icon: FileText },
   { id: 'agent-history' as const, label: '执行历史', path: '/agent-history', icon: HistoryIcon },

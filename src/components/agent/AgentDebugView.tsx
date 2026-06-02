@@ -79,7 +79,7 @@ export function AgentDebugView({ result, className }: AgentDebugViewProps) {
                 {/* 时间线行 */}
                 {steps.map((step, i) => (
                   <div
-                    key={i}
+                    key={`${step.step_number ?? step.agent}-${i}`}
                     className={cn(
                       'grid grid-cols-[80px_1fr_60px] gap-2 px-3 py-2 text-[10px]',
                       i % 2 === 0 ? 'bg-app-elevated/30' : '',
@@ -111,22 +111,26 @@ export function AgentDebugView({ result, className }: AgentDebugViewProps) {
                   {(() => {
                     const total = steps.reduce((sum, s) => sum + s.tokens_used, 0) || 1;
                     const colors = ['bg-blue-500', 'bg-green-500', 'bg-purple-500', 'bg-orange-500', 'bg-pink-500', 'bg-cyan-500'];
-                    return steps.filter(s => s.tokens_used > 0).map((step, i) => (
-                      <div
-                        key={i}
-                        className={cn(colors[i % colors.length], 'h-full transition-all')}
-                        style={{ width: `${(step.tokens_used / total) * 100}%` }}
-                        title={`${step.agent}: ${step.tokens_used} token`}
-                      />
-                    ));
+                    return steps.filter(s => s.tokens_used > 0).map((step, idx, arr) => {
+                      const prevCount = arr.slice(0, idx).filter(s => s.tokens_used > 0).length;
+                      return (
+                        <div
+                          key={`${step.agent}-${step.step_number ?? idx}`}
+                          className={cn(colors[prevCount % colors.length], 'h-full transition-all')}
+                          style={{ width: `${(step.tokens_used / total) * 100}%` }}
+                          title={`${step.agent}: ${step.tokens_used} token`}
+                        />
+                      );
+                    });
                   })()}
                 </div>
                 <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
-                  {steps.filter(s => s.tokens_used > 0).map((step, i) => {
+                  {steps.filter(s => s.tokens_used > 0).map((step, idx, arr) => {
+                    const prevCount = arr.slice(0, idx).filter(s => s.tokens_used > 0).length;
                     const colors = ['bg-blue-500', 'bg-green-500', 'bg-purple-500', 'bg-orange-500', 'bg-pink-500', 'bg-cyan-500'];
                     return (
-                      <div key={i} className="flex items-center gap-1 text-[9px] text-app-text-secondary">
-                        <span className={cn('inline-block h-2 w-2 rounded-full', colors[i % colors.length])} />
+                      <div key={`${step.agent}-${step.step_number ?? idx}`} className="flex items-center gap-1 text-[9px] text-app-text-secondary">
+                        <span className={cn('inline-block h-2 w-2 rounded-full', colors[prevCount % colors.length])} />
                         {step.agent}: {step.tokens_used}
                       </div>
                     );
@@ -147,7 +151,7 @@ export function AgentDebugView({ result, className }: AgentDebugViewProps) {
         {tab === 'prompt' && (
           <div className="space-y-2">
             {steps.map((step, i) => (
-              <div key={i} className="rounded-lg border border-app-border/50 p-2">
+              <div key={`${step.step_number ?? step.agent}-${step.action}-${i}`} className="rounded-lg border border-app-border/50 p-2">
                 <div className="mb-1 text-[10px] font-medium text-app-text">
                   #{i} {step.agent} → {step.action}
                 </div>

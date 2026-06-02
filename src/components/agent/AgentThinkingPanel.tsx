@@ -13,8 +13,18 @@ interface AgentThinkingPanelProps {
   compact?: boolean;
 }
 
-/* ─── 兼容已有引用 ─── */
+/* ─── Deduplicate steps by step_number + agent to avoid React key collisions ─── */
+function deduplicateSteps(steps: ThinkingStep[]): ThinkingStep[] {
+  const seen = new Set<string>();
+  return steps.filter((step) => {
+    const key = `${step.step_number ?? ''}-${step.agent}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
 
+/* ─── Step Card ─── */
 function StepCard({ step, index }: { step: ThinkingStep; index: number }) {
   const [expanded, setExpanded] = useState(false);
   const isDone = step.status === 'done';
@@ -22,9 +32,9 @@ function StepCard({ step, index }: { step: ThinkingStep; index: number }) {
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 8, scale: 0.98 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ duration: 0.25, delay: index * 0.03 }}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.15 }}
       className={cn(
         'rounded-lg border p-3 transition-colors',
         isFailed
@@ -53,7 +63,7 @@ function StepCard({ step, index }: { step: ThinkingStep; index: number }) {
         {/* Content */}
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-              <span className={cn(
+            <span className={cn(
               'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium border',
               getAgentColor(step.agent)
             )}>
@@ -130,24 +140,20 @@ function StepCard({ step, index }: { step: ThinkingStep; index: number }) {
 export function AgentThinkingPanel({ result, className, compact = false }: AgentThinkingPanelProps) {
   const [showAll, setShowAll] = useState(false);
 
-  if (!result?.thinking_trace) {
-    return null;
-  }
+  if (!result?.thinking_trace) return null;
 
   const { steps, total_elapsed } = result.thinking_trace;
   if (!steps || steps.length === 0) return null;
 
-  const completedSteps = steps.filter(s => s.status === 'done').length;
-  const failedSteps = steps.filter(s => s.status === 'failed').length;
-  const displaySteps = compact && !showAll ? steps.slice(0, 3) : steps;
+  // Deduplicate once — avoids duplicate key warnings from backend sending duplicate step_numbers
+  const uniqueSteps = deduplicateSteps(steps);
+  const completedSteps = uniqueSteps.filter(s => s.status === 'done').length;
+  const failedSteps = uniqueSteps.filter(s => s.status === 'failed').length;
+  const displaySteps = compact && !showAll ? uniqueSteps.slice(0, 3) : uniqueSteps;
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
-    >
-      <Card variant="glass" className={cn('w-full', className)}>
+    <div className={cn('w-full', className)}>
+      <Card variant="glass">
         <CardHeader className="p-4 pb-2">
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center gap-2 text-sm">
@@ -166,7 +172,7 @@ export function AgentThinkingPanel({ result, className, compact = false }: Agent
               </span>
             </CardTitle>
             <div className="flex items-center gap-3 text-[10px] text-app-text-secondary tabular-nums">
-              <span>{completedSteps}/{steps.length} 步骤</span>
+              <span>{completedSteps}/{uniqueSteps.length} 步骤</span>
               {failedSteps > 0 && <span className="text-red-400">{failedSteps} 失败</span>}
               {total_elapsed > 0 && <span>⏱ {total_elapsed.toFixed(1)}s</span>}
             </div>
@@ -174,9 +180,9 @@ export function AgentThinkingPanel({ result, className, compact = false }: Agent
 
           {/* Mini progress bar */}
           <div className="mt-2 flex h-1 gap-0.5">
-            {steps.map((step, i) => (
+            {uniqueSteps.map((step, i) => (
               <motion.div
-                key={i}
+                key={`${step.step_number ?? ''}-${step.agent}-${i}`}
                 initial={{ scaleX: 0 }}
                 animate={{ scaleX: 1 }}
                 transition={{ delay: i * 0.03, duration: 0.2 }}
@@ -193,21 +199,21 @@ export function AgentThinkingPanel({ result, className, compact = false }: Agent
 
         <CardContent className="space-y-2 p-4 pt-2">
           {displaySteps.map((step, i) => (
-            <StepCard key={step.step_number ?? `${step.agent}-${step.action}-${i}`} step={step} index={i} />
+            <StepCard key={`${step.step_number ?? step.agent}-${step.action}-${i}`} step={step} index={i} />
           ))}
 
-          {compact && steps.length > 3 && !showAll && (
+          {compact && uniqueSteps.length > 3 && !showAll && (
             <motion.button
               whileHover={{ scale: 1.01 }}
               whileTap={{ scale: 0.99 }}
               onClick={() => setShowAll(true)}
               className="w-full rounded-lg border border-dashed border-app-border py-2 text-[11px] text-app-text-secondary hover:text-app-text transition-colors"
             >
-              展开全部 {steps.length} 步
+              展开全部 {uniqueSteps.length} 步
             </motion.button>
           )}
 
-          {compact && showAll && steps.length > 3 && (
+          {compact && showAll && uniqueSteps.length > 3 && (
             <motion.button
               whileHover={{ scale: 1.01 }}
               whileTap={{ scale: 0.99 }}
@@ -219,6 +225,6 @@ export function AgentThinkingPanel({ result, className, compact = false }: Agent
           )}
         </CardContent>
       </Card>
-    </motion.div>
+    </div>
   );
 }

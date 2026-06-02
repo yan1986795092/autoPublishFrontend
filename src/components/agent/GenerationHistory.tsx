@@ -160,7 +160,7 @@ export function GenerationHistory({ generations, onRestore, maxDisplay = 20 }: G
                       {gen.result?.thinking_trace?.steps && (
                         <div className="flex flex-wrap gap-1">
                           {gen.result.thinking_trace.steps.map((s, i) => (
-                            <span key={i} className="text-[9px] px-1 py-0.5 rounded bg-app-border/30 text-app-text-tertiary">
+                            <span key={`${s.step_number ?? s.agent}-${i}`} className="text-[9px] px-1 py-0.5 rounded bg-app-border/30 text-app-text-tertiary">
                               {getAgentLabel(s.agent)}
                             </span>
                           ))}
@@ -174,7 +174,7 @@ export function GenerationHistory({ generations, onRestore, maxDisplay = 20 }: G
                           <RotateCcw className="w-2.5 h-2.5" /> 恢复
                         </button>
                         <button
-                          onClick={(e) => { e.stopPropagation(); navigate(`/agent?taskId=${gen.result?.task_id}`); }}
+                          onClick={(e) => { e.stopPropagation(); navigate(`/?mode=chat&taskId=${gen.result?.task_id}`); }}
                           className="text-[10px] text-app-text-tertiary hover:text-app-text-secondary"
                         >
                           查看详情

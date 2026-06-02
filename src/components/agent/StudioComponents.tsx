@@ -72,7 +72,7 @@ export function PlanProgressStrip({ plan, currentTask }: { plan: ExecutionPlan; 
           const isCurrent = i === currentStepIndex;
           const isPending = i > currentStepIndex;
           return (
-            <div key={i} className="flex items-center gap-2 text-[10px]">
+            <div key={`${task.agent_type}-${i}`} className="flex items-center gap-2 text-[10px]">
               <div className={cn(
                 'w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold flex-shrink-0',
                 isDone ? 'bg-green-500/20 text-green-400' :
@@ -101,7 +101,7 @@ export function PlanSummaryCard({ plan, onStart }: { plan: ExecutionPlan; onStar
       </div>
       <div className="space-y-1.5">
         {plan.tasks.map((task, i) => (
-          <div key={i} className="flex items-center gap-2 rounded-lg border border-app-border/50 bg-app-surface p-2 text-xs">
+          <div key={`${task.agent_type}-${i}`} className="flex items-center gap-2 rounded-lg border border-app-border/50 bg-app-surface p-2 text-xs">
             <span className="text-app-text-tertiary w-5">{i + 1}.</span>
             <AgentIcon agentType={task.agent_type} size={16} className="text-app-text-secondary" />
             <span className="font-medium text-app-text">{getAgentLabel(task.agent_type)}</span>

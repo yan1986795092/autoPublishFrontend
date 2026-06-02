@@ -53,7 +53,7 @@ function PlanSummaryCard({ event }: { event: StreamEvent }) {
             <div className="flex flex-wrap gap-1 mt-2">
               {tasks.map((task: any, i: number) => (
                 <span
-                  key={i}
+                  key={`${task.agent_type}-${i}`}
                   className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium border border-app-border bg-app-surface text-app-text-secondary"
                 >
                   <AgentIcon agentType={task.agent_type || ''} size={12} className="w-3 h-3" />
@@ -306,7 +306,7 @@ export function AgentThinkingStream({ onPublish }: {
   const handleScroll = () => {
     if (!containerRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
-    setAutoScroll(scrollHeight - scrollTop - clientHeight < 80);
+    setAutoScroll(scrollHeight - scrollTop - clientHeight < 60);
   };
 
   const handleDecision = async (decisionId: string, choice: string) => {
@@ -408,44 +408,59 @@ export function AgentThinkingStream({ onPublish }: {
   }
 
   return (
-    <div
-      ref={containerRef}
-      onScroll={handleScroll}
-      className="relative"
-      style={{ maxHeight: '100%' }}
-    >
-      {renderedGroups.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-10 px-4 space-y-3">
-          <div className="flex items-center gap-2">
-            <Loader2 className="w-3.5 h-3.5 text-blue-400 animate-spin" />
-            <span className="text-xs text-app-text-secondary">等待 Agent 开始执行...</span>
+    <div className="relative h-full flex flex-col">
+      <div
+        ref={containerRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto"
+      >
+        {renderedGroups.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-10 px-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <Loader2 className="w-3.5 h-3.5 text-blue-400 animate-spin" />
+              <span className="text-xs text-app-text-secondary">等待 Agent 开始执行...</span>
+            </div>
+            <p className="text-[10px] text-app-text-tertiary text-center max-w-[160px] leading-relaxed">
+              Manager Agent 正在理解你的需求，制定执行计划
+            </p>
           </div>
-          <p className="text-[10px] text-app-text-tertiary text-center max-w-[160px] leading-relaxed">
-            Manager Agent 正在理解你的需求，制定执行计划
-          </p>
-        </div>
-      ) : (
-        <div>
-          {renderedGroups.map((item) => (
-            <div key={item.id}>{item.el}</div>
-          ))}
-        </div>
-      )}
+        ) : (
+          <div>
+            {renderedGroups.map((item) => (
+              <div key={item.id}>{item.el}</div>
+            ))}
+          </div>
+        )}
 
-      {/* Pending decision */}
-      {pendingDecision && !streamEvents.some(e => e.type === 'decision_required') && (
-        <InlineDecision
-          event={{
-            id: 'pending-decision',
-            type: 'decision_required',
-            timestamp: Date.now(),
-            data: pendingDecision as unknown as Record<string, unknown>,
+        {/* Pending decision */}
+        {pendingDecision && !streamEvents.some(e => e.type === 'decision_required') && (
+          <InlineDecision
+            event={{
+              id: 'pending-decision',
+              type: 'decision_required',
+              timestamp: Date.now(),
+              data: pendingDecision as unknown as Record<string, unknown>,
+            }}
+            onSubmit={handleDecision}
+          />
+        )}
+
+        <div ref={bottomRef} />
+      </div>
+
+      {/* Scroll to bottom button — shown when user scrolled up */}
+      {!autoScroll && renderedGroups.length > 0 && (
+        <button
+          onClick={() => {
+            setAutoScroll(true);
+            bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
           }}
-          onSubmit={handleDecision}
-        />
+          className="absolute bottom-4 right-4 flex items-center gap-1 rounded-full bg-app-elevated border border-app-border px-3 py-1.5 text-[11px] text-app-text-secondary shadow-lg hover:bg-app-hover hover:text-app-text transition-colors"
+        >
+          <ChevronDown className="w-3 h-3" />
+          滚动到底部
+        </button>
       )}
-
-      <div ref={bottomRef} />
     </div>
   );
 }

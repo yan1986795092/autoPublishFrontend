@@ -51,7 +51,11 @@ function IdleState() {
   );
 }
 
-export function AdvancedPanel() {
+interface AdvancedPanelProps {
+  selectedPlatform?: string | null;
+}
+
+export function AdvancedPanel({ selectedPlatform }: AdvancedPanelProps) {
   const [activeTab, setActiveTab] = useState<RightTab>('preview');
 
   const isRunning = useAgentStore((s) => s.isRunning);
@@ -128,7 +132,7 @@ export function AdvancedPanel() {
             </>
           ) : (
             <>
-              {activeTab === 'preview' && <ResultPreview result={currentResult} />}
+              {activeTab === 'preview' && <ResultPreview result={currentResult} selectedPlatform={selectedPlatform ?? null} />}
               {activeTab === 'trace' && <AgentThinkingPanel result={currentResult} />}
               {activeTab === 'debug' && <AgentDebugView result={currentResult} />}
             </>

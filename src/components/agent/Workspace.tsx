@@ -262,7 +262,7 @@ export function Workspace() {
         </div>
       </div>
 
-      <AdvancedPanel />
+      <AdvancedPanel selectedPlatform={selectedPlatform} />
     </div>
   );
 }

@@ -1,18 +1,14 @@
-import { useState } from 'react';
-import { cn } from '../../utils/helpers';
 import { Eye } from 'lucide-react';
 import Markdown from 'react-markdown';
 import type { AgentResult } from '../../types';
-import { ALL_PLATFORMS } from './PlatformSelector';
+import { PLATFORM_MAP } from './PlatformSelector';
 
-const PREVIEW_OPTIONS = [
-  { key: 'raw', label: '原文' },
-  ...ALL_PLATFORMS.map(p => ({ key: p.id, label: p.label, icon: p.icon })),
-];
+interface ResultPreviewProps {
+  result: AgentResult | null;
+  selectedPlatform: string | null;
+}
 
-export function ResultPreview({ result }: { result: AgentResult | null }) {
-  const [previewPlatform, setPreviewPlatform] = useState('raw');
-
+export function ResultPreview({ result, selectedPlatform }: ResultPreviewProps) {
   if (!result) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -27,26 +23,20 @@ export function ResultPreview({ result }: { result: AgentResult | null }) {
     (result.output?.content as string) ||
     JSON.stringify(result.output, null, 2);
 
+  const platform = selectedPlatform ? PLATFORM_MAP.get(selectedPlatform) : null;
+
   return (
     <div className="space-y-3">
-      {/* Platform preview tabs — scrollable */}
-      <div className="flex gap-1 rounded-lg bg-app-surface p-1 overflow-x-auto">
-        {PREVIEW_OPTIONS.map((opt) => (
-          <button
-            key={opt.key}
-            onClick={() => setPreviewPlatform(opt.key)}
-            className={cn(
-              'flex items-center gap-1 rounded py-1 px-2 text-[10px] font-medium transition-colors whitespace-nowrap',
-              previewPlatform === opt.key
-                ? 'bg-app-elevated text-app-text shadow-sm'
-                : 'text-app-text-secondary hover:text-app-text'
-            )}
-          >
-            {'icon' in opt && opt.icon && <span>{opt.icon}</span>}
-            {opt.label}
-          </button>
-        ))}
-      </div>
+      {/* Platform context — show which platform this was generated for */}
+      {platform && (
+        <div className="flex items-center gap-2 px-1">
+          <span className="text-sm">{platform.icon}</span>
+          <span className="text-xs font-medium text-app-text">{platform.label}</span>
+          <span className="text-[9px] text-app-text-tertiary bg-app-surface px-1.5 py-0.5 rounded">
+            {platform.category === 'publishable' ? '可发布' : '文案'}
+          </span>
+        </div>
+      )}
 
       <div className="rounded-lg border border-app-border overflow-hidden min-h-[300px]">
         <div className="p-4 text-xs text-app-text-secondary leading-relaxed max-h-[600px] overflow-auto">

@@ -6,6 +6,11 @@ import {
 } from 'lucide-react';
 import { observabilityApi, type TraceSearchResult, type TraceStats, type TraceDetail } from '../services/api';
 import { Button } from '../components/ui/button';
+import { Input } from '../components/ui/input';
+import { Badge } from '../components/ui/badge';
+import { Card } from '../components/ui/card';
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../components/ui/select';
+import { LoadingSpinner } from '../components/ui/loading-spinner';
 import { cn } from '../utils/helpers';
 
 interface TraceSpan {
@@ -50,12 +55,12 @@ const STATUS_OPTIONS = [
 
 function StatusBadge({ isError }: { isError: boolean }) {
   return isError ? (
-    <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-0.5 text-[10px] font-medium text-red-400">
+    <span className="inline-flex items-center gap-1 bg-red-500/10 text-red-400 border border-red-500/30 rounded-full px-2 py-0.5 text-[9px]">
       <AlertTriangle className="w-2.5 h-2.5" />
       错误
     </span>
   ) : (
-    <span className="inline-flex items-center gap-1 rounded-full bg-green-500/10 px-2 py-0.5 text-[10px] font-medium text-green-400">
+    <span className="inline-flex items-center gap-1 bg-green-500/10 text-green-400 border border-green-500/30 rounded-full px-2 py-0.5 text-[9px]">
       <CheckCircle2 className="w-2.5 h-2.5" />
       成功
     </span>
@@ -63,7 +68,7 @@ function StatusBadge({ isError }: { isError: boolean }) {
 }
 
 function formatDuration(ms: number): string {
-  if (ms < 1) return `${(ms * 1000).toFixed(0)}μs`;
+  if (ms < 1) return `${(ms * 1000).toFixed(0)}µs`;
   if (ms < 1000) return `${ms.toFixed(1)}ms`;
   if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
   return `${(ms / 60000).toFixed(1)}m`;
@@ -84,6 +89,21 @@ function formatTimeFull(iso: string): string {
   } catch {
     return iso;
   }
+}
+
+function getOperationColor(op: string): string {
+  if (op.includes('agent.run')) return 'text-app-accent';
+  if (op.includes('agent.think')) return 'text-purple-400';
+  if (op.includes('tool.call')) return 'text-amber-400';
+  if (op.includes('model.request')) return 'text-blue-400';
+  if (op.includes('agent.')) return 'text-cyan-400';
+  return 'text-app-text';
+}
+
+function getDurationColor(ms: number): string {
+  if (ms > 5000) return 'text-red-400';
+  if (ms > 1000) return 'text-amber-400';
+  return 'text-app-text-secondary';
 }
 
 interface SearchParams {
@@ -149,8 +169,13 @@ export function TracesPage() {
 
   const totalPages = result ? Math.ceil(result.total / PAGE_SIZE) : 0;
 
+  const executeSearch = useCallback(() => {
+    setPage(1);
+    fetch();
+  }, [fetch]);
+
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div className="max-w-4xl mx-auto p-6 flex flex-col h-full overflow-hidden">
       {/* ── Header ─────────────────────────────────────────── */}
       <div className="flex-shrink-0 border-b border-app-border/50 bg-app-surface px-6 py-4">
         <div className="flex items-center justify-between mb-4">
@@ -158,24 +183,22 @@ export function TracesPage() {
             <Activity className="w-5 h-5 text-app-accent" />
             <h1 className="text-base font-semibold text-app-text">链路追踪</h1>
             {stats && (
-              <span className="text-[11px] text-app-text-tertiary">
+              <Badge variant="outline" size="sm" className="gap-1 font-normal">
                 {stats.total_traces.toLocaleString()} traces · {stats.total_spans.toLocaleString()} spans
-              </span>
+              </Badge>
             )}
           </div>
-          <div className="flex items-center gap-2">
-            <Button
-              onClick={() => fetch()}
-              variant="outline"
-              size="sm"
-            >
-              <RefreshCw className={cn('w-3 h-3', loading && 'animate-spin')} />
-              刷新
-            </Button>
-          </div>
+          <Button
+            onClick={() => fetch()}
+            variant="outline"
+            size="sm"
+          >
+            <RefreshCw className={cn('w-3.5 h-3.5', loading && 'animate-spin')} />
+            刷新
+          </Button>
         </div>
 
-        {/* ── Quick stats ────────────────────────────────── */}
+        {/* ── Stats row ────────────────────────────────────── */}
         {stats && (
           <div className="grid grid-cols-6 gap-3 mb-4">
             {[
@@ -186,37 +209,46 @@ export function TracesPage() {
               { label: 'p95 延迟', value: formatDuration(stats.p95_duration_ms ?? 0), color: 'text-app-text-secondary' },
               { label: 'p99 延迟', value: formatDuration(stats.p99_duration_ms ?? 0), color: 'text-app-text-secondary' },
             ].map(({ label, value, color }) => (
-              <div key={label} className="rounded-md border border-app-border/30 bg-app-elevated px-3 py-2 text-center">
+              <Card key={label} padding="sm" className="text-center shadow-sm">
                 <p className="text-[10px] text-app-text-tertiary mb-0.5">{label}</p>
                 <p className={cn('text-sm font-semibold', color)}>{String(value)}</p>
-              </div>
+              </Card>
             ))}
           </div>
         )}
 
-        {/* ── Search bar ─────────────────────────────────── */}
+        {/* ── Search bar ───────────────────────────────────── */}
         <div className="flex items-center gap-2">
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-app-text-tertiary" />
-            <input
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-app-text-tertiary pointer-events-none" />
+            <Input
               type="text"
               value={params.keyword}
               onChange={(e) => setParams((p) => ({ ...p, keyword: e.target.value, operation: '' }))}
               placeholder="搜索关键字 (agent.run, tool.call, error...)"
-              className="w-full rounded-md border border-app-border/50 bg-app-bg pl-9 pr-3 py-2 text-[12px] text-app-text placeholder:text-app-text-tertiary focus:outline-none focus:ring-1 focus:ring-app-accent transition-shadow duration-150"
-              onKeyDown={(e) => { if (e.key === 'Enter') { setPage(1); fetch(); } }}
+              className="pl-9"
+              onKeyDown={(e) => { if (e.key === 'Enter') executeSearch(); }}
             />
           </div>
 
-          <select
+          <Select
             value={params.time}
-            onChange={(e) => setParams((p) => ({ ...p, time: e.target.value }))}
-            className="rounded-md border border-app-border/50 bg-app-elevated px-2 py-2 text-[11px] text-app-text-secondary focus:outline-none focus:ring-1 focus:ring-app-accent cursor-pointer transition-shadow duration-150"
+            onValueChange={(v) => setParams((p) => ({ ...p, time: v }))}
           >
-            {TIME_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
+            <SelectTrigger className="w-[140px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {TIME_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Button onClick={executeSearch} variant="primary" size="sm">
+            <Search className="w-3.5 h-3.5" />
+            搜索
+          </Button>
 
           <Button
             onClick={() => setShowFilters((v) => !v)}
@@ -227,18 +259,9 @@ export function TracesPage() {
             <Filter className="w-3.5 h-3.5" />
             筛选
           </Button>
-
-          <Button
-            onClick={() => setPage(1)}
-            variant="primary"
-            size="sm"
-          >
-            <Search className="w-3.5 h-3.5" />
-            搜索
-          </Button>
         </div>
 
-        {/* ── Filter panel ────────────────────────────────── */}
+        {/* ── Filter panel ─────────────────────────────────── */}
         {showFilters && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
@@ -247,22 +270,20 @@ export function TracesPage() {
           >
             <div>
               <label className="mb-1 block text-[10px] font-medium text-app-text-tertiary">服务</label>
-              <input
+              <Input
                 type="text"
                 value={params.service}
                 onChange={(e) => setParams((p) => ({ ...p, service: e.target.value }))}
                 placeholder="autopublish-api"
-                className="w-full rounded-md border border-app-border/50 bg-app-bg px-2 py-1.5 text-[11px] text-app-text placeholder:text-app-text-tertiary focus:outline-none focus:ring-1 focus:ring-app-accent transition-shadow duration-150"
               />
             </div>
             <div>
               <label className="mb-1 block text-[10px] font-medium text-app-text-tertiary">操作名</label>
-              <input
+              <Input
                 type="text"
                 value={params.operation}
                 onChange={(e) => setParams((p) => ({ ...p, operation: e.target.value }))}
                 placeholder="agent.think, tool.call..."
-                className="w-full rounded-md border border-app-border/50 bg-app-bg px-2 py-1.5 text-[11px] text-app-text placeholder:text-app-text-tertiary focus:outline-none focus:ring-1 focus:ring-app-accent transition-shadow duration-150"
               />
             </div>
             <div>
@@ -285,18 +306,14 @@ export function TracesPage() {
               <label className="mb-1 block text-[10px] font-medium text-app-text-tertiary">Span 类型</label>
               <div className="flex flex-wrap gap-1">
                 {SPAN_TYPES.map((o) => (
-                  <button
+                  <Button
                     key={o.value}
                     onClick={() => setParams((p) => ({ ...p, span_type: o.value }))}
-                    className={cn(
-                      'rounded-full border px-2 py-0.5 text-[10px] font-medium transition-colors',
-                      params.span_type === o.value
-                        ? 'border-app-accent bg-app-accent/10 text-app-accent'
-                        : 'border-app-border/30 bg-app-elevated text-app-text-tertiary hover:bg-app-surface',
-                    )}
+                    variant={params.span_type === o.value ? 'primary' : 'outline'}
+                    size="xs"
                   >
                     {o.label}
-                  </button>
+                  </Button>
                 ))}
               </div>
             </div>
@@ -315,21 +332,17 @@ export function TracesPage() {
         )}
       </div>
 
-      {/* ── Results table ───────────────────────────────── */}
+      {/* ── Results table ─────────────────────────────────── */}
       <div className="flex-1 overflow-auto">
         {loading ? (
           <div className="flex items-center justify-center h-48">
-            <RefreshCw className="w-5 h-5 text-app-text-tertiary animate-spin" />
+            <LoadingSpinner size="md" />
           </div>
         ) : error ? (
           <div className="flex flex-col items-center justify-center h-48 gap-3">
             <AlertTriangle className="w-6 h-6 text-red-400" />
             <p className="text-[12px] text-app-text-secondary">{error}</p>
-            <Button
-              onClick={() => fetch()}
-              variant="outline"
-              size="sm"
-            >
+            <Button onClick={() => fetch()} variant="outline" size="sm">
               重试
             </Button>
           </div>
@@ -341,10 +354,12 @@ export function TracesPage() {
           </div>
         ) : (
           <table className="w-full text-[11px]">
-            <thead className="sticky top-0 z-10 bg-app-elevated/40 border-b border-app-border/50">
-              <tr>
-                {['状态', '时间', '操作名', '服务', 'Trace ID', 'Span ID', '延迟'].map((h) => (
-                  <th key={h} className="px-4 py-2.5 text-left text-[10px] font-semibold text-app-text-tertiary uppercase tracking-wider">{h}</th>
+            <thead className="sticky top-0 z-10">
+              <tr className="bg-app-elevated/80 border-b border-app-border/50">
+                {['状态', '时间', '操作名', '服务', 'Trace ID', '延迟'].map((h) => (
+                  <th key={h} className="px-3 py-2.5 text-left text-[10px] font-semibold text-app-text-tertiary uppercase tracking-wider">
+                    {h}
+                  </th>
                 ))}
               </tr>
             </thead>
@@ -352,42 +367,31 @@ export function TracesPage() {
               {(result?.spans as unknown as TraceSpan[]).map((span, i) => (
                 <tr
                   key={`${span.trace_id}-${span.span_id}-${i}`}
-                  className="hover:bg-app-elevated/50 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] transition-all duration-150 cursor-pointer"
+                  className="hover:bg-app-hover/30 transition-colors cursor-pointer"
                   onClick={() => setSelectedTraceId(span.trace_id)}
                 >
-                  <td className="px-4 py-2.5"><StatusBadge isError={span.is_error} /></td>
-                  <td className="px-4 py-2.5 font-mono text-app-text-secondary whitespace-nowrap">{formatTime(span.start_time)}</td>
-                  <td className="px-4 py-2.5 max-w-[200px]">
-                    <span className={cn(
-                      'block truncate font-medium',
-                      span.operation_name.includes('agent.run') ? 'text-app-accent' :
-                      span.operation_name.includes('agent.think') ? 'text-purple-400' :
-                      span.operation_name.includes('tool.call') ? 'text-amber-400' :
-                      span.operation_name.includes('model.request') ? 'text-blue-400' :
-                      'text-app-text',
-                    )}>
+                  <td className="px-3 py-2.5"><StatusBadge isError={span.is_error} /></td>
+                  <td className="px-3 py-2.5 font-mono text-app-text-secondary whitespace-nowrap">
+                    {formatTime(span.start_time)}
+                  </td>
+                  <td className="px-3 py-2.5 max-w-[220px]">
+                    <span className={cn('block truncate font-medium', getOperationColor(span.operation_name))}>
                       {span.operation_name}
                     </span>
                   </td>
-                  <td className="px-4 py-2.5 text-app-text-tertiary whitespace-nowrap">{span.service_name}</td>
-                  <td className="px-4 py-2.5 font-mono text-app-text-tertiary max-w-[120px]">
-                    <span className="group relative block">
+                  <td className="px-3 py-2.5 text-app-text-tertiary whitespace-nowrap font-mono text-[10px]">
+                    {span.service_name}
+                  </td>
+                  <td className="px-3 py-2.5 max-w-[140px]">
+                    <span className="group relative block font-mono text-app-text-tertiary text-[10px]">
                       <span className="block truncate">{span.trace_id}</span>
                       <span className="absolute left-0 top-full z-20 hidden group-hover:block bg-app-elevated border border-app-border/50 rounded-md px-2 py-1 text-[10px] font-mono text-app-text whitespace-nowrap shadow-lg">
                         {span.trace_id}
                       </span>
                     </span>
                   </td>
-                  <td className="px-4 py-2.5 font-mono text-app-text-tertiary max-w-[100px]">
-                    <span className="block truncate">{span.span_id}</span>
-                  </td>
-                  <td className="px-4 py-2.5 text-right whitespace-nowrap">
-                    <span className={cn(
-                      'font-mono',
-                      span.duration_ms > 5000 ? 'text-red-400' :
-                      span.duration_ms > 1000 ? 'text-amber-400' :
-                      'text-app-text-secondary',
-                    )}>
+                  <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                    <span className={cn('font-mono font-medium', getDurationColor(span.duration_ms))}>
                       {formatDuration(span.duration_ms)}
                     </span>
                   </td>
@@ -398,7 +402,7 @@ export function TracesPage() {
         )}
       </div>
 
-      {/* ── Pagination ──────────────────────────────────── */}
+      {/* ── Pagination ────────────────────────────────────── */}
       {result && totalPages > 1 && (
         <div className="flex-shrink-0 flex items-center justify-between border-t border-app-border/50 bg-app-surface px-6 py-3">
           <p className="text-[11px] text-app-text-tertiary">
@@ -438,7 +442,7 @@ export function TracesPage() {
         </div>
       )}
 
-      {/* ── Trace Detail Drawer ─────────────────────────── */}
+      {/* ── Trace Detail Drawer ───────────────────────────── */}
       {selectedTraceId && (
         <TraceDrawer
           traceId={selectedTraceId}
@@ -458,7 +462,6 @@ function TraceDrawer({ traceId, onClose }: { traceId: string; onClose: () => voi
 
   useEffect(() => {
     observabilityApi.getTrace(traceId).then((d) => {
-      // Build span_map from spans array for component compatibility
       const spanMap: Record<string, TraceSpan> = {};
       if (d.spans) {
         for (const s of d.spans) {
@@ -504,11 +507,7 @@ function TraceDrawer({ traceId, onClose }: { traceId: string; onClose: () => voi
                 </a>
               </Button>
             )}
-            <Button
-              onClick={onClose}
-              variant="outline"
-              size="icon-sm"
-            >
+            <Button onClick={onClose} variant="outline" size="icon-sm">
               <X className="w-4 h-4" />
             </Button>
           </div>
@@ -518,7 +517,7 @@ function TraceDrawer({ traceId, onClose }: { traceId: string; onClose: () => voi
         <div className="flex-1 overflow-auto p-4">
           {loading ? (
             <div className="flex items-center justify-center h-32">
-              <RefreshCw className="w-5 h-5 text-app-text-tertiary animate-spin" />
+              <LoadingSpinner size="md" />
             </div>
           ) : detail ? (
             <div className="space-y-6">
@@ -596,14 +595,7 @@ function TraceTimeline({
                 onClick={() => onSelectSpan(isActive ? null : span.span_id)}
               >
                 <div className="w-52 flex-shrink-0 px-2 py-1.5">
-                  <p className={cn(
-                    'text-[10px] font-medium truncate',
-                    span.operation_name.includes('agent.run') ? 'text-app-accent' :
-                    span.operation_name.includes('agent.think') ? 'text-purple-400' :
-                    span.operation_name.includes('tool.call') ? 'text-amber-400' :
-                    span.operation_name.includes('model.request') ? 'text-blue-400' :
-                    'text-app-text',
-                  )}>
+                  <p className={cn('text-[10px] font-medium truncate', getOperationColor(span.operation_name))}>
                     {span.operation_name}
                   </p>
                   <p className="text-[9px] text-app-text-tertiary font-mono truncate">{span.span_id.slice(0, 8)}...</p>
@@ -624,12 +616,7 @@ function TraceTimeline({
                   />
                 </div>
                 <div className="w-20 flex-shrink-0 px-2 py-1.5 text-right">
-                  <span className={cn(
-                    'text-[10px] font-mono',
-                    span.duration_ms > 5000 ? 'text-red-400' :
-                    span.duration_ms > 1000 ? 'text-amber-400' :
-                    'text-app-text-secondary',
-                  )}>
+                  <span className={cn('text-[10px] font-mono', getDurationColor(span.duration_ms))}>
                     {formatDuration(span.duration_ms)}
                   </span>
                 </div>

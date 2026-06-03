@@ -14,11 +14,13 @@ function formatPct(v: number): string {
 
 function StatusBadge({ ok, label }: { ok: boolean; label: string }) {
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
-      ok
-        ? 'bg-green-500/10 text-green-400'
-        : 'bg-red-500/10 text-red-400'
-    }`}>
+    <span
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+        ok
+          ? 'bg-green-500/10 text-green-400'
+          : 'bg-red-500/10 text-red-400'
+      }`}
+    >
       {ok ? <CheckCircle2 className="w-2.5 h-2.5" /> : <XCircle className="w-2.5 h-2.5" />}
       {label}
     </span>
@@ -48,7 +50,7 @@ function StatCard({
         <Icon className={`w-4 h-4 ${color}`} />
         <span className="text-[10px] font-medium text-app-text-tertiary uppercase tracking-wider">{label}</span>
       </div>
-      <p className={`text-xl font-semibold ${color}`}>{value}</p>
+      <p className={`text-2xl font-bold ${color}`}>{value}</p>
       {sub && <p className="text-[10px] text-app-text-tertiary mt-0.5">{sub}</p>}
     </motion.div>
   );
@@ -93,7 +95,7 @@ export function MetricsPage() {
     return (
       <div className="flex items-center justify-center h-full">
         <div className="flex items-center gap-2 text-sm text-app-text-secondary">
-          <div className="w-4 h-4 rounded-full border-2 border-blue-400 border-t-transparent animate-spin" />
+          <div className="w-4 h-4 rounded-full border-2 border-primary-400 border-t-transparent animate-spin" />
           加载中...
         </div>
       </div>
@@ -118,12 +120,15 @@ export function MetricsPage() {
   const llmHitRate = metrics.cache.llm_cache.hit_rate;
 
   return (
-    <div className="mx-auto max-w-4xl h-full overflow-y-auto p-6 space-y-6">
-      {/* Header */}
+    <div className="max-w-4xl mx-auto h-full overflow-y-auto p-6 space-y-6 animate-page-in">
+      {/* Header — Title + Description on left, Refresh button on right */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-lg font-semibold text-app-text">系统监控</h1>
-          <p className="text-xs text-app-text-secondary mt-0.5">Agent 系统实时运行指标</p>
+        <div className="flex items-center gap-3">
+          <Activity className="w-5 h-5 text-app-accent" />
+          <div>
+            <h1 className="text-lg font-semibold text-app-text">系统监控</h1>
+            <p className="text-xs text-app-text-secondary">Agent 系统实时运行指标</p>
+          </div>
         </div>
         <Button
           onClick={() => fetch(true)}
@@ -136,6 +141,7 @@ export function MetricsPage() {
         </Button>
       </div>
 
+      {/* Stale data warning banner */}
       {stale && (
         <div className="flex items-center gap-2 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 shadow-sm">
           <AlertTriangle className="w-4 h-4 text-yellow-400 shrink-0" />
@@ -143,7 +149,7 @@ export function MetricsPage() {
         </div>
       )}
 
-      {/* Worker & Tasks */}
+      {/* Stat cards grid — 4 cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <StatCard
           icon={Cpu}
@@ -173,11 +179,11 @@ export function MetricsPage() {
         />
       </div>
 
-      {/* Cache Stats */}
-      <section className="space-y-3">
+      {/* Cache section — 2 columns: Agent Cache + LLM Cache */}
+      <section className="space-y-4">
         <h2 className="text-xs font-medium text-app-text-tertiary uppercase tracking-wider">缓存统计</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {/* Agent Cache */}
+          {/* Agent Cache Card */}
           <div className="rounded-lg border border-app-border/50 bg-app-surface p-4 space-y-3 shadow-sm hover:shadow-md transition-all duration-200 hover:border-app-border/80">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -186,6 +192,7 @@ export function MetricsPage() {
               </div>
               <StatusBadge ok={cacheHitRate > 0.3} label={formatPct(cacheHitRate)} />
             </div>
+            {/* 3 stats row */}
             <div className="grid grid-cols-3 gap-3 text-center text-[10px]">
               <div>
                 <p className="text-app-text font-medium">{metrics.cache.agent_cache.entries}</p>
@@ -200,7 +207,7 @@ export function MetricsPage() {
                 <p className="text-app-text-tertiary">未命中</p>
               </div>
             </div>
-            {/* Progress bar */}
+            {/* Progress bar with gradient fill */}
             <div className="space-y-1">
               <div className="flex justify-between text-[9px] text-app-text-tertiary">
                 <span>缓存利用率</span>
@@ -216,7 +223,7 @@ export function MetricsPage() {
             </div>
           </div>
 
-          {/* LLM Cache */}
+          {/* LLM Cache Card */}
           <div className="rounded-lg border border-app-border/50 bg-app-surface p-4 space-y-3 shadow-sm hover:shadow-md transition-all duration-200 hover:border-app-border/80">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -225,6 +232,7 @@ export function MetricsPage() {
               </div>
               <StatusBadge ok={llmHitRate > 0.3} label={formatPct(llmHitRate)} />
             </div>
+            {/* 3 stats row */}
             <div className="grid grid-cols-3 gap-3 text-center text-[10px]">
               <div>
                 <p className="text-app-text font-medium">{metrics.cache.llm_cache.size}</p>
@@ -239,6 +247,7 @@ export function MetricsPage() {
                 <p className="text-app-text-tertiary">未命中</p>
               </div>
             </div>
+            {/* Progress bar with gradient fill */}
             <div className="space-y-1">
               <div className="flex justify-between text-[9px] text-app-text-tertiary">
                 <span>缓存利用率</span>
@@ -256,36 +265,10 @@ export function MetricsPage() {
         </div>
       </section>
 
-      {/* Config */}
-      <section className="space-y-3">
-        <h2 className="text-xs font-medium text-app-text-tertiary uppercase tracking-wider">运行时配置</h2>
-        <div className="rounded-lg border border-app-border/50 bg-app-surface p-4 shadow-sm hover:shadow-md transition-all duration-200 hover:border-app-border/80">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
-            {[
-              { label: '日志级别', value: metrics.config.log_level },
-              { label: '调试模式', value: metrics.config.debug ? '开启' : '关闭' },
-              { label: 'Feature Flag', value: [
-                metrics.config.enable_reflection && '反思',
-                metrics.config.enable_message_bus && '通信总线',
-                metrics.config.enable_hitl && '人机协同',
-              ].filter(Boolean).join('、') || '无' },
-              { label: '最大重试', value: `${metrics.config.worker_max_retries} 次` },
-            ].map(({ label, value }) => (
-              <div key={label}>
-                <p className="text-app-text-tertiary mb-0.5">{label}</p>
-                <p className="text-app-text font-medium">{value}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Auto-refresh hint */}
-      <div className="flex items-center justify-center gap-1.5">
-        <div className="w-1 h-1 rounded-full bg-app-text-tertiary/30 animate-pulse" />
-        <p className="text-[10px] text-app-text-tertiary/50">
-          每 15 秒自动刷新
-        </p>
+      {/* Auto-refresh indicator — bottom bar with pulse dot */}
+      <div className="flex items-center justify-center gap-2 pt-3 border-t border-app-border/30">
+        <span className="pulse-dot bg-green-400" />
+        <span className="text-[10px] text-app-text-tertiary/60">每 15 秒自动刷新</span>
       </div>
     </div>
   );

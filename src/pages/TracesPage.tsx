@@ -203,7 +203,7 @@ export function TracesPage() {
               value={params.keyword}
               onChange={(e) => setParams((p) => ({ ...p, keyword: e.target.value, operation: '' }))}
               placeholder="搜索关键字 (agent.run, tool.call, error...)"
-              className="w-full rounded-md border border-app-border/50 bg-app-bg pl-9 pr-3 py-2 text-[12px] text-app-text placeholder:text-app-text-tertiary focus:outline-none focus:ring-1 focus:ring-app-accent"
+              className="w-full rounded-md border border-app-border/50 bg-app-bg pl-9 pr-3 py-2 text-[12px] text-app-text placeholder:text-app-text-tertiary focus:outline-none focus:ring-1 focus:ring-app-accent transition-shadow duration-150"
               onKeyDown={(e) => { if (e.key === 'Enter') { setPage(1); fetch(); } }}
             />
           </div>
@@ -211,33 +211,31 @@ export function TracesPage() {
           <select
             value={params.time}
             onChange={(e) => setParams((p) => ({ ...p, time: e.target.value }))}
-            className="rounded-md border border-app-border/50 bg-app-elevated px-2 py-2 text-[11px] text-app-text-secondary focus:outline-none"
+            className="rounded-md border border-app-border/50 bg-app-elevated px-2 py-2 text-[11px] text-app-text-secondary focus:outline-none focus:ring-1 focus:ring-app-accent cursor-pointer transition-shadow duration-150"
           >
             {TIME_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>{o.label}</option>
             ))}
           </select>
 
-          <button
+          <Button
             onClick={() => setShowFilters((v) => !v)}
-            className={cn(
-              'inline-flex items-center gap-1.5 rounded-md border px-3 py-2 text-[11px] font-medium transition-colors',
-              showFilters
-                ? 'border-app-accent bg-app-accent/10 text-app-accent'
-                : 'border-app-border/50 bg-app-elevated text-app-text-secondary hover:bg-app-surface',
-            )}
+            variant="outline"
+            size="sm"
+            className={cn(showFilters && 'border-app-accent bg-app-accent/10 text-app-accent')}
           >
             <Filter className="w-3.5 h-3.5" />
             筛选
-          </button>
+          </Button>
 
-          <button
+          <Button
             onClick={() => setPage(1)}
-            className="inline-flex items-center gap-1.5 rounded-md bg-app-accent px-4 py-2 text-[11px] font-semibold text-white hover:bg-app-accent/90 transition-colors"
+            variant="primary"
+            size="sm"
           >
             <Search className="w-3.5 h-3.5" />
             搜索
-          </button>
+          </Button>
         </div>
 
         {/* ── Filter panel ────────────────────────────────── */}
@@ -254,7 +252,7 @@ export function TracesPage() {
                 value={params.service}
                 onChange={(e) => setParams((p) => ({ ...p, service: e.target.value }))}
                 placeholder="autopublish-api"
-                className="w-full rounded-md border border-app-border/50 bg-app-bg px-2 py-1.5 text-[11px] text-app-text placeholder:text-app-text-tertiary focus:outline-none focus:ring-1 focus:ring-app-accent"
+                className="w-full rounded-md border border-app-border/50 bg-app-bg px-2 py-1.5 text-[11px] text-app-text placeholder:text-app-text-tertiary focus:outline-none focus:ring-1 focus:ring-app-accent transition-shadow duration-150"
               />
             </div>
             <div>
@@ -264,25 +262,22 @@ export function TracesPage() {
                 value={params.operation}
                 onChange={(e) => setParams((p) => ({ ...p, operation: e.target.value }))}
                 placeholder="agent.think, tool.call..."
-                className="w-full rounded-md border border-app-border/50 bg-app-bg px-2 py-1.5 text-[11px] text-app-text placeholder:text-app-text-tertiary focus:outline-none focus:ring-1 focus:ring-app-accent"
+                className="w-full rounded-md border border-app-border/50 bg-app-bg px-2 py-1.5 text-[11px] text-app-text placeholder:text-app-text-tertiary focus:outline-none focus:ring-1 focus:ring-app-accent transition-shadow duration-150"
               />
             </div>
             <div>
               <label className="mb-1 block text-[10px] font-medium text-app-text-tertiary">状态</label>
               <div className="flex gap-1">
                 {STATUS_OPTIONS.map((o) => (
-                  <button
+                  <Button
                     key={o.value}
                     onClick={() => setParams((p) => ({ ...p, status: o.value as 'all' | 'error' | 'ok' }))}
-                    className={cn(
-                      'flex-1 rounded-md border px-2 py-1.5 text-[11px] font-medium transition-colors',
-                      params.status === o.value
-                        ? 'border-app-accent bg-app-accent/10 text-app-accent'
-                        : 'border-app-border/50 bg-app-elevated text-app-text-secondary hover:bg-app-surface',
-                    )}
+                    variant={params.status === o.value ? 'primary' : 'outline'}
+                    size="sm"
+                    className="flex-1"
                   >
                     {o.label}
-                  </button>
+                  </Button>
                 ))}
               </div>
             </div>
@@ -306,13 +301,15 @@ export function TracesPage() {
               </div>
             </div>
             {(params.keyword || params.operation || params.span_type) && (
-              <button
+              <Button
                 onClick={() => setParams((p) => ({ ...p, keyword: '', operation: '', span_type: '' }))}
-                className="col-span-3 flex items-center gap-1 text-[11px] text-app-text-tertiary hover:text-app-accent transition-colors"
+                variant="ghost"
+                size="xs"
+                className="col-span-3 text-app-text-tertiary hover:text-app-accent"
               >
                 <X className="w-3 h-3" />
                 清除筛选
-              </button>
+              </Button>
             )}
           </motion.div>
         )}
@@ -328,12 +325,13 @@ export function TracesPage() {
           <div className="flex flex-col items-center justify-center h-48 gap-3">
             <AlertTriangle className="w-6 h-6 text-red-400" />
             <p className="text-[12px] text-app-text-secondary">{error}</p>
-            <button
+            <Button
               onClick={() => fetch()}
-              className="rounded-md border border-app-border/50 bg-app-elevated px-3 py-1.5 text-[11px] font-medium text-app-text-secondary hover:bg-app-surface transition-colors"
+              variant="outline"
+              size="sm"
             >
               重试
-            </button>
+            </Button>
           </div>
         ) : result?.spans.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-48 gap-2">
@@ -343,10 +341,10 @@ export function TracesPage() {
           </div>
         ) : (
           <table className="w-full text-[11px]">
-            <thead className="sticky top-0 z-10 bg-app-surface border-b border-app-border/50">
+            <thead className="sticky top-0 z-10 bg-app-elevated/40 border-b border-app-border/50">
               <tr>
                 {['状态', '时间', '操作名', '服务', 'Trace ID', 'Span ID', '延迟'].map((h) => (
-                  <th key={h} className="px-3 py-2 text-left text-[10px] font-medium text-app-text-tertiary uppercase tracking-wider">{h}</th>
+                  <th key={h} className="px-4 py-2.5 text-left text-[10px] font-semibold text-app-text-tertiary uppercase tracking-wider">{h}</th>
                 ))}
               </tr>
             </thead>
@@ -354,14 +352,14 @@ export function TracesPage() {
               {(result?.spans as unknown as TraceSpan[]).map((span, i) => (
                 <tr
                   key={`${span.trace_id}-${span.span_id}-${i}`}
-                  className="hover:bg-app-elevated/50 transition-colors cursor-pointer"
+                  className="hover:bg-app-elevated/50 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] transition-all duration-150 cursor-pointer"
                   onClick={() => setSelectedTraceId(span.trace_id)}
                 >
-                  <td className="px-3 py-2"><StatusBadge isError={span.is_error} /></td>
-                  <td className="px-3 py-2 font-mono text-app-text-secondary">{formatTime(span.start_time)}</td>
-                  <td className="px-3 py-2">
+                  <td className="px-4 py-2.5"><StatusBadge isError={span.is_error} /></td>
+                  <td className="px-4 py-2.5 font-mono text-app-text-secondary whitespace-nowrap">{formatTime(span.start_time)}</td>
+                  <td className="px-4 py-2.5 max-w-[200px]">
                     <span className={cn(
-                      'font-medium',
+                      'block truncate font-medium',
                       span.operation_name.includes('agent.run') ? 'text-app-accent' :
                       span.operation_name.includes('agent.think') ? 'text-purple-400' :
                       span.operation_name.includes('tool.call') ? 'text-amber-400' :
@@ -371,17 +369,19 @@ export function TracesPage() {
                       {span.operation_name}
                     </span>
                   </td>
-                  <td className="px-3 py-2 text-app-text-tertiary">{span.service_name}</td>
-                  <td className="px-3 py-2 font-mono text-app-text-tertiary">
-                    <span className="group relative">
-                      {span.trace_id.slice(0, 8)}...
+                  <td className="px-4 py-2.5 text-app-text-tertiary whitespace-nowrap">{span.service_name}</td>
+                  <td className="px-4 py-2.5 font-mono text-app-text-tertiary max-w-[120px]">
+                    <span className="group relative block">
+                      <span className="block truncate">{span.trace_id}</span>
                       <span className="absolute left-0 top-full z-20 hidden group-hover:block bg-app-elevated border border-app-border/50 rounded-md px-2 py-1 text-[10px] font-mono text-app-text whitespace-nowrap shadow-lg">
                         {span.trace_id}
                       </span>
                     </span>
                   </td>
-                  <td className="px-3 py-2 font-mono text-app-text-tertiary">{span.span_id.slice(0, 8)}...</td>
-                  <td className="px-3 py-2 text-right">
+                  <td className="px-4 py-2.5 font-mono text-app-text-tertiary max-w-[100px]">
+                    <span className="block truncate">{span.span_id}</span>
+                  </td>
+                  <td className="px-4 py-2.5 text-right whitespace-nowrap">
                     <span className={cn(
                       'font-mono',
                       span.duration_ms > 5000 ? 'text-red-400' :
@@ -405,37 +405,35 @@ export function TracesPage() {
             共 {result.total.toLocaleString()} 条 · 第 {page}/{totalPages} 页
           </p>
           <div className="flex items-center gap-1">
-            <button
+            <Button
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={page <= 1}
-              className="rounded-md border border-app-border/50 bg-app-elevated p-1.5 text-app-text-secondary hover:bg-app-surface disabled:opacity-30 transition-colors"
+              variant="outline"
+              size="icon-sm"
             >
               <ChevronLeft className="w-3.5 h-3.5" />
-            </button>
+            </Button>
             {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
               const p = i + Math.max(1, Math.min(page - 2, totalPages - 4));
               return (
-                <button
+                <Button
                   key={p}
                   onClick={() => setPage(p)}
-                  className={cn(
-                    'w-7 h-7 rounded-md text-[11px] font-medium transition-colors',
-                    p === page
-                      ? 'bg-app-accent text-white'
-                      : 'bg-app-elevated text-app-text-secondary hover:bg-app-surface',
-                  )}
+                  variant={p === page ? 'primary' : 'outline'}
+                  size="icon-sm"
                 >
                   {p}
-                </button>
+                </Button>
               );
             })}
-            <button
+            <Button
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
               disabled={page >= totalPages}
-              className="rounded-md border border-app-border/50 bg-app-elevated p-1.5 text-app-text-secondary hover:bg-app-surface disabled:opacity-30 transition-colors"
+              variant="outline"
+              size="icon-sm"
             >
               <ChevronRight className="w-3.5 h-3.5" />
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -495,22 +493,24 @@ function TraceDrawer({ traceId, onClose }: { traceId: string; onClose: () => voi
           </div>
           <div className="flex items-center gap-2">
             {traceId && (
-              <a
-                href={`/api/v1/observability/traces/${traceId}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 rounded-md border border-app-border/50 bg-app-elevated px-2 py-1 text-[10px] font-medium text-app-text-secondary hover:bg-app-surface transition-colors"
-              >
-                <ExternalLink className="w-3 h-3" />
-                原始 JSON
-              </a>
+              <Button variant="outline" size="xs" asChild>
+                <a
+                  href={`/api/v1/observability/traces/${traceId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <ExternalLink className="w-3 h-3" />
+                  原始 JSON
+                </a>
+              </Button>
             )}
-            <button
+            <Button
               onClick={onClose}
-              className="rounded-md border border-app-border/50 bg-app-elevated p-1.5 text-app-text-secondary hover:bg-app-surface transition-colors"
+              variant="outline"
+              size="icon-sm"
             >
               <X className="w-4 h-4" />
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -521,19 +521,25 @@ function TraceDrawer({ traceId, onClose }: { traceId: string; onClose: () => voi
               <RefreshCw className="w-5 h-5 text-app-text-tertiary animate-spin" />
             </div>
           ) : detail ? (
-            <div className="space-y-4">
+            <div className="space-y-6">
               {/* Timeline */}
-              <div>
-                <h3 className="text-[11px] font-semibold text-app-text mb-2">链路瀑布图</h3>
+              <section>
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-1 h-3.5 rounded-full bg-app-accent/60" />
+                  <h3 className="text-[11px] font-semibold text-app-text">链路瀑布图</h3>
+                </div>
                 <TraceTimeline spans={detail.spans} activeSpanId={activeSpanId} onSelectSpan={setActiveSpanId} />
-              </div>
+              </section>
 
               {/* Span Detail */}
               {activeSpan && (
-                <div>
-                  <h3 className="text-[11px] font-semibold text-app-text mb-2">Span 详情</h3>
+                <section>
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-1 h-3.5 rounded-full bg-app-accent/60" />
+                    <h3 className="text-[11px] font-semibold text-app-text">Span 详情</h3>
+                  </div>
                   <SpanDetailPanel span={activeSpan} />
-                </div>
+                </section>
               )}
             </div>
           ) : (
@@ -605,7 +611,7 @@ function TraceTimeline({
                 <div className="flex-1 relative h-8">
                   <div
                     className={cn(
-                      'absolute top-2 h-4 rounded-sm transition-all',
+                      'absolute top-2.5 h-3 rounded transition-all',
                       span.is_error ? 'bg-red-500/30 border border-red-500/50' :
                       span.operation_name.includes('agent.run') ? 'bg-app-accent/20 border border-app-accent/40' :
                       span.operation_name.includes('agent.think') ? 'bg-purple-500/20 border border-purple-500/40' :

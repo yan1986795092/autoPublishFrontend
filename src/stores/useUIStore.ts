@@ -8,8 +8,6 @@ export interface ToastAction {
 }
 
 export interface UIState {
-  sidebarCollapsed: boolean;
-  sidebarMobileOpen: boolean;
   activeTab: 'create' | 'content' | 'agent' | 'settings';
   publishDialogOpen: boolean;
   publishDialogContentId: string | null;
@@ -20,9 +18,6 @@ export interface UIState {
   toastDuration: number;
   viewDensity: Density;
 
-  toggleSidebar: () => void;
-  toggleSidebarMobile: () => void;
-  setSidebarCollapsed: (collapsed: boolean) => void;
   setActiveTab: (tab: UIState['activeTab']) => void;
   openPublishDialog: (contentId: string) => void;
   closePublishDialog: () => void;
@@ -34,8 +29,6 @@ export interface UIState {
 }
 
 export const useUIStore = create<UIState>()((set) => ({
-  sidebarCollapsed: false,
-  sidebarMobileOpen: false,
   activeTab: 'create',
   publishDialogOpen: false,
   publishDialogContentId: null,
@@ -46,9 +39,6 @@ export const useUIStore = create<UIState>()((set) => ({
   toastDuration: 3000,
   viewDensity: 'standard',
 
-  toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
-  toggleSidebarMobile: () => set((state) => ({ sidebarMobileOpen: !state.sidebarMobileOpen })),
-  setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
   setActiveTab: (activeTab) => set({ activeTab }),
   openPublishDialog: (contentId) => set({ publishDialogOpen: true, publishDialogContentId: contentId }),
   closePublishDialog: () => set({ publishDialogOpen: false, publishDialogContentId: null }),

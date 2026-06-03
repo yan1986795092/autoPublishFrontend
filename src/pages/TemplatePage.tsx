@@ -6,7 +6,7 @@ import type { PromptTemplate, PromptTemplateDetail, Platform } from '../types';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { SkeletonList } from '../components/ui/Skeleton';
-import { Library, Sparkles, ChevronRight } from 'lucide-react';
+import { Library, Sparkles, ChevronRight, AlertTriangle, RefreshCw } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -36,12 +36,15 @@ export function TemplatePage() {
   const [templates, setTemplates] = useState<PromptTemplate[]>([]);
   const [platforms, setPlatforms] = useState<Platform[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
   const [selectedTemplate, setSelectedTemplate] = useState<PromptTemplateDetail | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
 
-  useEffect(() => {
+  const fetchData = () => {
+    setError(null);
+    setLoading(true);
     Promise.all([
       templatesApi.list(),
       platformsApi.list(),
@@ -50,8 +53,14 @@ export function TemplatePage() {
         if (tRes.data.success) setTemplates(tRes.data.data || []);
         if (pRes.data.success) setPlatforms(pRes.data.data || []);
       })
-      .catch(() => {})
+      .catch((err) => {
+        setError(err?.message || '加载模板失败，请稍后重试');
+      })
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    fetchData();
   }, []);
 
   const handleViewTemplate = async (template: PromptTemplate) => {
@@ -134,6 +143,24 @@ export function TemplatePage() {
         </div>
       </motion.div>
 
+      {/* Error State */}
+      {error && (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="rounded-lg border border-red-500/30 bg-red-500/10 p-4 flex items-center justify-between"
+        >
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0" />
+            <p className="text-sm text-red-300">{error}</p>
+          </div>
+          <Button variant="outline" size="sm" onClick={fetchData}>
+            <RefreshCw className="w-3.5 h-3.5" />
+            重试
+          </Button>
+        </motion.div>
+      )}
+
       {/* Platform Groups */}
       {platformGroups.map((group) => {
         const filtered = templates.filter((t) => t.platform_code === group.code);
@@ -155,7 +182,7 @@ export function TemplatePage() {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: idx * 0.03 }}
                   onClick={() => handleViewTemplate(template)}
-                  className="rounded-lg border border-app-border bg-app-elevated p-4 cursor-pointer group hover:border-primary-500/30 transition-all duration-200"
+                  className="rounded-lg border border-app-border bg-app-elevated p-4 cursor-pointer group hover:border-primary-500/30 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/20 transition-all duration-200"
                 >
                   <div className="flex items-start justify-between mb-2">
                     <h3 className="text-sm font-semibold text-app-text group-hover:text-primary-400 transition-colors">

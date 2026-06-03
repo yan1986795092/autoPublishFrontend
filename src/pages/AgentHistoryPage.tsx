@@ -1,7 +1,9 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Badge } from '../components/ui/badge';
 import { Input } from '../components/ui/input';
+import { Button } from '../components/ui/button';
+import { OptionChip } from '../components/ui/option-chip';
 import { useAgentStore } from '../stores/useAgentStore';
 import { AgentDashboard } from '../components/agent/AgentDashboard';
 import { cn } from '../utils/helpers';
@@ -35,12 +37,24 @@ export function AgentHistoryPage() {
   const navigate = useNavigate();
   const { taskHistory, previousGenerations, loadTaskHistory } = useAgentStore();
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
 
-  useEffect(() => {
-    loadTaskHistory().finally(() => setLoading(false));
+  const loadData = useCallback(() => {
+    setError(null);
+    setLoading(true);
+    return loadTaskHistory()
+      .catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : '加载任务历史失败';
+        setError(message);
+      })
+      .finally(() => setLoading(false));
   }, [loadTaskHistory]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   const filtered = useMemo(() => {
     let items = taskHistory;
@@ -78,27 +92,20 @@ export function AgentHistoryPage() {
             className="h-8 pl-8 text-xs"
           />
         </div>
-        <div className="flex items-center gap-1">
-          {STATE_FILTERS.map((f) => (
-            <button
-              key={f.value}
-              onClick={() => setStatusFilter(f.value)}
-              className={cn(
-                'px-2.5 py-1 rounded text-[10px] font-medium transition-colors border',
-                statusFilter === f.value
-                  ? 'bg-primary-600/20 text-primary-400 border-primary-500/30'
-                  : 'bg-app-surface text-app-text-tertiary border-app-border hover:text-app-text-secondary'
-              )}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
+        <OptionChip options={STATE_FILTERS} value={statusFilter} onChange={setStatusFilter} size="sm" />
       </div>
 
       {loading ? (
         <div className="flex items-center justify-center py-20">
           <Loader2 className="w-6 h-6 animate-spin text-app-text-tertiary" />
+        </div>
+      ) : error ? (
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <XCircle className="w-10 h-10 text-red-400 mb-3" />
+          <p className="text-sm text-red-400">{error}</p>
+          <Button variant="outline" size="sm" className="mt-4" onClick={loadData}>
+            重试
+          </Button>
         </div>
       ) : filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center">
@@ -108,7 +115,7 @@ export function AgentHistoryPage() {
           </p>
           {!searchQuery && statusFilter === 'all' && (
             <p className="text-xs text-app-text-tertiary mt-1">
-              前往 <button onClick={() => navigate('/agent-studio')} className="text-blue-400 hover:underline">Agent Studio</button> 开始你的第一次创作
+              前往 <Button variant="link" onClick={() => navigate('/agent-studio')} className="text-xs p-0 h-auto">Agent Studio</Button> 开始你的第一次创作
             </p>
           )}
         </div>
@@ -131,7 +138,7 @@ function TaskCard({ task, onClick }: { task: AsyncTask; onClick: () => void }) {
   return (
     <div
       onClick={onClick}
-      className="rounded-xl border border-app-border bg-app-elevated p-4 hover:bg-app-hover cursor-pointer transition-colors"
+      className="rounded-xl border border-app-border bg-app-elevated p-4 hover:bg-app-hover cursor-pointer transition-all shadow-sm hover:shadow-md"
     >
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2 min-w-0">

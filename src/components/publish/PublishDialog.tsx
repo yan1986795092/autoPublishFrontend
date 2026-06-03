@@ -21,7 +21,6 @@ import { BestTimeSuggest } from './BestTimeSuggest';
 const platformEmojis: Record<string, string> = {
   xiaohongshu: '🎨',
   wechat: '📱',
-  zhihu: '💡',
 };
 
 function getLocalDateTimeISO() {

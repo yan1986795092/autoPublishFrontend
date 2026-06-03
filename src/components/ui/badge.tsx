@@ -21,7 +21,6 @@ const badgeVariants = cva(
         'outline-error': 'border border-red-500/50 text-red-400 bg-transparent',
         xhs: 'bg-pink-600/20 text-pink-400',
         wechat: 'bg-green-600/20 text-green-400',
-        zhihu: 'bg-blue-600/20 text-blue-400',
       },
       size: {
         default: 'h-5 px-2 py-0 text-xs',
@@ -52,7 +51,6 @@ const dotColors = {
   'outline-error': 'bg-red-400',
   xhs: 'bg-pink-400',
   wechat: 'bg-green-400',
-  zhihu: 'bg-blue-400',
 } as const;
 
 export interface BadgeProps

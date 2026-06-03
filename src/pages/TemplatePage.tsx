@@ -16,7 +16,6 @@ import { cn } from '../utils/helpers';
 const platformEmojis: Record<string, string> = {
   xiaohongshu: '🎨',
   wechat: '📱',
-  zhihu: '💡',
   fiction: '📖',
   storyboard: '🎬',
   script: '🎭',

@@ -176,17 +176,6 @@
 .wx-body { padding: 16px; font-size: 16px; color: #333; line-height: 1.9; }
 .wx-body p { text-indent: 2em; margin-bottom: 12px; }
 
-.zhihu-prose { font-size: 16px; color: #1a1a1a; line-height: 1.8; }
-.zhihu-prose p { margin-bottom: 1.2em; }
-.zhihu-prose h1 { font-size: 1.4em; font-weight: bold; margin: 1.5em 0 0.8em; }
-.zhihu-prose h2 { font-size: 1.25em; font-weight: bold; margin: 1.3em 0 0.6em; }
-.zhihu-prose h3 { font-size: 1.1em; font-weight: bold; margin: 1.2em 0 0.5em; }
-.zhihu-prose ul, .zhihu-prose ol { padding-left: 1.5em; margin-bottom: 1.2em; }
-.zhihu-prose li { margin-bottom: 0.4em; }
-.zhihu-prose blockquote { border-left: 3px solid #175199; padding: 8px 16px; margin: 1em 0; background: #f0f5ff; border-radius: 0 4px 4px 0; color: #555; }
-.zhihu-prose code { background: #f4f4f4; padding: 0.15em 0.4em; border-radius: 3px; font-size: 0.9em; font-family: 'JetBrains Mono', monospace; color: #c7254e; }
-.zhihu-prose pre { background: #1e1e1e; color: #d4d4d4; padding: 1em; border-radius: 6px; overflow-x: auto; margin: 1em 0; }
-.zhihu-prose pre code { background: none; padding: 0; color: inherit; }
 
 /* ========== Prose ========== */
 .prose { max-width: 65ch; line-height: 1.75; }

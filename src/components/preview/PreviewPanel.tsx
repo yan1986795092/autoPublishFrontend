@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { XiaohongshuPreview } from './XiaohongshuPreview';
 import { WechatPreview } from './WechatPreview';
-import { ZhihuPreview } from './ZhihuPreview';
 import { PhoneFrame } from './PhoneFrame';
 import { PlatformDiffView } from './PlatformDiffView';
 import { SmartTagPanel } from '../editor/SmartTagPanel';
@@ -17,7 +16,6 @@ import { Shield, AlertTriangle, Loader2, Wand2 } from 'lucide-react';
 const platforms = [
   { code: 'xiaohongshu', name: '小红书', emoji: '🎨', gradient: 'from-pink-500 to-rose-500' },
   { code: 'wechat', name: '公众号', emoji: '📱', gradient: 'from-green-500 to-emerald-500' },
-  { code: 'zhihu', name: '知乎', emoji: '💡', gradient: 'from-blue-500 to-indigo-500' },
 ];
 
 /** Default source platform for adaptation */
@@ -188,9 +186,6 @@ export function PreviewPanel() {
               )}
               {activePlatform === 'wechat' && (
                 <WechatPreview title={title} content_md={displayContent} />
-              )}
-              {activePlatform === 'zhihu' && (
-                <ZhihuPreview title={title} content_md={displayContent} />
               )}
             </PhoneFrame>
           </motion.div>

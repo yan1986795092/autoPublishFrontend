@@ -9,7 +9,6 @@ const DAYS = ['日', '一', '二', '三', '四', '五', '六'];
 const PLATFORM_EMOJIS: Record<string, string> = {
   xiaohongshu: '🎨',
   wechat: '📱',
-  zhihu: '💡',
 };
 
 interface CalendarItem {

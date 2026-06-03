@@ -13,12 +13,11 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useUIStore } from '../stores/useUIStore';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
-import { History as HistoryIcon, Loader2, Save, RotateCcw, Eye, Download, ClipboardCopy, ArrowLeft, FileText, Lightbulb, MessageSquare, Palette } from 'lucide-react';
+import { History as HistoryIcon, Loader2, Save, RotateCcw, Eye, Download, ClipboardCopy, ArrowLeft, FileText, MessageSquare, Palette } from 'lucide-react';
 
 const platformConfig: Record<string, { label: string; icon: React.ReactNode }> = {
   xiaohongshu: { label: '小红书', icon: <Palette className="w-3 h-3" /> },
   wechat: { label: '公众号', icon: <MessageSquare className="w-3 h-3" /> },
-  zhihu: { label: '知乎', icon: <Lightbulb className="w-3 h-3" /> },
 };
 
 export function ContentEditPage() {
@@ -153,7 +152,7 @@ export function ContentEditPage() {
             </h1>
             <div className="flex items-center gap-1.5 mt-0.5">
               {content.platform_code && (
-                <Badge variant={content.platform_code === 'xiaohongshu' ? 'xhs' : content.platform_code === 'wechat' ? 'wechat' : 'zhihu'} size="xs">
+                <Badge variant={content.platform_code === 'xiaohongshu' ? 'xhs' : content.platform_code === 'wechat' ? 'wechat' : 'default'} size="xs">
                 {platformConfig[content.platform_code]?.icon} {platformConfig[content.platform_code]?.label}
                 </Badge>
               )}
@@ -255,7 +254,7 @@ export function ContentEditPage() {
               <Eye className="w-4 h-4 text-primary-400" />
               预览
               <div className="flex gap-1 ml-auto">
-                {(['xiaohongshu', 'wechat', 'zhihu'] as const).map((p) => (
+                {(['xiaohongshu', 'wechat'] as const).map((p) => (
                   <button
                     key={p}
                     onClick={() => setPlatform(p)}

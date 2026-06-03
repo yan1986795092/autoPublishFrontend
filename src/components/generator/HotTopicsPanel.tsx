@@ -8,7 +8,6 @@ import { Flame, TrendingUp, TrendingDown, Minus, Loader2, Sparkles } from 'lucid
 const PLATFORMS = [
   { code: 'xiaohongshu', name: '小红书', emoji: '🎨', gradient: 'from-pink-500 to-rose-500' },
   { code: 'wechat', name: '公众号', emoji: '📱', gradient: 'from-green-500 to-emerald-500' },
-  { code: 'zhihu', name: '知乎', emoji: '💡', gradient: 'from-blue-500 to-indigo-500' },
 ];
 
 interface Props {

@@ -32,7 +32,6 @@ const categoryConfig: Record<string, { label: string; emoji: string; gradient: s
 const platformEmojis: Record<string, string> = {
   xiaohongshu: '🎨',
   wechat: '📱',
-  zhihu: '💡',
   fiction: '📖',
   storyboard: '🎬',
   script: '🎭',

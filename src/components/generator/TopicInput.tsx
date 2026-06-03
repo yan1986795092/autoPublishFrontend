@@ -100,7 +100,6 @@ export function TopicInput() {
   const platforms = [
     { code: 'xiaohongshu', name: '小红书', emoji: '🎨', desc: '生活分享、知识干货', gradient: 'from-pink-500 to-rose-500' },
     { code: 'wechat', name: '公众号', emoji: '📱', desc: '深度文章、品牌内容', gradient: 'from-green-500 to-emerald-500' },
-    { code: 'zhihu', name: '知乎', emoji: '💡', desc: '专业问答、知识分享', gradient: 'from-blue-500 to-indigo-500' },
   ];
 
   const charCount = draft.topic.length;

@@ -28,7 +28,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/
 const platformConfig: Record<string, { label: string }> = {
   xiaohongshu: { label: '小红书' },
   wechat: { label: '公众号' },
-  zhihu: { label: '知乎' },
 };
 
 type SortKey = 'title' | 'status' | 'updated_at';
@@ -453,7 +452,7 @@ export function ContentManagementPage() {
                           </td>
                           <td className="px-3">
                             {platform ? (
-                              <Badge variant={content.platform_code === 'xiaohongshu' ? 'xhs' : content.platform_code === 'wechat' ? 'wechat' : 'zhihu'} size="sm">
+                              <Badge variant={content.platform_code === 'xiaohongshu' ? 'xhs' : content.platform_code === 'wechat' ? 'wechat' : 'default'} size="sm">
                             {platform.label}
                           </Badge>
                             ) : (

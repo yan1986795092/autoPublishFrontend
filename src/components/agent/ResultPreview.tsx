@@ -3,9 +3,15 @@ import { cn } from '../../utils/helpers';
 import { Eye } from 'lucide-react';
 import Markdown from 'react-markdown';
 import type { AgentResult } from '../../types';
+import { ALL_PLATFORMS } from './PlatformSelector';
+
+const PREVIEW_OPTIONS = [
+  { key: 'raw', label: '原文' },
+  ...ALL_PLATFORMS.map(p => ({ key: p.id, label: p.label, icon: p.icon })),
+];
 
 export function ResultPreview({ result }: { result: AgentResult | null }) {
-  const [platform, setPlatform] = useState<'raw' | 'xiaohongshu' | 'wechat' | 'zhihu'>('raw');
+  const [previewPlatform, setPreviewPlatform] = useState('raw');
 
   if (!result) {
     return (
@@ -23,24 +29,21 @@ export function ResultPreview({ result }: { result: AgentResult | null }) {
 
   return (
     <div className="space-y-3">
-      <div className="flex gap-1 rounded-lg bg-app-surface p-1">
-        {[
-          { key: 'raw' as const, label: '原文' },
-          { key: 'xiaohongshu' as const, label: '小红书' },
-          { key: 'wechat' as const, label: '公众号' },
-          { key: 'zhihu' as const, label: '知乎' },
-        ].map(({ key, label }) => (
+      {/* Platform preview tabs — scrollable */}
+      <div className="flex gap-1 rounded-lg bg-app-surface p-1 overflow-x-auto">
+        {PREVIEW_OPTIONS.map((opt) => (
           <button
-            key={key}
-            onClick={() => setPlatform(key)}
+            key={opt.key}
+            onClick={() => setPreviewPlatform(opt.key)}
             className={cn(
-              'flex-1 rounded py-1 text-[10px] font-medium transition-colors',
-              platform === key
+              'flex items-center gap-1 rounded py-1 px-2 text-[10px] font-medium transition-colors whitespace-nowrap',
+              previewPlatform === opt.key
                 ? 'bg-app-elevated text-app-text shadow-sm'
                 : 'text-app-text-secondary hover:text-app-text'
             )}
           >
-            {label}
+            {'icon' in opt && opt.icon && <span>{opt.icon}</span>}
+            {opt.label}
           </button>
         ))}
       </div>

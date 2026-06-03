@@ -42,9 +42,9 @@ function StatCard({
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      className="rounded-lg border border-app-border/50 bg-app-surface p-4"
+      className="rounded-lg border border-app-border/50 bg-app-surface p-4 shadow-sm hover:shadow-md transition-all duration-200 hover:border-app-border/80"
     >
-      <div className="flex items-center gap-2 mb-2">
+      <div className="flex items-center gap-2 mb-2.5">
         <Icon className={`w-4 h-4 ${color}`} />
         <span className="text-[10px] font-medium text-app-text-tertiary uppercase tracking-wider">{label}</span>
       </div>
@@ -137,14 +137,14 @@ export function MetricsPage() {
       </div>
 
       {stale && (
-        <div className="flex items-center gap-2 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-3 py-2">
+        <div className="flex items-center gap-2 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 shadow-sm">
           <AlertTriangle className="w-4 h-4 text-yellow-400 shrink-0" />
           <span className="text-xs text-yellow-400">数据可能不是最新</span>
         </div>
       )}
 
       {/* Worker & Tasks */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <StatCard
           icon={Cpu}
           label="Worker 状态"
@@ -178,7 +178,7 @@ export function MetricsPage() {
         <h2 className="text-xs font-medium text-app-text-tertiary uppercase tracking-wider">缓存统计</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {/* Agent Cache */}
-          <div className="rounded-lg border border-app-border/50 bg-app-surface p-4 space-y-3">
+          <div className="rounded-lg border border-app-border/50 bg-app-surface p-4 space-y-3 shadow-sm hover:shadow-md transition-all duration-200 hover:border-app-border/80">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Zap className="w-4 h-4 text-yellow-400" />
@@ -217,7 +217,7 @@ export function MetricsPage() {
           </div>
 
           {/* LLM Cache */}
-          <div className="rounded-lg border border-app-border/50 bg-app-surface p-4 space-y-3">
+          <div className="rounded-lg border border-app-border/50 bg-app-surface p-4 space-y-3 shadow-sm hover:shadow-md transition-all duration-200 hover:border-app-border/80">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Layers className="w-4 h-4 text-cyan-400" />
@@ -259,7 +259,7 @@ export function MetricsPage() {
       {/* Config */}
       <section className="space-y-3">
         <h2 className="text-xs font-medium text-app-text-tertiary uppercase tracking-wider">运行时配置</h2>
-        <div className="rounded-lg border border-app-border/50 bg-app-surface p-4">
+        <div className="rounded-lg border border-app-border/50 bg-app-surface p-4 shadow-sm hover:shadow-md transition-all duration-200 hover:border-app-border/80">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
             {[
               { label: '日志级别', value: metrics.config.log_level },
@@ -281,9 +281,12 @@ export function MetricsPage() {
       </section>
 
       {/* Auto-refresh hint */}
-      <p className="text-center text-[10px] text-app-text-tertiary/50">
-        每 15 秒自动刷新
-      </p>
+      <div className="flex items-center justify-center gap-1.5">
+        <div className="w-1 h-1 rounded-full bg-app-text-tertiary/30 animate-pulse" />
+        <p className="text-[10px] text-app-text-tertiary/50">
+          每 15 秒自动刷新
+        </p>
+      </div>
     </div>
   );
 }

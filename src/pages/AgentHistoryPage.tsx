@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Badge } from '../components/ui/badge';
 import { Input } from '../components/ui/input';
+import { Pagination } from '../components/ui/pagination';
 import { Button } from '../components/ui/button';
 import { OptionChip } from '../components/ui/option-chip';
 import { useAgentStore } from '../stores/useAgentStore';
@@ -70,6 +71,8 @@ export function AgentHistoryPage() {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 10;
 
   const loadData = useCallback(() => {
     setError(null);
@@ -97,6 +100,11 @@ export function AgentHistoryPage() {
     }
     return items;
   }, [taskHistory, searchQuery, statusFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  useEffect(() => { setPage(1); }, [statusFilter, searchQuery]);
 
   return (
     <div className="max-w-4xl mx-auto p-6 h-full flex flex-col space-y-3">
@@ -176,7 +184,7 @@ export function AgentHistoryPage() {
       ) : (
         <div className="flex-1 overflow-auto">
           <div className="space-y-3">
-            {filtered.map((task) => (
+            {paginated.map((task) => (
               <TaskCard
                 key={task.id}
                 task={task}
@@ -186,6 +194,7 @@ export function AgentHistoryPage() {
           </div>
         </div>
       )}
+      <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
     </div>
   );
 }

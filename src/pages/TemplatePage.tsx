@@ -1,40 +1,56 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { templatesApi, platformsApi } from '../services/api';
-import type { PromptTemplate, PromptTemplateDetail, Platform } from '../types';
+import { templatesApi } from '../services/api';
+import type { PromptTemplate, PromptTemplateDetail } from '../types';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Textarea } from '../components/ui/textarea';
 import { Switch } from '../components/ui/switch';
 import { SkeletonList } from '../components/ui/Skeleton';
-import { ConfirmDialog } from '../components/ui/ConfirmDialog';
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '../components/ui/select';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '../components/ui/dialog';
+import { Pagination } from '../components/ui/pagination';
 import {
-  Library, Sparkles, Layers, Clock, AlertTriangle,
-  RefreshCw, Plus, Pencil, Trash2, Search,
+  Library, Layers, Clock, AlertTriangle,
+  RefreshCw, Pencil, Search,
 } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { cn } from '../utils/helpers';
 
-// ── Category definitions ──────────────────────────────────────────
+// ── Category & platform definitions ─────────────────────────
 const CATEGORIES = {
-  social_media:     { label: '社交媒体', gradient: 'from-pink-500 to-rose-500',     icon: '📱' },
-  creative_writing: { label: '创意写作', gradient: 'from-purple-500 to-violet-500', icon: '✍️' },
-  marketing:        { label: '营销内容', gradient: 'from-orange-500 to-amber-500',  icon: '📢' },
-  technical:        { label: '技术内容', gradient: 'from-cyan-500 to-blue-500',     icon: '⚙️' },
+  publishable:  { label: '社交平台', badge: '可一键发布', gradient: 'from-pink-500 to-rose-500',  icon: '📱' },
+  content:      { label: '内容创作', badge: '提供文案',   gradient: 'from-purple-500 to-violet-500', icon: '📝' },
+  professional: { label: '专业写作', badge: '提供文案',   gradient: 'from-cyan-500 to-blue-500',    icon: '📋' },
 } as const;
 
 type CategoryKey = keyof typeof CATEGORIES;
 
-/** Pills shown in the filter bar – "全部" first, then each known category. */
+const CATEGORY_PLATFORMS: Record<CategoryKey, { id: string; label: string; icon: string }[]> = {
+  publishable: [
+    { id: 'xiaohongshu', label: '小红书', icon: '📕' },
+    { id: 'wechat', label: '公众号', icon: '📱' },
+    { id: 'weibo', label: '微博', icon: '🔵' },
+    { id: 'douyin', label: '抖音', icon: '🎵' },
+    { id: 'bilibili', label: 'B站', icon: '🅱️' },
+  ],
+  content: [
+    { id: 'copywriting', label: '产品文案', icon: '📝' },
+    { id: 'brand-story', label: '品牌故事', icon: '💼' },
+    { id: 'ad-copy', label: '广告文案', icon: '📢' },
+    { id: 'fiction', label: '小说故事', icon: '📖' },
+    { id: 'script', label: '剧本脚本', icon: '🎬' },
+  ],
+  professional: [
+    { id: 'tech-doc', label: '技术文档', icon: '📘' },
+    { id: 'tutorial', label: '教程指南', icon: '📗' },
+    { id: 'seo', label: 'SEO文章', icon: '🔍' },
+    { id: 'email', label: '邮件营销', icon: '📧' },
+  ],
+};
+
 const FILTER_PILLS: Array<{ key: CategoryKey | 'all'; label: string }> = [
   { key: 'all', label: '全部' },
   ...(Object.entries(CATEGORIES).map(([k, v]) => ({ key: k as CategoryKey, label: v.label }))),
@@ -50,9 +66,18 @@ function categoryLabel(cat: string): string {
   return (CATEGORIES as Record<string, { label: string }>)[cat]?.label ?? cat;
 }
 
+/** Look up which category a platform_code belongs to, using the 3-category system */
+function platformCategory(platformCode: string): string {
+  for (const [cat, platforms] of Object.entries(CATEGORY_PLATFORMS)) {
+    if (platforms.some(p => p.id === platformCode)) return cat;
+  }
+  return 'uncategorized';
+}
+
 // ── Default form state ───────────────────────────────────────────
 interface FormState {
   name: string;
+  category: CategoryKey | '';
   platform_code: string;
   description: string;
   system_prompt: string;
@@ -64,7 +89,8 @@ interface FormState {
 
 const DEFAULT_FORM: FormState = {
   name: '',
-  platform_code: '',
+  category: '',
+  platform_code: '__none__',
   description: '',
   system_prompt: '',
   user_template: '',
@@ -76,37 +102,38 @@ const DEFAULT_FORM: FormState = {
 // ── Component ─────────────────────────────────────────────────────
 export function TemplatePage() {
   const [templates, setTemplates] = useState<PromptTemplate[]>([]);
-  const [platforms, setPlatforms] = useState<Platform[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<CategoryKey | 'all'>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [totalPlatforms, setTotalPlatforms] = useState(0);
+  const PAGE_SIZE = 10;
   const navigate = useNavigate();
 
-  // Detail dialog
-  const [selectedTemplate, setSelectedTemplate] = useState<PromptTemplateDetail | null>(null);
-  const [detailOpen, setDetailOpen] = useState(false);
-  const [detailLoading, setDetailLoading] = useState(false);
-
-  // Create/Edit dialog
+  // Edit dialog
   const [formOpen, setFormOpen] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<PromptTemplateDetail | null>(null);
   const [form, setForm] = useState<FormState>({ ...DEFAULT_FORM });
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  // Delete confirmation
-  const [deleteTarget, setDeleteTarget] = useState<PromptTemplate | null>(null);
-  const [deleteOpen, setDeleteOpen] = useState(false);
-
-  // ── data fetching ──
+  // ── server-side data fetching ──
   const fetchData = () => {
     setError(null);
     setLoading(true);
-    Promise.all([templatesApi.list(), platformsApi.list()])
-      .then(([tRes, pRes]) => {
-        if (tRes.data.success) setTemplates(tRes.data.data || []);
-        if (pRes.data.success) setPlatforms(pRes.data.data || []);
+    const cat = activeFilter === 'all' ? undefined : activeFilter;
+    const q = searchQuery.trim() || undefined;
+    templatesApi.list({ page, page_size: PAGE_SIZE, category: cat, search: q })
+      .then((res) => {
+        if (res.data.success && res.data.data) {
+          setTemplates(res.data.data.items || []);
+          setTotal(res.data.data.total || 0);
+          setTotalPages(res.data.data.total_pages || 1);
+          setTotalPlatforms(res.data.data.total_platforms || 0);
+        }
       })
       .catch((err) => {
         setError(err?.message || '加载模板失败，请稍后重试');
@@ -114,71 +141,26 @@ export function TemplatePage() {
       .finally(() => setLoading(false));
   };
 
+  // Re-fetch when page, filter, or search changes
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [page, activeFilter, searchQuery]);
 
-  // ── derived data ──
-  const platformMap = useMemo(() => {
-    const m = new Map<string, Platform>();
-    platforms.forEach((p) => m.set(p.code, p));
-    return m;
-  }, [platforms]);
+  // Reset to page 1 when filter or search changes
+  useEffect(() => {
+    setPage(1);
+  }, [activeFilter, searchQuery]);
 
+  // ── enrich templates with category for display ──
   const enriched = useMemo(
     () => templates.map((t) => ({
       ...t,
-      _category: t.platform_code ? platformMap.get(t.platform_code)?.category ?? 'uncategorized' : 'uncategorized',
+      _category: t.platform_code ? platformCategory(t.platform_code) : 'uncategorized',
     })),
-    [templates, platformMap],
+    [templates],
   );
 
-  const filtered = useMemo(() => {
-    let result = activeFilter === 'all' ? enriched : enriched.filter((t) => t._category === activeFilter);
-    if (searchQuery.trim()) {
-      const q = searchQuery.trim().toLowerCase();
-      result = result.filter(
-        (t) => t.name.toLowerCase().includes(q) || t.description?.toLowerCase().includes(q),
-      );
-    }
-    return result;
-  }, [enriched, activeFilter, searchQuery]);
-
-  const catCounts = useMemo(() => {
-    const counts: Record<string, number> = { all: enriched.length };
-    FILTER_PILLS.forEach((p) => {
-      if (p.key !== 'all') counts[p.key] = enriched.filter((t) => t._category === p.key).length;
-    });
-    return counts;
-  }, [enriched]);
-
-  const uniqueCategoryCount = useMemo(
-    () => new Set(enriched.map((t) => t._category).filter((c) => c !== 'uncategorized')).size,
-    [enriched],
-  );
-
-  // ── detail dialog ──
-  const handleViewTemplate = async (template: PromptTemplate) => {
-    setDetailLoading(true);
-    setDetailOpen(true);
-    try {
-      const res = await templatesApi.get(template.id);
-      if (res.data.success) setSelectedTemplate(res.data.data as PromptTemplateDetail);
-    } catch {
-      setDetailOpen(false);
-    } finally {
-      setDetailLoading(false);
-    }
-  };
-
-  // ── create / edit dialog ──
-  const openCreateDialog = () => {
-    setEditingTemplate(null);
-    setForm({ ...DEFAULT_FORM });
-    setFormError(null);
-    setFormOpen(true);
-  };
-
+  // ── edit dialog ──
   const openEditDialog = async (e: React.MouseEvent, template: PromptTemplate) => {
     e.stopPropagation();
     setFormError(null);
@@ -189,7 +171,8 @@ export function TemplatePage() {
         setEditingTemplate(detail);
         setForm({
           name: detail.name || '',
-          platform_code: detail.platform_code || '',
+          category: (detail.platform_code ? platformCategory(detail.platform_code) : '') as CategoryKey,
+          platform_code: detail.platform_code || '__none__',
           description: detail.description || '',
           system_prompt: detail.system_prompt || '',
           user_template: detail.user_template || '',
@@ -213,12 +196,12 @@ export function TemplatePage() {
       setFormError('模板名称不能为空');
       return;
     }
+    if (!editingTemplate) return;
     setSaving(true);
     setFormError(null);
     try {
       const payload: Record<string, unknown> = {
         name: form.name.trim(),
-        platform_code: form.platform_code || undefined,
         description: form.description.trim() || undefined,
         system_prompt: form.system_prompt || undefined,
         user_template: form.user_template || undefined,
@@ -226,12 +209,7 @@ export function TemplatePage() {
         max_tokens: form.max_tokens,
         is_public: form.is_public,
       };
-
-      if (editingTemplate) {
-        await templatesApi.update(editingTemplate.id, payload);
-      } else {
-        await templatesApi.create(payload);
-      }
+      await templatesApi.update(editingTemplate.id, payload);
       setFormOpen(false);
       fetchData();
     } catch (err: unknown) {
@@ -242,24 +220,6 @@ export function TemplatePage() {
       setFormError(msg);
     } finally {
       setSaving(false);
-    }
-  };
-
-  // ── delete ──
-  const openDeleteDialog = (e: React.MouseEvent, template: PromptTemplate) => {
-    e.stopPropagation();
-    setDeleteTarget(template);
-    setDeleteOpen(true);
-  };
-
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
-    try {
-      await templatesApi.delete(deleteTarget.id);
-      setDeleteTarget(null);
-      fetchData();
-    } catch {
-      setFormError('删除失败，请稍后重试');
     }
   };
 
@@ -312,10 +272,7 @@ export function TemplatePage() {
                 className="w-48 pl-8 h-8 text-xs"
               />
             </div>
-            <Button variant="gradient" size="sm" onClick={openCreateDialog}>
-              <Plus className="w-3.5 h-3.5" />
-              新建模板
-            </Button>
+            <span className="text-[10px] text-app-text-tertiary">共 {total} 个模板</span>
           </div>
         </div>
 
@@ -324,14 +281,14 @@ export function TemplatePage() {
           {[
             {
               label: '总模板数',
-              value: templates.length,
+              value: total,
               icon: Library,
               accent: 'text-blue-400',
               gradient: 'from-blue-500/20 to-blue-600/10',
             },
             {
-              label: '分类',
-              value: uniqueCategoryCount,
+              label: '平台数',
+              value: totalPlatforms,
               icon: Layers,
               accent: 'text-purple-400',
               gradient: 'from-purple-500/20 to-purple-600/10',
@@ -373,7 +330,6 @@ export function TemplatePage() {
         <div className="flex flex-wrap gap-1.5 mb-4">
           {FILTER_PILLS.map((pill) => {
             const isActive = activeFilter === pill.key;
-            const count = catCounts[pill.key] ?? 0;
             const isAll = pill.key === 'all';
             const grad = !isAll ? categoryGradient(pill.key) : 'from-primary-500 to-blue-600';
             return (
@@ -389,16 +345,6 @@ export function TemplatePage() {
               >
                 {!isAll && <span>{categoryIcon(pill.key)}</span>}
                 {pill.label}
-                {count > 0 && (
-                  <span className={cn(
-                    'inline-flex items-center justify-center min-w-[1.125rem] h-[1.125rem] rounded-full text-[9px] font-semibold px-1',
-                    isActive
-                      ? 'bg-white/20 text-white'
-                      : 'bg-app-elevated text-app-text-tertiary',
-                  )}>
-                    {count}
-                  </span>
-                )}
               </button>
             );
           })}
@@ -406,7 +352,7 @@ export function TemplatePage() {
       </motion.div>
 
       {/* ── Table ── */}
-      {filtered.length > 0 ? (
+      {enriched.length > 0 ? (
         <div className="rounded-lg border border-app-border overflow-hidden">
           <table className="w-full text-sm">
             <thead>
@@ -419,19 +365,24 @@ export function TemplatePage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((template) => {
-                const platform = template.platform_code ? platformMap.get(template.platform_code) : undefined;
+              {templates.map((template) => {
                 const cat = template._category;
-                const platIcon = categoryIcon(cat);
-                const platName = platform?.name ?? categoryLabel(cat);
+                // Look up platform from CATEGORY_PLATFORMS, fallback to backend platformMap
+                let platIcon = categoryIcon(cat);
+                let platName = categoryLabel(cat);
+                if (template.platform_code) {
+                  for (const platforms of Object.values(CATEGORY_PLATFORMS)) {
+                    const found = platforms.find(p => p.id === template.platform_code);
+                    if (found) { platIcon = found.icon; platName = found.label; break; }
+                  }
+                }
 
                 return (
                   <motion.tr
                     key={template.id}
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
-                    onClick={() => handleViewTemplate(template)}
-                    className="border-b border-app-border last:border-b-0 hover:bg-app-elevated/50 transition-colors cursor-pointer"
+                    className="border-b border-app-border last:border-b-0 hover:bg-app-elevated/50 transition-colors"
                   >
                     {/* 模板名称 */}
                     <td className="px-4 py-3">
@@ -464,7 +415,7 @@ export function TemplatePage() {
 
                     {/* 操作 */}
                     <td className="px-4 py-3">
-                      <div className="flex items-center justify-center gap-1">
+                      <div className="flex items-center justify-center">
                         <Button
                           variant="ghost"
                           size="icon-sm"
@@ -472,15 +423,6 @@ export function TemplatePage() {
                           title="编辑"
                         >
                           <Pencil className="w-3.5 h-3.5" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          onClick={(e) => openDeleteDialog(e, template)}
-                          title="删除"
-                          className="hover:text-red-400"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
                         </Button>
                       </div>
                     </td>
@@ -499,13 +441,14 @@ export function TemplatePage() {
         </div>
       )}
 
+      {/* ── Pagination ── */}
+      <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+
       {/* ── Create / Edit Dialog ── */}
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
         <DialogContent className="max-w-xl max-h-[85vh] overflow-hidden flex flex-col">
           <DialogHeader>
-            <DialogTitle className="text-sm">
-              {editingTemplate ? '编辑模板' : '新建模板'}
-            </DialogTitle>
+            <DialogTitle className="text-sm">编辑模板</DialogTitle>
           </DialogHeader>
 
           {/* Form error */}
@@ -528,25 +471,45 @@ export function TemplatePage() {
               />
             </div>
 
-            {/* 所属平台 */}
+            {/* 所属分类（只读） */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-app-text-secondary">所属分类</label>
+              <div className="flex items-center gap-2 rounded-lg border border-app-border/50 bg-app-elevated/50 px-3 py-2.5">
+                {form.category && CATEGORIES[form.category as CategoryKey] ? (
+                  <>
+                    <span className="text-base">{CATEGORIES[form.category as CategoryKey].icon}</span>
+                    <span className="text-xs text-app-text-secondary">{CATEGORIES[form.category as CategoryKey].label}</span>
+                  </>
+                ) : (
+                  <span className="text-xs text-app-text-tertiary">未分类</span>
+                )}
+              </div>
+            </div>
+
+            {/* 所属平台（只读） */}
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-app-text-secondary">所属平台</label>
-              <Select
-                value={form.platform_code}
-                onValueChange={(v) => handleFormChange('platform_code', v)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="选择平台（可选）" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="">无</SelectItem>
-                  {platforms.map((p) => (
-                    <SelectItem key={p.code} value={p.code}>
-                      {p.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex items-center gap-2 rounded-lg border border-app-border/50 bg-app-elevated/50 px-3 py-2.5">
+                {form.platform_code && form.platform_code !== '__none__' ? (
+                  (() => {
+                    let found: { icon: string; label: string } | undefined;
+                    for (const platforms of Object.values(CATEGORY_PLATFORMS)) {
+                      found = platforms.find(p => p.id === form.platform_code);
+                      if (found) break;
+                    }
+                    return found ? (
+                      <>
+                        <span className="text-base">{found.icon}</span>
+                        <span className="text-xs text-app-text-secondary">{found.label}</span>
+                      </>
+                    ) : (
+                      <span className="text-xs text-app-text-tertiary">{form.platform_code}</span>
+                    );
+                  })()
+                ) : (
+                  <span className="text-xs text-app-text-tertiary">无（自动匹配分类）</span>
+                )}
+              </div>
             </div>
 
             {/* 描述 */}
@@ -633,55 +596,6 @@ export function TemplatePage() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Delete Confirmation ── */}
-      <ConfirmDialog
-        open={deleteOpen}
-        onOpenChange={setDeleteOpen}
-        title="确定删除此模板?"
-        description={deleteTarget ? `「${deleteTarget.name}」删除后将无法恢复` : ''}
-        confirmLabel="删除"
-        cancelLabel="取消"
-        variant="danger"
-        onConfirm={handleDelete}
-      />
-
-      {/* ── Template Detail Dialog ── */}
-      <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
-          <DialogHeader>
-            <DialogTitle className="text-sm">{selectedTemplate?.name}</DialogTitle>
-          </DialogHeader>
-          {detailLoading ? (
-            <div className="flex-1 space-y-3 py-4">
-              <SkeletonList count={2} />
-            </div>
-          ) : selectedTemplate ? (
-            <div className="flex-1 overflow-auto space-y-4 pr-1">
-              {selectedTemplate.description && (
-                <div className="rounded-lg border border-app-border bg-app-elevated p-3">
-                  <p className="text-xs text-app-text-secondary">{selectedTemplate.description}</p>
-                </div>
-              )}
-              {selectedTemplate.system_prompt && (
-                <div className="space-y-2">
-                  <span className="text-[9px] text-app-text-tertiary uppercase tracking-wider font-medium">系统提示词</span>
-                  <div className="p-4 bg-app-surface rounded-xl text-xs text-app-text-secondary border border-white/[0.06] font-mono leading-relaxed">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{selectedTemplate.system_prompt}</ReactMarkdown>
-                  </div>
-                </div>
-              )}
-              <div className="flex gap-2 pt-2">
-                <Button variant="outline" onClick={() => setDetailOpen(false)} className="flex-1">
-                  关闭
-                </Button>
-                <Button variant="gradient" className="flex-1" onClick={() => { setDetailOpen(false); navigate('/', { state: { templatePrompt: selectedTemplate?.system_prompt } }); }}>
-                  <Sparkles className="h-4 w-4" />使用此模板
-                </Button>
-              </div>
-            </div>
-          ) : null}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

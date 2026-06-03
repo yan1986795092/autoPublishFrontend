@@ -9,8 +9,7 @@ import { ContentManagementPage } from './pages/ContentManagementPage';
 import { ContentEditPage } from './pages/ContentEditPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { LoginPage } from './pages/LoginPage';
-import { AgentHistoryPage } from './pages/AgentHistoryPage';
-import { MetricsPage } from './pages/MetricsPage';
+import { OperationsPage } from './pages/OperationsPage';
 import { TracesPage } from './pages/TracesPage';
 import { TemplatePage } from './pages/TemplatePage';
 
@@ -54,8 +53,9 @@ export default function App() {
           <Route path="/agent" element={<Navigate to="/?mode=chat" replace />} />
           <Route path="/agent-studio" element={<Navigate to="/?mode=studio" replace />} />
           <Route path="/" element={<ErrorBoundary><HomePage /></ErrorBoundary>} />
-          <Route path="/agent-history" element={<ErrorBoundary><AgentHistoryPage /></ErrorBoundary>} />
-          <Route path="/agent-metrics" element={<ErrorBoundary><MetricsPage /></ErrorBoundary>} />
+          <Route path="/operations" element={<ErrorBoundary><OperationsPage /></ErrorBoundary>} />
+          <Route path="/agent-history" element={<Navigate to="/operations" replace />} />
+          <Route path="/agent-metrics" element={<Navigate to="/operations" replace />} />
           <Route path="/traces" element={<ErrorBoundary><TracesPage /></ErrorBoundary>} />
           <Route path="/templates" element={<ErrorBoundary><TemplatePage /></ErrorBoundary>} />
           <Route path="/content" element={<ErrorBoundary><ContentManagementPage /></ErrorBoundary>} />

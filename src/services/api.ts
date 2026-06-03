@@ -225,8 +225,8 @@ export const personasApi = {
 };
 
 export const templatesApi = {
-  list: (params?: { platform_code?: string }) =>
-    apiClient.get<ApiResponse<PromptTemplate[]>>('/api/v1/templates', { params }),
+  list: (params?: { platform_code?: string; category?: string; search?: string; page?: number; page_size?: number }) =>
+    apiClient.get<ApiResponse<{ items: PromptTemplate[]; total: number; page: number; page_size: number; total_pages: number; total_platforms?: number }>>('/api/v1/templates', { params }),
   get: (id: string) =>
     apiClient.get<ApiResponse<PromptTemplateDetail>>(`/api/v1/templates/${id}`),
   create: (data: Partial<PromptTemplateDetail>) =>

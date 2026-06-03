@@ -364,7 +364,7 @@ export function TracesPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-app-border/20">
-              {(result?.spans as unknown as TraceSpan[]).map((span, i) => (
+              {((result?.spans || []) as TraceSpan[]).map((span, i) => (
                 <tr
                   key={`${span.trace_id}-${span.span_id}-${i}`}
                   className="hover:bg-app-hover/30 transition-colors cursor-pointer"
@@ -527,7 +527,7 @@ function TraceDrawer({ traceId, onClose }: { traceId: string; onClose: () => voi
                   <div className="w-1 h-3.5 rounded-full bg-app-accent/60" />
                   <h3 className="text-[11px] font-semibold text-app-text">链路瀑布图</h3>
                 </div>
-                <TraceTimeline spans={detail.spans} activeSpanId={activeSpanId} onSelectSpan={setActiveSpanId} />
+                <TraceTimeline spans={detail.spans || []} activeSpanId={activeSpanId} onSelectSpan={setActiveSpanId} />
               </section>
 
               {/* Span Detail */}
@@ -561,7 +561,7 @@ function TraceTimeline({
   activeSpanId: string | null;
   onSelectSpan: (id: string | null) => void;
 }) {
-  if (!spans.length) return null;
+  if (!spans || !spans.length) return null;
 
   const traceDur = Math.max(...spans.map((s) => (s.relative_start_ms as number) + (s.duration_ms as number)));
   const msPerPx = traceDur / 600;
@@ -691,11 +691,11 @@ function SpanDetailPanel({ span }: { span: TraceSpan }) {
       </div>
 
       {/* Log Events */}
-      {(span.logs as Array<{ timestamp: string; fields: Record<string, unknown> }>)?.length > 0 && (
+      {(span.logs || []).length > 0 && (
         <div className="p-4">
           <p className="text-[9px] text-app-text-tertiary uppercase tracking-wider mb-2">日志事件 ({span.logs.length})</p>
           <div className="space-y-1">
-            {(span.logs as Array<{ timestamp: string; fields: Record<string, unknown> }>)?.map((log, i: number) => (
+            {((span.logs || []) as Array<{ timestamp: string; fields: Record<string, unknown> }>).map((log, i: number) => (
               <div key={i} className="flex items-start gap-2 text-[10px]">
                 <span className="text-app-text-tertiary flex-shrink-0 font-mono">{formatTime(log.timestamp as string)}</span>
                 <div className="flex-1 space-y-0.5">

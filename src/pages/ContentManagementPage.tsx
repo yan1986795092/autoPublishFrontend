@@ -25,10 +25,6 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 
-const platformConfig: Record<string, { label: string }> = {
-  xiaohongshu: { label: '小红书' },
-  wechat: { label: '公众号' },
-};
 
 type SortKey = 'title' | 'status' | 'updated_at';
 type SortDir = 'asc' | 'desc';
@@ -37,6 +33,7 @@ export function ContentManagementPage() {
   const [contents, setContents] = useState<Content[]>([]);
   const [loading, setLoading] = useState(true);
   const [operationLoading, setOperationLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<string>('all');
   const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [view, setView] = useState<'list' | 'calendar'>('list');
@@ -77,6 +74,7 @@ export function ContentManagementPage() {
   // Load contents with server-side pagination
   const loadContents = useCallback(async (pageNum: number) => {
     setLoading(true);
+    setError(null);
     try {
       const params: { page: number; page_size: number; status?: string } = { page: pageNum, page_size: pageSize };
       if (filter !== 'all') params.status = filter;
@@ -86,7 +84,7 @@ export function ContentManagementPage() {
         setTotalItems(res.data.data.pagination?.total || 0);
       }
     } catch {
-      // silent
+      setError('加载失败，请检查网络连接后重试');
     } finally {
       setLoading(false);
     }
@@ -277,10 +275,19 @@ export function ContentManagementPage() {
     return text.split(/\s+/).length;
   };
 
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 space-y-3">
+        <p className="text-sm text-red-400">{error}</p>
+        <Button variant="outline" size="sm" onClick={() => loadContents(page)}>重试</Button>
+      </div>
+    );
+  }
+
   if (loading) return <SkeletonList count={5} />;
 
   return (
-    <div className="space-y-4 max-w-[1400px] mx-auto">
+    <div className="space-y-4 max-w-4xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -295,20 +302,24 @@ export function ContentManagementPage() {
         <div className="flex items-center gap-2">
           <ViewDensitySwitcher value={viewDensity} onChange={setViewDensity} />
           <div className="flex items-center gap-0.5 p-0.5 rounded-lg border border-app-border bg-app-surface">
-            <button
+            <Button
+              variant="ghost"
+              size="icon-sm"
               onClick={() => setView('list')}
-              className={cn('p-1.5 rounded-md transition-colors', view === 'list' ? 'bg-primary-600/20 text-primary-400' : 'text-app-text-tertiary hover:text-app-text-secondary')}
+              className={cn(view === 'list' ? 'bg-primary-600/20 text-primary-400' : 'text-app-text-tertiary')}
               title="列表视图"
             >
               <List className="w-3.5 h-3.5" />
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
               onClick={() => setView('calendar')}
-              className={cn('p-1.5 rounded-md transition-colors', view === 'calendar' ? 'bg-primary-600/20 text-primary-400' : 'text-app-text-tertiary hover:text-app-text-secondary')}
+              className={cn(view === 'calendar' ? 'bg-primary-600/20 text-primary-400' : 'text-app-text-tertiary')}
               title="日历视图"
             >
               <CalendarDays className="w-3.5 h-3.5" />
-            </button>
+            </Button>
           </div>
           <Button size="sm" onClick={() => navigate('/')} className="h-8 px-3 text-xs bg-primary-600 hover:bg-primary-500">
             <Plus className="h-3.5 w-3.5 mr-1" />新建内容
@@ -317,21 +328,22 @@ export function ContentManagementPage() {
       </div>
 
       {/* Stats bar */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1">
         {filters.map((f) => (
-          <button
+          <Button
             key={f.value}
+            variant="ghost"
+            size="sm"
             onClick={() => { setFilter(f.value); setPage(1); setTagFilter(null); }}
             className={cn(
-              'rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
               filter === f.value
-                ? 'bg-primary-600/15 text-primary-400'
+                ? 'bg-primary-600/15 text-primary-400 hover:bg-primary-600/20'
                 : 'text-app-text-tertiary hover:text-app-text-secondary'
             )}
             aria-pressed={filter === f.value}
           >
             {f.label} <span className="tabular-nums opacity-70">{f.count}</span>
-          </button>
+          </Button>
         ))}
       </div>
 
@@ -349,9 +361,9 @@ export function ContentManagementPage() {
         </div>
         {allTags.length > 0 && (
           <div className="flex items-center gap-1 flex-wrap">
-            <button onClick={() => setTagFilter(null)} className={cn('px-2 py-1 rounded text-[10px] font-medium transition-colors border', !tagFilter ? 'bg-primary-600/20 text-primary-400 border-primary-500/30' : 'bg-app-surface text-app-text-tertiary border-app-border hover:text-app-text-secondary')}>全部</button>
+            <Button variant="ghost" size="xs" onClick={() => setTagFilter(null)} className={cn('border', !tagFilter ? 'bg-primary-600/20 text-primary-400 border-primary-500/30' : 'bg-app-surface text-app-text-tertiary border-app-border hover:text-app-text-secondary')}>全部</Button>
             {allTags.map((tag) => (
-              <button key={tag} onClick={() => setTagFilter(tag)} className={cn('px-2 py-1 rounded text-[10px] font-medium transition-colors border', tagFilter === tag ? 'bg-primary-600/20 text-primary-400 border-primary-500/30' : 'bg-app-surface text-app-text-tertiary border-app-border hover:text-app-text-secondary')}>{tag}</button>
+              <Button key={tag} variant="ghost" size="xs" onClick={() => setTagFilter(tag)} className={cn('border', tagFilter === tag ? 'bg-primary-600/20 text-primary-400 border-primary-500/30' : 'bg-app-surface text-app-text-tertiary border-app-border hover:text-app-text-secondary')}>{tag}</Button>
             ))}
           </div>
         )}
@@ -417,7 +429,7 @@ export function ContentManagementPage() {
                   </thead>
                   <tbody>
                     {processedContents.map((content, idx) => {
-                      const platform = platformConfig[content.platform_code as keyof typeof platformConfig];
+                      const platformLabel = content.platform_code === 'xiaohongshu' ? '小红书' : content.platform_code === 'wechat' ? '公众号' : null;
                       const wordCount = getWordCount(content.content_md);
                       return (
                         <motion.tr key={content.id}
@@ -451,9 +463,9 @@ export function ContentManagementPage() {
                             )}
                           </td>
                           <td className="px-3">
-                            {platform ? (
+                            {platformLabel ? (
                               <Badge variant={content.platform_code === 'xiaohongshu' ? 'xhs' : content.platform_code === 'wechat' ? 'wechat' : 'default'} size="sm">
-                            {platform.label}
+                            {platformLabel}
                           </Badge>
                             ) : (
                               <span className="text-[10px] text-app-text-tertiary">--</span>

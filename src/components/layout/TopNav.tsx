@@ -1,9 +1,18 @@
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../../stores/useAuthStore';
+import { TOPNAV } from '../../config/layout';
 import { cn } from '../../utils/helpers';
+import type { LucideIcon } from 'lucide-react';
 import { PenLine, FileText, Settings, Library, History as HistoryIcon, BarChart3, Activity } from 'lucide-react';
 
-const navItems = [
+interface NavItem {
+  id: string;
+  label: string;
+  path: string;
+  icon: LucideIcon;
+}
+
+const navItems: NavItem[] = [
   { id: 'create', label: '创作', path: '/', icon: PenLine },
   { id: 'templates', label: '模板', path: '/templates', icon: Library },
   { id: 'content', label: '内容', path: '/content', icon: FileText },
@@ -23,7 +32,7 @@ export function TopNav() {
   return (
     <header
       className="flex items-center justify-between px-4 border-b border-app-border bg-app-bg flex-shrink-0"
-      style={{ height: 52 }}
+      style={{ height: TOPNAV.HEIGHT }}
     >
       {/* Logo + Nav */}
       <div className="flex items-center gap-6">
@@ -42,7 +51,7 @@ export function TopNav() {
         <nav className="flex items-center gap-1">
           {navItems.map((item) => {
             const Icon = item.icon;
-            const isActive = currentPath === item.path || (item.path === '/' && currentPath === '/');
+            const isActive = currentPath === item.path;
             return (
               <button
                 key={item.id}

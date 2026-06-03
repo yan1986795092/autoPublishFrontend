@@ -59,6 +59,7 @@ export function MetricsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+  const [stale, setStale] = useState(false);
 
   const fetch = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -68,11 +69,14 @@ export function MetricsPage() {
       const res = await agentApi.getMetrics();
       if (res.data.success && res.data.data) {
         setMetrics(res.data.data);
+        setStale(false);
       } else {
         setError('获取指标失败');
+        setStale(true);
       }
     } catch (e: any) {
       setError(e?.message || '网络错误');
+      setStale(true);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -102,7 +106,7 @@ export function MetricsPage() {
         <div className="text-center space-y-3">
           <AlertTriangle className="w-8 h-8 text-red-400 mx-auto" />
           <p className="text-sm text-red-400">{error}</p>
-          <button onClick={() => fetch()} className="text-xs text-blue-400 hover:underline">重试</button>
+          <Button variant="link" size="sm" onClick={() => fetch()}>重试</Button>
         </div>
       </div>
     );
@@ -131,6 +135,13 @@ export function MetricsPage() {
           刷新
         </Button>
       </div>
+
+      {stale && (
+        <div className="flex items-center gap-2 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-3 py-2">
+          <AlertTriangle className="w-4 h-4 text-yellow-400 shrink-0" />
+          <span className="text-xs text-yellow-400">数据可能不是最新</span>
+        </div>
+      )}
 
       {/* Worker & Tasks */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

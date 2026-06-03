@@ -43,15 +43,6 @@
   --color-app-text-secondary: #a1a1aa;
   --color-app-text-tertiary: #52525b;
 
-  /* Sidebar — distinct from content area */
-  --color-sidebar-bg: #111113;
-  --color-sidebar-border: #252528;
-  --color-sidebar-hover: #1c1c1f;
-  --color-sidebar-active: #18181b;
-  --color-sidebar-text: #e4e4e7;
-  --color-sidebar-text-secondary: #888892;
-  --color-sidebar-text-tertiary: #52525b;
-
   /* Accent color used throughout the app */
   --color-app-accent: #3b82f6;
 

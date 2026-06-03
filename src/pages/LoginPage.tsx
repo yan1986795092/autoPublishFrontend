@@ -177,9 +177,9 @@ export function LoginPage() {
                   <Switch checked={rememberMe} onCheckedChange={setRememberMe} />
                   <span className="text-[11px] text-app-text-secondary">记住我</span>
                 </label>
-                <button type="button" className="text-[11px] text-primary-400 hover:text-primary-300 transition-colors">
+                <Button variant="link" className="text-[11px] h-auto p-0">
                   忘记密码？
-                </button>
+                </Button>
               </div>
 
               {/* Submit button */}

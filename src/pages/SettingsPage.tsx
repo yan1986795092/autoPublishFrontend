@@ -5,6 +5,8 @@ import { useUIStore } from '../stores/useUIStore';
 import { authApi } from '../services/api';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/button';
+import { OptionChip } from '../components/ui/option-chip';
+import { LoadingSpinner } from '../components/ui/loading-spinner';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Switch } from '../components/ui/switch';
@@ -55,7 +57,7 @@ function SectionHeader({ title, description }: { title: string; description?: st
 }
 
 export function SettingsPage() {
-  const { user, setUser } = useAuthStore();
+  const { user, setUser, isLoading } = useAuthStore();
   const { showToast } = useUIStore();
   const navigate = useNavigate();
 
@@ -78,9 +80,7 @@ export function SettingsPage() {
   const [notifAnnounce, setNotifAnnounce] = useState(false);
 
   // API Keys
-  const [apiKeys, setApiKeys] = useState<ApiKey[]>([
-    { id: '1', name: '开发环境', key: 'sk-a1b2c3d4e5f6g7h8i9j0', created_at: '2026-01-15', last_used: '2026-05-12' },
-  ]);
+  const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [newKeyName, setNewKeyName] = useState('');
   const [showNewKeyForm, setShowNewKeyForm] = useState(false);
   const [visibleKeys, setVisibleKeys] = useState<Set<string>>(new Set());
@@ -146,6 +146,14 @@ export function SettingsPage() {
 
   const usedPercent = ((user?.quota_used_today ?? 0) / (user?.quota_daily ?? 10)) * 100;
 
+  if (isLoading && !user) {
+    return (
+      <div className="max-w-3xl mx-auto flex items-center justify-center min-h-[300px]">
+        <LoadingSpinner size="lg" />
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-3xl mx-auto">
       {/* ── Header ── */}
@@ -168,11 +176,12 @@ export function SettingsPage() {
             const active = activeTab === tab.id;
             const isDanger = tab.id === 'danger';
             return (
-              <button
+              <Button
                 key={tab.id}
+                variant="ghost"
                 onClick={() => setActiveTab(tab.id)}
                 className={cn(
-                  'flex items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium transition-all text-left',
+                  'w-full justify-start gap-2.5 rounded-lg px-3 text-xs',
                   active
                     ? isDanger
                       ? 'bg-red-500/10 text-red-400'
@@ -182,7 +191,7 @@ export function SettingsPage() {
               >
                 <Icon className="w-4 h-4" />
                 {tab.label}
-              </button>
+              </Button>
             );
           })}
         </nav>
@@ -321,19 +330,16 @@ export function SettingsPage() {
                   {/* Font size */}
                   <div className="mb-6">
                     <Label className="text-xs text-app-text-secondary mb-3 block">字体大小</Label>
-                    <div className="inline-flex items-center gap-0.5 p-1 rounded-lg border border-app-border bg-app-surface">
-                      {(['small', 'medium', 'large'] as const).map((size) => (
-                        <button key={size} onClick={() => setFontSize(size)}
-                          className={cn(
-                            'px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
-                            fontSize === size
-                              ? 'bg-primary-600/20 text-primary-400 shadow-sm'
-                              : 'text-app-text-tertiary hover:text-app-text-secondary'
-                          )}
-                        >
-                          {size === 'small' ? '小' : size === 'medium' ? '中' : '大'}
-                        </button>
-                      ))}
+                    <div className="max-w-[260px]">
+                      <OptionChip
+                        options={[
+                          { value: 'small', label: '小' },
+                          { value: 'medium', label: '中' },
+                          { value: 'large', label: '大' },
+                        ]}
+                        value={fontSize}
+                        onChange={setFontSize}
+                      />
                     </div>
                   </div>
 
@@ -393,33 +399,31 @@ export function SettingsPage() {
                                 <code className="text-xs font-mono text-app-text-secondary bg-app-elevated px-2 py-0.5 rounded">
                                   {maskKey(apiKey.key, isVisible)}
                                 </code>
-                                <button onClick={() => setVisibleKeys((prev) => {
+                                <Button variant="ghost" size="icon-sm" onClick={() => setVisibleKeys((prev) => {
                                   const next = new Set(prev);
                                   if (next.has(apiKey.id)) next.delete(apiKey.id); else next.add(apiKey.id);
                                   return next;
                                 })}
-                                  className="p-1 text-app-text-tertiary hover:text-app-text-secondary transition-colors"
                                 >
                                   {isVisible ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                                </button>
-                                <button onClick={() => handleCopyKey(apiKey.key)}
-                                  className="p-1 text-app-text-tertiary hover:text-app-text-secondary transition-colors"
+                                </Button>
+                                <Button variant="ghost" size="icon-sm" onClick={() => handleCopyKey(apiKey.key)}
                                 >
                                   {copiedKey === apiKey.key
                                     ? <Check className="w-3 h-3 text-green-400" />
                                     : <Copy className="w-3 h-3" />}
-                                </button>
+                                </Button>
                               </div>
                               {apiKey.last_used && (
                                 <p className="text-[10px] text-app-text-tertiary mt-1">上次使用: {apiKey.last_used}</p>
                               )}
                             </div>
-                            <button onClick={() => handleRevokeKey(apiKey.id)}
-                              className="p-2 rounded-lg text-app-text-tertiary hover:text-red-400 hover:bg-red-500/10 transition-colors opacity-0 group-hover:opacity-100"
+                            <Button variant="ghost" size="icon-sm" onClick={() => handleRevokeKey(apiKey.id)}
+                              className="opacity-0 group-hover:opacity-100 text-app-text-tertiary hover:text-red-400 hover:bg-red-500/10"
                               title="吊销密钥"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            </Button>
                           </div>
                         );
                       })}
@@ -442,12 +446,11 @@ export function SettingsPage() {
                             </Button>
                           </div>
                         ) : (
-                          <button onClick={() => setShowNewKeyForm(true)}
-                            className="inline-flex items-center gap-1.5 text-xs text-primary-400 hover:text-primary-300 transition-colors py-1"
+                          <Button variant="ghost-glow" size="sm" onClick={() => setShowNewKeyForm(true)}
                           >
                             <Plus className="w-3.5 h-3.5" />
                             创建新密钥
-                          </button>
+                          </Button>
                         )}
                       </div>
                     </div>

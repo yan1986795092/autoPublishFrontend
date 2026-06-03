@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { agentApi } from '../services/api';
 import type { AgentMetrics } from '../types';
+import { Button } from '../components/ui/button';
 import {
   Activity, Database, Zap, Layers, Cpu, RefreshCw,
   CheckCircle2, XCircle, AlertTriangle,
@@ -120,14 +121,15 @@ export function MetricsPage() {
           <h1 className="text-lg font-semibold text-app-text">系统监控</h1>
           <p className="text-xs text-app-text-secondary mt-0.5">Agent 系统实时运行指标</p>
         </div>
-        <button
+        <Button
           onClick={() => fetch(true)}
           disabled={refreshing}
-          className="flex items-center gap-1.5 rounded-lg border border-app-border/50 px-3 py-1.5 text-xs text-app-text-secondary hover:text-app-text transition-colors disabled:opacity-50"
+          variant="outline"
+          size="sm"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
           刷新
-        </button>
+        </Button>
       </div>
 
       {/* Worker & Tasks */}

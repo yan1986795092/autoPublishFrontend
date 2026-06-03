@@ -1,12 +1,12 @@
 import { useState, useCallback } from 'react';
 import { useGeneratorStore } from '../../stores/useGeneratorStore';
-import { cn } from '../../utils/helpers';
+import { OptionChip } from '../ui/option-chip';
 import { X } from 'lucide-react';
 
 const AUDIENCE_OPTIONS = [
-  { value: 'beginner', label: '入门' },
-  { value: 'intermediate', label: '进阶' },
-  { value: 'expert', label: '专家' },
+  { value: 'beginner' as const, label: '入门' },
+  { value: 'intermediate' as const, label: '进阶' },
+  { value: 'expert' as const, label: '专家' },
 ] as const;
 
 export function AudienceParams({ disabled }: { disabled?: boolean }) {
@@ -41,23 +41,12 @@ export function AudienceParams({ disabled }: { disabled?: boolean }) {
       {/* Target Audience */}
       <div className="space-y-1">
         <span className="text-[9px] text-app-text-tertiary">目标受众</span>
-        <div className="flex gap-1">
-          {AUDIENCE_OPTIONS.map((opt) => (
-            <button
-              key={opt.value}
-              onClick={() => setParameters({ target_audience: opt.value })}
-              disabled={disabled}
-              className={cn(
-                'flex-1 py-1.5 rounded-lg border text-[10px] font-medium transition-all',
-                (parameters.target_audience || 'beginner') === opt.value
-                  ? 'border-primary-500/50 bg-primary-600/15 text-primary-400'
-                  : 'border-app-border bg-app-surface text-app-text-tertiary hover:text-app-text-secondary'
-              )}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
+        <OptionChip
+          options={AUDIENCE_OPTIONS}
+          value={parameters.target_audience || 'beginner'}
+          onChange={(v) => setParameters({ target_audience: v })}
+          disabled={disabled}
+        />
       </div>
 
       {/* Keywords */}

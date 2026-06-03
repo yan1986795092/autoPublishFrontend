@@ -5,6 +5,7 @@ import {
   CheckCircle2, Activity, Filter, X, ExternalLink,
 } from 'lucide-react';
 import { observabilityApi, type TraceSearchResult, type TraceStats, type TraceDetail } from '../services/api';
+import { Button } from '../components/ui/button';
 import { cn } from '../utils/helpers';
 
 interface TraceSpan {
@@ -163,13 +164,14 @@ export function TracesPage() {
             )}
           </div>
           <div className="flex items-center gap-2">
-            <button
+            <Button
               onClick={() => fetch()}
-              className="inline-flex items-center gap-1.5 rounded-md border border-app-border/50 bg-app-elevated px-3 py-1.5 text-[11px] font-medium text-app-text-secondary hover:bg-app-surface transition-colors"
+              variant="outline"
+              size="sm"
             >
               <RefreshCw className={cn('w-3 h-3', loading && 'animate-spin')} />
               刷新
-            </button>
+            </Button>
           </div>
         </div>
 

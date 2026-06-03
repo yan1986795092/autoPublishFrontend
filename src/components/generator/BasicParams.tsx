@@ -1,17 +1,17 @@
 import { useGeneratorStore } from '../../stores/useGeneratorStore';
-import { cn } from '../../utils/helpers';
+import { OptionChip } from '../ui/option-chip';
 import type { GenerateParams } from '../../types';
 
-const LENGTH_OPTIONS: Array<{ value: GenerateParams['length']; label: string }> = [
-  { value: 'short', label: '短篇' },
-  { value: 'medium', label: '中篇' },
-  { value: 'long', label: '长篇' },
+const LENGTH_OPTIONS = [
+  { value: 'short' as const, label: '短篇' },
+  { value: 'medium' as const, label: '中篇' },
+  { value: 'long' as const, label: '长篇' },
 ];
 
-const TONE_OPTIONS: Array<{ value: GenerateParams['tone']; label: string }> = [
-  { value: 'friendly', label: '友好' },
-  { value: 'professional', label: '专业' },
-  { value: 'humorous', label: '幽默' },
+const TONE_OPTIONS = [
+  { value: 'friendly' as const, label: '友好' },
+  { value: 'professional' as const, label: '专业' },
+  { value: 'humorous' as const, label: '幽默' },
 ];
 
 export function BasicParams({ disabled }: { disabled?: boolean }) {
@@ -20,48 +20,24 @@ export function BasicParams({ disabled }: { disabled?: boolean }) {
 
   return (
     <div className="space-y-3">
-      {/* Length */}
       <div className="space-y-1">
         <span className="text-[9px] text-app-text-tertiary">长度</span>
-        <div className="flex gap-1">
-          {LENGTH_OPTIONS.map((opt) => (
-            <button
-              key={opt.value}
-              onClick={() => setParameters({ length: opt.value })}
-              disabled={disabled}
-              className={cn(
-                'flex-1 py-1.5 rounded-lg border text-[10px] font-medium transition-all',
-                parameters.length === opt.value
-                  ? 'border-primary-500/50 bg-primary-600/15 text-primary-400'
-                  : 'border-app-border bg-app-surface text-app-text-tertiary hover:text-app-text-secondary'
-              )}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
+        <OptionChip
+          options={LENGTH_OPTIONS}
+          value={parameters.length || 'short'}
+          onChange={(v) => setParameters({ length: v })}
+          disabled={disabled}
+        />
       </div>
 
-      {/* Tone */}
       <div className="space-y-1">
         <span className="text-[9px] text-app-text-tertiary">风格</span>
-        <div className="flex gap-1">
-          {TONE_OPTIONS.map((opt) => (
-            <button
-              key={opt.value}
-              onClick={() => setParameters({ tone: opt.value })}
-              disabled={disabled}
-              className={cn(
-                'flex-1 py-1.5 rounded-lg border text-[10px] font-medium transition-all',
-                parameters.tone === opt.value
-                  ? 'border-primary-500/50 bg-primary-600/15 text-primary-400'
-                  : 'border-app-border bg-app-surface text-app-text-tertiary hover:text-app-text-secondary'
-              )}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
+        <OptionChip
+          options={TONE_OPTIONS}
+          value={parameters.tone || 'friendly'}
+          onChange={(v) => setParameters({ tone: v })}
+          disabled={disabled}
+        />
       </div>
 
       {/* Creativity */}

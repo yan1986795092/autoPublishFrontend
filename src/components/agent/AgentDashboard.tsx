@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
+import { Button } from '../ui/button';
 import { cn } from '../../utils/helpers';
 import { getAgentLabel } from '../../config/agents';
 import type { PreviousGeneration } from '../../types';
@@ -83,7 +84,7 @@ function PrometheusMetricsPanel() {
         <p className="text-[10px] font-medium text-app-text-tertiary uppercase tracking-wider">
           实时指标（Prometheus · 最近 1h）
         </p>
-        <button
+        <Button
           onClick={async () => {
             setLoading(true);
             try {
@@ -92,10 +93,11 @@ function PrometheusMetricsPanel() {
             } catch { /* ignore */ }
             setLoading(false);
           }}
-          className="p-1 rounded text-app-text-tertiary hover:text-app-accent transition-colors"
+          variant="ghost"
+          size="icon-sm"
         >
           <RefreshCw className={cn('w-3 h-3', loading && 'animate-spin')} />
-        </button>
+        </Button>
       </div>
       <div className="grid grid-cols-4 gap-2">
         <LiveMetricCard icon={TrendingUp} label="成功率" value={successRate} color="text-green-400" />

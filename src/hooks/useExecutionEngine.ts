@@ -17,6 +17,7 @@ interface UseExecutionEngineReturn {
   currentTask: ReturnType<typeof useAgentStore.getState>['currentTask'];
   currentTaskId: string | null;
   thinkingSteps: ReturnType<typeof useAgentStore.getState>['thinkingSteps'];
+  messages: ReturnType<typeof useAgentStore.getState>['messages'];
   previousGenerations: ReturnType<typeof useAgentStore.getState>['previousGenerations'];
   appliedSkill: ReturnType<typeof useAgentStore.getState>['appliedSkill'];
   appliedSkillFull: ReturnType<typeof useAgentStore.getState>['appliedSkillFull'];
@@ -81,6 +82,7 @@ export function useExecutionEngine(_mode: WorkspaceMode): UseExecutionEngineRetu
   const currentTask = useAgentStore((s) => s.currentTask);
   const currentTaskId = useAgentStore((s) => s.currentTaskId);
   const thinkingSteps = useAgentStore((s) => s.thinkingSteps);
+  const messages = useAgentStore((s) => s.messages);
   const previousGenerations = useAgentStore((s) => s.previousGenerations);
   const appliedSkill = useAgentStore((s) => s.appliedSkill);
   const appliedSkillFull = useAgentStore((s) => s.appliedSkillFull);
@@ -205,7 +207,7 @@ export function useExecutionEngine(_mode: WorkspaceMode): UseExecutionEngineRetu
     runningTime, isRunning,
     streamEvents,
     currentResult, currentPlan, currentTask, currentTaskId,
-    thinkingSteps, previousGenerations,
+    thinkingSteps, messages, previousGenerations,
     appliedSkill, appliedSkillFull,
     pendingDecision, recoveryState, wsConnectionState,
     useStreaming, setUseStreaming,

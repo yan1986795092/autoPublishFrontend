@@ -5,10 +5,11 @@ import { ScrollArea } from '../ui/scroll-area';
 import { useAgentStore } from '../../stores/useAgentStore';
 import { useExecutionEngine } from '../../hooks/useExecutionEngine';
 import {
-  Send, Square, Bot, Sparkles, Copy, Check,
-  BookTemplate, Cpu, SlidersHorizontal, Upload,
+  Send, Square, Bot, Sparkles, Copy, Check, X,
+  BookTemplate, Cpu, SlidersHorizontal, Upload, Globe,
 } from 'lucide-react';
 import { AdvancedPanel } from './AdvancedPanel';
+import { PlatformSelector, PLATFORM_MAP } from './PlatformSelector';
 import Markdown from 'react-markdown';
 
 // ── Format helpers ──
@@ -22,15 +23,6 @@ function formatDuration(seconds: number) {
   if (seconds < 60) return `${seconds}s`;
   return `${Math.floor(seconds / 60)}m${seconds % 60}s`;
 }
-
-// ── Toolbar items ──
-
-const TOOLBAR_ITEMS = [
-  { key: 'templates', label: '模板', icon: BookTemplate },
-  { key: 'skills', label: '技能', icon: Cpu },
-  { key: 'params', label: '参数', icon: SlidersHorizontal },
-  { key: 'publish', label: '发布', icon: Upload },
-] as const;
 
 // ── Markdown components ──
 
@@ -68,14 +60,21 @@ export function Workspace() {
     handleExecute, handleStop,
   } = engine;
 
+  const [selectedPlatform, setSelectedPlatform] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
+  const platform = selectedPlatform ? PLATFORM_MAP.get(selectedPlatform) : null;
+  const canPublish = platform?.category === 'publishable';
+
   const handleSubmit = useCallback(async () => {
     if (!prompt.trim() || isRunning) return;
-    await engine.handleExecute(prompt.trim());
+    const enriched = platform
+      ? `[平台: ${platform.label}] ${prompt.trim()}`
+      : prompt.trim();
+    await engine.handleExecute(enriched);
     setPrompt('');
-  }, [prompt, isRunning, engine, setPrompt]);
+  }, [prompt, isRunning, engine, setPrompt, platform]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
@@ -91,15 +90,54 @@ export function Workspace() {
   }, []);
 
   const hasEvents = useAgentStore((s) => s.streamEvents.length) > 0;
+  const isIdle = messages.length === 0 && !isRunning;
 
   return (
     <div className="flex h-full">
-      {/* Main conversation area */}
       <div className="flex-1 flex flex-col min-w-0">
+        {/* Platform selector area — prominent when idle, compact when active */}
+        <div className={cn(
+          'flex-shrink-0 border-b border-app-border/30',
+          isIdle ? 'bg-app-surface' : 'bg-app-surface/50'
+        )}>
+          {isIdle || !selectedPlatform ? (
+            <div className="px-6 py-4">
+              <PlatformSelector
+                selected={selectedPlatform}
+                onSelect={setSelectedPlatform}
+              />
+            </div>
+          ) : (
+            /* Compact: show selected platform + change button */
+            <div className="flex items-center gap-2 px-6 py-2">
+              <Globe className="w-3.5 h-3.5 text-primary-400" />
+              <span className="text-xs font-medium text-app-text">
+                {platform?.icon} {platform?.label}
+              </span>
+              {canPublish && (
+                <span className="text-[9px] text-green-400 bg-green-500/10 px-1.5 py-0.5 rounded-full font-medium">
+                  可发布
+                </span>
+              )}
+              <button
+                onClick={() => setSelectedPlatform(null)}
+                className="ml-auto text-[10px] text-app-text-tertiary hover:text-app-text-secondary transition-colors flex items-center gap-1"
+              >
+                <X className="w-3 h-3" />
+                更换
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Messages area */}
         <ScrollArea className="flex-1 px-6 py-4">
           <div className="max-w-3xl mx-auto space-y-4">
-            {messages.length === 0 && !isRunning ? (
-              <EmptyWorkspace onSelect={(s) => { setPrompt(s); inputRef.current?.focus(); }} />
+            {isIdle ? (
+              <EmptyWorkspace
+                platform={platform}
+                onSelect={(s) => { setPrompt(s); inputRef.current?.focus(); }}
+              />
             ) : (
               messages.map((msg) => (
                 <MessageBubble
@@ -111,7 +149,6 @@ export function Workspace() {
               ))
             )}
 
-            {/* Running indicator */}
             {isRunning && (
               <div className="rounded-xl border border-app-border/40 bg-app-surface/40 p-4">
                 <div className="flex items-center gap-2 mb-3">
@@ -137,24 +174,28 @@ export function Workspace() {
               </div>
             )}
 
-            {/* Result */}
             {currentResult && !isRunning && (
-              <ResultBubble result={currentResult} copiedId={copiedId} onCopy={handleCopy} />
+              <ResultBubble result={currentResult} copiedId={copiedId} onCopy={handleCopy} canPublish={canPublish} />
             )}
           </div>
         </ScrollArea>
 
         {/* Toolbar */}
         <div className="flex-shrink-0 flex items-center gap-2 px-6 py-2 border-t border-app-border/30 bg-app-surface/50">
-          {TOOLBAR_ITEMS.map(({ key, label, icon: Icon }) => (
-            <button
-              key={key}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-app-border/50 text-[10px] text-app-text-secondary hover:text-app-text hover:border-primary-500/30 transition-colors"
-            >
-              <Icon className="w-3 h-3" />
-              {label}
+          <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-app-border/50 text-[10px] text-app-text-secondary hover:text-app-text hover:border-primary-500/30 transition-colors">
+            <BookTemplate className="w-3 h-3" />
+            模板
+          </button>
+          <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-app-border/50 text-[10px] text-app-text-secondary hover:text-app-text hover:border-primary-500/30 transition-colors">
+            <SlidersHorizontal className="w-3 h-3" />
+            参数
+          </button>
+          {selectedPlatform && (
+            <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-app-border/50 text-[10px] text-app-text-secondary hover:text-app-text hover:border-primary-500/30 transition-colors">
+              <Cpu className="w-3 h-3" />
+              适配 {platform?.label}
             </button>
-          ))}
+          )}
           {hasEvents && !isRunning && (
             <button
               onClick={() => { setPrompt(''); engine.handleClearCurrent(); }}
@@ -174,7 +215,11 @@ export function Workspace() {
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="输入需求，Agent 将自动拆解任务并执行..."
+                placeholder={
+                  platform
+                    ? `为${platform.label}写一篇${platform.label === '小红书' ? '种草笔记' : platform.label === '公众号' ? '深度文章' : '内容'}...`
+                    : '选择上面的平台，或直接输入需求...'
+                }
                 className="flex-1 min-h-[44px] max-h-[120px] resize-none bg-transparent text-sm text-app-text placeholder:text-app-text-tertiary outline-none leading-relaxed"
                 rows={1}
               />
@@ -182,25 +227,41 @@ export function Workspace() {
                 <Button onClick={handleStop} className="h-9 px-3 flex-shrink-0" variant="destructive" size="sm">
                   <Square className="w-3.5 h-3.5" />
                 </Button>
+              ) : canPublish ? (
+                <Button
+                  onClick={handleSubmit}
+                  disabled={!prompt.trim()}
+                  className="h-9 px-4 flex-shrink-0 gap-1.5"
+                  variant="gradient"
+                  size="sm"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  生成并发布
+                </Button>
               ) : (
                 <Button
                   onClick={handleSubmit}
                   disabled={!prompt.trim()}
-                  className="h-9 px-4 flex-shrink-0"
+                  className="h-9 px-4 flex-shrink-0 gap-1.5"
                   size="sm"
                 >
                   <Send className="w-3.5 h-3.5" />
+                  生成
                 </Button>
               )}
             </div>
             <p className="mt-1 text-center text-[10px] text-app-text-tertiary/50">
-              {isRunning ? `执行中 ${formatDuration(runningTime)}` : 'Ctrl+Enter 发送'}
+              {isRunning
+                ? `执行中 ${formatDuration(runningTime)}`
+                : canPublish
+                  ? '内容将根据平台风格自动适配 · Ctrl+Enter 发送'
+                  : 'Ctrl+Enter 发送'
+              }
             </p>
           </div>
         </div>
       </div>
 
-      {/* Right panel */}
       <AdvancedPanel />
     </div>
   );
@@ -208,26 +269,62 @@ export function Workspace() {
 
 // ── Sub-components ──
 
-function EmptyWorkspace({ onSelect }: { onSelect: (s: string) => void }) {
+function EmptyWorkspace({ platform, onSelect }: { platform: { icon: string; label: string } | null; onSelect: (s: string) => void }) {
   return (
-    <div className="flex flex-col items-center justify-center py-20 text-center">
-      <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 border border-white/10 flex items-center justify-center mb-4">
-        <Sparkles className="w-8 h-8 text-blue-400" />
+    <div className="flex flex-col items-center justify-center py-16 text-center">
+      <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 border border-white/10 flex items-center justify-center mb-4">
+        <Sparkles className="w-7 h-7 text-blue-400" />
       </div>
-      <h2 className="text-lg font-semibold text-app-text mb-1">开始创作</h2>
-      <p className="text-xs text-app-text-secondary leading-relaxed max-w-sm mb-6">
-        输入需求，Agent 团队将自动拆解任务并协作完成
+      <h2 className="text-base font-semibold text-app-text mb-1">
+        {platform ? `开始${platform.label}创作` : '开始创作'}
+      </h2>
+      <p className="text-xs text-app-text-secondary leading-relaxed max-w-sm mb-5">
+        {platform
+          ? `为${platform.label}生成适配的内容，Agent 将自动调整风格和格式`
+          : '选择一个平台，或直接输入需求，Agent 将自动拆解任务并执行'
+        }
       </p>
       <div className="flex flex-wrap gap-2 justify-center">
-        {['写一篇 AI 编程趋势分析', '小红书种草文案', '产品发布 Newsletter'].map((s) => (
-          <button
-            key={s}
-            onClick={() => onSelect(s)}
-            className="px-4 py-2 rounded-full border border-app-border/50 text-xs text-app-text-secondary hover:border-blue-500/30 hover:text-blue-400 transition-colors"
-          >
-            {s}
+        {platform?.label === '小红书' && (
+          <button onClick={() => onSelect('为某款 AI 写作工具写一篇小红书种草笔记，要求标题吸引人，正文口语化')}
+            className="px-4 py-2 rounded-full border border-app-border/50 text-xs text-app-text-secondary hover:border-red-500/30 hover:text-red-400 transition-colors">
+            📕 写一篇种草笔记
           </button>
-        ))}
+        )}
+        {platform?.label === '公众号' && (
+          <button onClick={() => onSelect('写一篇关于远程办公效率的深度长文，2000 字左右')}
+            className="px-4 py-2 rounded-full border border-app-border/50 text-xs text-app-text-secondary hover:border-green-500/30 hover:text-green-400 transition-colors">
+            📱 写一篇公众号文章
+          </button>
+        )}
+        {platform?.label === '微博' && (
+          <button onClick={() => onSelect('写一条关于 AI 热点的微博，140 字以内，带话题标签')}
+            className="px-4 py-2 rounded-full border border-app-border/50 text-xs text-app-text-secondary hover:border-yellow-500/30 hover:text-yellow-400 transition-colors">
+            🔵 写一条微博
+          </button>
+        )}
+        {platform?.label === '抖音' && (
+          <button onClick={() => onSelect('为一个 30 秒的科技产品宣传视频创作分镜脚本')}
+            className="px-4 py-2 rounded-full border border-app-border/50 text-xs text-app-text-secondary hover:border-pink-500/30 hover:text-pink-400 transition-colors">
+            🎵 写抖音脚本
+          </button>
+        )}
+        {!platform && (
+          <>
+            <button onClick={() => onSelect('写一篇 AI 编程趋势分析')}
+              className="px-4 py-2 rounded-full border border-app-border/50 text-xs text-app-text-secondary hover:border-blue-500/30 hover:text-blue-400 transition-colors">
+              ✏️ 写一篇文章
+            </button>
+            <button onClick={() => onSelect('为一款智能笔记应用写产品推广文案')}
+              className="px-4 py-2 rounded-full border border-app-border/50 text-xs text-app-text-secondary hover:border-purple-500/30 hover:text-purple-400 transition-colors">
+              📝 写产品文案
+            </button>
+            <button onClick={() => onSelect('编写一份 REST API 设计规范文档')}
+              className="px-4 py-2 rounded-full border border-app-border/50 text-xs text-app-text-secondary hover:border-cyan-500/30 hover:text-cyan-400 transition-colors">
+              📘 写技术文档
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -288,7 +385,7 @@ function MessageBubble({
   return null;
 }
 
-function ResultBubble({ result, copiedId, onCopy }: { result: any; copiedId: string | null; onCopy: (id: string, text: string) => void }) {
+function ResultBubble({ result, copiedId, onCopy, canPublish }: { result: any; copiedId: string | null; onCopy: (id: string, text: string) => void; canPublish?: boolean }) {
   const content = result.output?.full_text || result.output?.content || JSON.stringify(result.output, null, 2);
 
   return (
@@ -299,16 +396,24 @@ function ResultBubble({ result, copiedId, onCopy }: { result: any; copiedId: str
             <Sparkles className="w-4 h-4 text-yellow-400" />
             <span className="text-xs font-medium text-app-text">最终结果</span>
           </div>
-          <button
-            onClick={() => onCopy('result', content)}
-            className="rounded p-1 text-app-text-tertiary hover:text-app-text-secondary transition-colors"
-          >
-            {copiedId === 'result' ? (
-              <Check className="w-3.5 h-3.5 text-green-400" />
-            ) : (
-              <Copy className="w-3.5 h-3.5" />
+          <div className="flex items-center gap-2">
+            {canPublish && (
+              <Button size="xs" variant="gradient" className="gap-1">
+                <Upload className="w-3 h-3" />
+                发布
+              </Button>
             )}
-          </button>
+            <button
+              onClick={() => onCopy('result', content)}
+              className="rounded p-1 text-app-text-tertiary hover:text-app-text-secondary transition-colors"
+            >
+              {copiedId === 'result' ? (
+                <Check className="w-3.5 h-3.5 text-green-400" />
+              ) : (
+                <Copy className="w-3.5 h-3.5" />
+              )}
+            </button>
+          </div>
         </div>
         <div className="prose prose-invert prose-xs max-w-none text-sm leading-relaxed text-app-text-secondary">
           <Markdown components={markdownComponents}>{content}</Markdown>

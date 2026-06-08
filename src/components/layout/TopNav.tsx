@@ -3,7 +3,7 @@ import { useAuthStore } from '../../stores/useAuthStore';
 import { TOPNAV } from '../../config/layout';
 import { cn } from '../../utils/helpers';
 import type { LucideIcon } from 'lucide-react';
-import { PenLine, FileText, Settings, Library, BarChart3, Activity } from 'lucide-react';
+import { PenLine, FileText, Settings, Library, BarChart3, Activity, LogOut } from 'lucide-react';
 
 interface NavItem {
   id: string;
@@ -73,9 +73,22 @@ export function TopNav() {
       {/* User */}
       <div className="flex items-center gap-2">
         {user && (
-          <div className="w-7 h-7 rounded-md bg-primary-600/20 border border-primary-500/30 flex items-center justify-center text-xs font-semibold text-primary-400">
-            {(user.nickname || user.email || 'U').charAt(0).toUpperCase()}
-          </div>
+          <>
+            <button
+              onClick={() => {
+                useAuthStore.getState().logout();
+                navigate('/login');
+              }}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs text-app-text-secondary hover:text-app-text hover:bg-app-hover transition-colors"
+              title="退出登录"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">退出</span>
+            </button>
+            <div className="w-7 h-7 rounded-md bg-primary-600/20 border border-primary-500/30 flex items-center justify-center text-xs font-semibold text-primary-400">
+              {(user.nickname || user.email || 'U').charAt(0).toUpperCase()}
+            </div>
+          </>
         )}
       </div>
     </header>

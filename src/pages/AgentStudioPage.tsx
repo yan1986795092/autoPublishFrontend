@@ -361,6 +361,7 @@ export function AgentStudioPage() {
                     usage: { tokens_used: 0, estimated_cost: 0, time_elapsed: runningTime, model: '' },
                     thinking_trace: { task_id: currentTaskId || '', total_elapsed: runningTime, steps: thinkingSteps },
                   }}
+                  thinkingSteps={thinkingSteps}
                 />
               </div>
             )}
@@ -426,7 +427,9 @@ export function AgentStudioPage() {
                       output: {},
                       usage: { tokens_used: 0, estimated_cost: 0, time_elapsed: 0, model: '' },
                       thinking_trace: { task_id: currentTaskId || '', total_elapsed: 0, steps: thinkingSteps },
-                    }} />
+                    }}
+                      thinkingSteps={thinkingSteps}
+                    />
                   ) : activeRightTab === 'debug' ? (
                     <AgentLiveView />
                   ) : (

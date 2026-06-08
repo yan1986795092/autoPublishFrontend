@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 import type { AsyncTask, AgentResult, ExecutionPlan, PendingDecision, DecisionSubmitRequest, ChatMessage, ThinkingStep, StreamEvent, LLMChunk, ReasoningChunk, PreviousGeneration, RecoveryState } from '../types';
 import { agentApi } from '../services/api';
 import { SSEProcessor } from '../services/sse-processor';
@@ -85,8 +84,7 @@ interface AgentState {
 }
 
 export const useAgentStore = create<AgentState>()(
-  persist(
-    (set, get) => ({
+  (set, get) => ({
   currentTaskId: null,
   currentTask: null,
   currentResult: null,
@@ -95,7 +93,6 @@ export const useAgentStore = create<AgentState>()(
   error: null,
   pendingDecision: null,
   thinkingSteps: [],
-  streamEvents: [],
   llmChunks: {},
   reasoningChunks: {},
   wsConnectionState: 'disconnected',
@@ -263,28 +260,25 @@ export const useAgentStore = create<AgentState>()(
 
     // Archive previous generation before clearing for new run
     const prevState = useAgentStore.getState();
-    if (prevState.streamEvents.length > 0) {
+    if (prevState.thinkingSteps.length > 0 || prevState.currentResult) {
       const gen: PreviousGeneration = {
         id: crypto.randomUUID(),
-        prompt: prevState.streamEvents.find(e => e.type === 'user_message')?.data?.content as string || '',
+        prompt: prevState.messages.find(m => m.role === 'user')?.content || '',
         result: prevState.currentResult,
-        events: prevState.streamEvents,
+        events: [],
         timestamp: Date.now(),
         plan: prevState.currentPlan || undefined,
       };
       set((s) => ({ previousGenerations: [...s.previousGenerations, gen] }));
     }
 
-    set({ isRunning: true, error: null, thinkingSteps: [], currentResult: null, streamEvents: [], llmChunks: {}, reasoningChunks: {}, recoveryState: null });
+    set({ isRunning: true, error: null, thinkingSteps: [], currentResult: null, llmChunks: {}, reasoningChunks: {}, recoveryState: null });
 
-    set((state) => ({
-      streamEvents: [...state.streamEvents, {
-        id: crypto.randomUUID(),
-        type: 'user_message' as const,
-        timestamp: Date.now(),
-        data: { content: prompt },
-      }],
-    }));
+    // ── 创建助理消息（用于流式输出展示）──
+    const msgId = crypto.randomUUID();
+    get().addMessage({
+      id: msgId, role: 'assistant', content: '', status: 'running', timestamp: Date.now(),
+    });
 
     const controller = new AbortController();
     set({ _abortController: controller });
@@ -292,13 +286,21 @@ export const useAgentStore = create<AgentState>()(
     const processor = new SSEProcessor();
     let lastStep: ThinkingStep | null = null;
     let errorOccurred = false;
+    let accumulated = '';
+    let lastUpdate = 0;
+    const THROTTLE_MS = 50;
+
+    const updateMsg = (content: string) => {
+      const now = Date.now();
+      if (now - lastUpdate >= THROTTLE_MS) {
+        lastUpdate = now;
+        get().updateMessage(msgId, { content });
+      }
+    };
 
     // Register SSE handlers
     processor.on('plan', (event) => {
       set({ currentPlan: event.data as unknown as ExecutionPlan });
-      set((s) => ({
-        streamEvents: [...s.streamEvents, { id: crypto.randomUUID(), type: 'plan', timestamp: Date.now(), data: event.data }],
-      }));
     });
 
     processor.on('task_created', (event) => {
@@ -308,16 +310,9 @@ export const useAgentStore = create<AgentState>()(
     processor.on('thinking_step', (event) => {
       lastStep = event.data as unknown as ThinkingStep;
       set((s) => ({
-        thinkingSteps: [...s.thinkingSteps, lastStep!],
-        streamEvents: [...s.streamEvents, {
-          id: crypto.randomUUID(),
-          type: 'thinking_step', timestamp: Date.now(), data: event.data,
-          agent: (event.data as any).agent,
-          action: (event.data as any).action,
-          reasoning: (event.data as any).reasoning,
-          status: (event.data as any).status,
-          output_summary: (event.data as any).output_summary,
-        }],
+        thinkingSteps: s.thinkingSteps.length >= 200
+          ? [...s.thinkingSteps.slice(1), lastStep!]
+          : [...s.thinkingSteps, lastStep!],
       }));
     });
 
@@ -341,26 +336,28 @@ export const useAgentStore = create<AgentState>()(
     });
 
     processor.on('result', (event) => {
-      set({
-        currentResult: event.data as unknown as AgentResult,
-        isRunning: false,
-        currentTaskId: null,
+      const result = event.data as unknown as AgentResult;
+      const fullText = (result.output as any)?.full_text || (result.output as any)?.content || accumulated;
+      // Flush & mark completed
+      get().updateMessage(msgId, {
+        status: 'completed',
+        content: fullText,
+        result,
       });
-      set((s) => ({
-        streamEvents: [...s.streamEvents, { id: crypto.randomUUID(), type: 'result', timestamp: Date.now(), data: event.data }],
-      }));
-      useAgentStore.getState().loadTaskHistory();
+      set({ currentResult: result, isRunning: false, currentTaskId: null });
+      get().loadTaskHistory();
     });
 
     processor.on('decision_required', (event) => {
       set({ pendingDecision: event.data as unknown as PendingDecision });
-      set((s) => ({
-        streamEvents: [...s.streamEvents, { id: crypto.randomUUID(), type: 'decision_required', timestamp: Date.now(), data: event.data }],
-      }));
     });
 
     processor.on('error', (event) => {
       errorOccurred = true;
+      get().updateMessage(msgId, {
+        status: 'failed',
+        content: (event.data.message as string) || '执行出错',
+      });
       set((s) => ({
         error: (event.data.message as string) || '执行出错',
         isRunning: false,
@@ -372,7 +369,6 @@ export const useAgentStore = create<AgentState>()(
           errorMessage: (event.data.message as string) || '执行出错',
           planSnapshot: s.currentPlan,
         },
-        streamEvents: [...s.streamEvents, { id: crypto.randomUUID(), type: 'error', timestamp: Date.now(), data: { message: event.data.message } }],
       }));
     });
 
@@ -383,7 +379,6 @@ export const useAgentStore = create<AgentState>()(
         const existing = s.reasoningChunks[agent] || [];
         return {
           reasoningChunks: { ...s.reasoningChunks, [agent]: [...existing, { agent, content, timestamp: Date.now() }] },
-          streamEvents: [...s.streamEvents, { id: crypto.randomUUID(), type: 'reasoning', timestamp: Date.now(), data: event.data, agent, content }],
         };
       });
     });
@@ -391,32 +386,21 @@ export const useAgentStore = create<AgentState>()(
     processor.on('llm_chunk', (event) => {
       const agent = (event.data as any).agent as string;
       const content = (event.data as any).content as string;
+      accumulated += content;
+      updateMsg(accumulated);
       set((s) => {
         const existing = s.llmChunks[agent] || [];
         return {
           llmChunks: { ...s.llmChunks, [agent]: [...existing, { agent, content, timestamp: Date.now() }] },
-          streamEvents: [...s.streamEvents, { id: crypto.randomUUID(), type: 'llm_chunk', timestamp: Date.now(), data: event.data, agent, content }],
         };
       });
     });
 
-    processor.on('tool_use', (event) => {
-      set((s) => ({
-        streamEvents: [...s.streamEvents, {
-          id: crypto.randomUUID(), type: 'tool_use', timestamp: Date.now(), data: event.data,
-        }],
-      }));
-    });
-
-    processor.on('tool_result', (event) => {
-      set((s) => ({
-        streamEvents: [...s.streamEvents, {
-          id: crypto.randomUUID(), type: 'tool_result', timestamp: Date.now(), data: event.data,
-        }],
-      }));
-    });
-
     processor.on('done', () => {
+      // Flush remaining content before marking done
+      if (accumulated) {
+        get().updateMessage(msgId, { content: accumulated });
+      }
       set({ isRunning: false, currentTaskId: null, _abortController: null });
     });
 
@@ -449,7 +433,6 @@ export const useAgentStore = create<AgentState>()(
           currentTaskId: null,
           _abortController: null,
           ...(recovery ? { recoveryState: recovery } : {}),
-          streamEvents: [...s.streamEvents, { id: crypto.randomUUID(), type: 'error', timestamp: Date.now(), data: { message: errorMsg } }],
         }));
       },
     }, controller.signal);
@@ -538,7 +521,7 @@ export const useAgentStore = create<AgentState>()(
     if (_abortController) {
       _abortController.abort();
     }
-    const lastPrompt = state.streamEvents.find(e => e.type === 'user_message')?.data?.content as string || '';
+    const lastPrompt = state.messages.find(m => m.role === 'user')?.content || '';
     set({ error: null, recoveryState: null, isRunning: true });
     try {
       if (lastPrompt) {
@@ -580,12 +563,12 @@ export const useAgentStore = create<AgentState>()(
     const s = useAgentStore.getState();
     if (s._abortController) s._abortController.abort();
     // Archive current generation before clearing
-    if (s.streamEvents.length > 0) {
+    if (s.thinkingSteps.length > 0 || s.currentResult) {
       const gen: PreviousGeneration = {
         id: crypto.randomUUID(),
-        prompt: s.streamEvents.find(e => e.type === 'user_message')?.data?.content as string || '',
+        prompt: s.messages.find(m => m.role === 'user')?.content || '',
         result: s.currentResult,
-        events: s.streamEvents,
+        events: [],
         timestamp: Date.now(),
         plan: s.currentPlan || undefined,
       };
@@ -600,7 +583,6 @@ export const useAgentStore = create<AgentState>()(
       error: null,
       pendingDecision: null,
       thinkingSteps: [],
-      streamEvents: [],
       llmChunks: {},
       reasoningChunks: {},
       messages: [],
@@ -610,17 +592,4 @@ export const useAgentStore = create<AgentState>()(
       _abortController: null,
     });
   },
-}), {
-  name: 'agent-store',
-  partialize: (state) => ({
-    messages: state.messages,
-    // Limit persisted generations to 20 to prevent localStorage bloat
-    previousGenerations: state.previousGenerations.slice(-20),
-    taskHistory: state.taskHistory.slice(-50),
-    currentTaskId: state.currentTaskId,
-    contentTypeConfig: state.contentTypeConfig,
-    // Skill: only persist meta (lightweight), full data is re-fetched lazily on Apply
-    appliedSkill: state.appliedSkill,
-  }),
-}
-));
+}));

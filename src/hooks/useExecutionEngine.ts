@@ -11,12 +11,12 @@ interface UseExecutionEngineReturn {
   setPrompt: (v: string) => void;
   runningTime: number;
   isRunning: boolean;
-  streamEvents: ReturnType<typeof useAgentStore.getState>['streamEvents'];
   currentResult: ReturnType<typeof useAgentStore.getState>['currentResult'];
   currentPlan: ReturnType<typeof useAgentStore.getState>['currentPlan'];
   currentTask: ReturnType<typeof useAgentStore.getState>['currentTask'];
   currentTaskId: string | null;
   thinkingSteps: ReturnType<typeof useAgentStore.getState>['thinkingSteps'];
+  llmChunks: ReturnType<typeof useAgentStore.getState>['llmChunks'];
   messages: ReturnType<typeof useAgentStore.getState>['messages'];
   previousGenerations: ReturnType<typeof useAgentStore.getState>['previousGenerations'];
   appliedSkill: ReturnType<typeof useAgentStore.getState>['appliedSkill'];
@@ -76,12 +76,12 @@ function enrichPrompt(
 
 export function useExecutionEngine(_mode: WorkspaceMode): UseExecutionEngineReturn {
   const isRunning = useAgentStore((s) => s.isRunning);
-  const streamEvents = useAgentStore((s) => s.streamEvents);
   const currentResult = useAgentStore((s) => s.currentResult);
   const currentPlan = useAgentStore((s) => s.currentPlan);
   const currentTask = useAgentStore((s) => s.currentTask);
   const currentTaskId = useAgentStore((s) => s.currentTaskId);
   const thinkingSteps = useAgentStore((s) => s.thinkingSteps);
+  const llmChunks = useAgentStore((s) => s.llmChunks);
   const messages = useAgentStore((s) => s.messages);
   const previousGenerations = useAgentStore((s) => s.previousGenerations);
   const appliedSkill = useAgentStore((s) => s.appliedSkill);
@@ -205,9 +205,8 @@ export function useExecutionEngine(_mode: WorkspaceMode): UseExecutionEngineRetu
   return {
     prompt, setPrompt,
     runningTime, isRunning,
-    streamEvents,
     currentResult, currentPlan, currentTask, currentTaskId,
-    thinkingSteps, messages, previousGenerations,
+    thinkingSteps, llmChunks, messages, previousGenerations,
     appliedSkill, appliedSkillFull,
     pendingDecision, recoveryState, wsConnectionState,
     useStreaming, setUseStreaming,

@@ -9,6 +9,7 @@ import { AgentIcon } from './AgentIcon';
 
 interface AgentThinkingPanelProps {
   result?: AgentResult | null;
+  thinkingSteps?: ThinkingStep[];
   className?: string;
   compact?: boolean;
 }
@@ -137,16 +138,20 @@ function StepCard({ step, index }: { step: ThinkingStep; index: number }) {
   );
 }
 
-export function AgentThinkingPanel({ result, className, compact = false }: AgentThinkingPanelProps) {
+export function AgentThinkingPanel({ result, thinkingSteps, className, compact = false }: AgentThinkingPanelProps) {
   const [showAll, setShowAll] = useState(false);
 
-  if (!result?.thinking_trace) return null;
+  // 优先使用实时 SSE steps（SSE result 里没有完整的 thinking_trace.steps），
+  // 备选使用 result 里的 steps（用于从 history 恢复的场景）
+  const liveSteps: ThinkingStep[] = thinkingSteps ?? [];
+  const resultSteps: ThinkingStep[] = result?.thinking_trace?.steps ?? [];
+  const allSteps: ThinkingStep[] = liveSteps.length > 0 ? liveSteps : resultSteps;
 
-  const { steps, total_elapsed } = result.thinking_trace;
-  if (!steps || steps.length === 0) return null;
+  if (allSteps.length === 0) return null;
 
-  // Deduplicate once — avoids duplicate key warnings from backend sending duplicate step_numbers
-  const uniqueSteps = deduplicateSteps(steps);
+  const totalElapsed = result?.thinking_trace?.total_elapsed ?? liveSteps.reduce((sum, s) => sum + (s.time_elapsed ?? 0), 0);
+
+  const uniqueSteps = deduplicateSteps(allSteps);
   const completedSteps = uniqueSteps.filter(s => s.status === 'done').length;
   const failedSteps = uniqueSteps.filter(s => s.status === 'failed').length;
   const displaySteps = compact && !showAll ? uniqueSteps.slice(0, 3) : uniqueSteps;
@@ -174,7 +179,7 @@ export function AgentThinkingPanel({ result, className, compact = false }: Agent
             <div className="flex items-center gap-3 text-[10px] text-app-text-secondary tabular-nums">
               <span>{completedSteps}/{uniqueSteps.length} 步骤</span>
               {failedSteps > 0 && <span className="text-red-400">{failedSteps} 失败</span>}
-              {total_elapsed > 0 && <span>⏱ {total_elapsed.toFixed(1)}s</span>}
+              {totalElapsed > 0 && <span>⏱ {totalElapsed.toFixed(1)}s</span>}
             </div>
           </div>
 

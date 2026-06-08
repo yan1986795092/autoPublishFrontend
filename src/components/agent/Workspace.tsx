@@ -2,7 +2,6 @@ import { useState, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Button } from '../ui/button';
 import { ScrollArea } from '../ui/scroll-area';
-import { useAgentStore } from '../../stores/useAgentStore';
 import { useExecutionEngine } from '../../hooks/useExecutionEngine';
 import {
   Send, Square, Bot, Sparkles, Copy, Check, X,
@@ -56,7 +55,7 @@ export function Workspace() {
   const engine = useExecutionEngine('create');
   const {
     prompt, setPrompt, isRunning, runningTime,
-    messages, currentResult, thinkingSteps,
+    messages, currentResult, thinkingSteps, llmChunks,
     handleExecute, handleStop,
   } = engine;
 
@@ -69,12 +68,10 @@ export function Workspace() {
 
   const handleSubmit = useCallback(async () => {
     if (!prompt.trim() || isRunning) return;
-    const enriched = platform
-      ? `[平台: ${platform.label}] ${prompt.trim()}`
-      : prompt.trim();
-    await engine.handleExecute(enriched);
+    // Pass raw prompt — enrichment handled by useExecutionEngine (skill template / content type config)
+    await engine.handleExecute(prompt.trim());
     setPrompt('');
-  }, [prompt, isRunning, engine, setPrompt, platform]);
+  }, [prompt, isRunning, engine, setPrompt]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
@@ -89,7 +86,7 @@ export function Workspace() {
     setTimeout(() => setCopiedId(null), 2000);
   }, []);
 
-  const hasEvents = useAgentStore((s) => s.streamEvents.length) > 0;
+  const hasEvents = messages.length > 0 || thinkingSteps.length > 0 || currentResult !== null;
   const isIdle = messages.length === 0 && !isRunning;
 
   return (
@@ -145,37 +142,24 @@ export function Workspace() {
                   message={msg}
                   copiedId={copiedId}
                   onCopy={handleCopy}
+                  thinkingSteps={thinkingSteps}
+                  runningTime={runningTime}
                 />
               ))
             )}
 
-            {isRunning && (
-              <div className="rounded-xl border border-app-border/40 bg-app-surface/40 p-4">
-                <div className="flex items-center gap-2 mb-3">
-                  <Bot className="w-4 h-4 animate-pulse text-blue-400" />
-                  <span className="text-xs font-medium text-app-text">Agent 执行中</span>
-                  <span className="text-[10px] text-app-text-tertiary">{formatDuration(runningTime)}</span>
-                </div>
-                {thinkingSteps.length > 0 && (
-                  <div className="space-y-1">
-                    {thinkingSteps.map((step, i) => (
-                      <div key={i} className="flex items-center gap-1.5 text-[10px] text-app-text-tertiary">
-                        <span className={cn(
-                          'inline-block h-1 w-1 rounded-full',
-                          step.status === 'running' ? 'bg-blue-400 animate-pulse' :
-                          step.status === 'failed' ? 'bg-red-400' : 'bg-green-400'
-                        )} />
-                        <span className="font-medium text-app-text-secondary">{step.agent}:</span>
-                        <span className="truncate">{step.action}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
+            {/* Running indicator (shown when assistant message exists) */}
+            {isRunning && messages[messages.length - 1]?.status === 'running' && !messages[messages.length - 1]?.content && (
+              <div className="flex items-center gap-2 text-xs text-app-text-tertiary px-1">
+                <Bot className="w-4 h-4 text-blue-400 animate-pulse" />
+                <span>思考中</span>
+                <span className="flex gap-0.5">
+                  <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                </span>
+                <span className="ml-auto text-[10px]">{formatDuration(runningTime)}</span>
               </div>
-            )}
-
-            {currentResult && !isRunning && (
-              <ResultBubble result={currentResult} copiedId={copiedId} onCopy={handleCopy} canPublish={canPublish} />
             )}
           </div>
         </ScrollArea>
@@ -332,11 +316,16 @@ function EmptyWorkspace({ platform, onSelect }: { platform: { icon: string; labe
 
 function MessageBubble({
   message, copiedId, onCopy,
+  thinkingSteps, runningTime,
 }: {
   message: { id: string; role: string; content: string; timestamp: number; status?: string; result?: any };
   copiedId: string | null;
   onCopy: (id: string, text: string) => void;
+  thinkingSteps?: any[];
+  runningTime?: number;
 }) {
+  const [showThinking, setShowThinking] = useState(false);
+
   if (message.role === 'user') {
     return (
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex justify-end">
@@ -348,35 +337,112 @@ function MessageBubble({
     );
   }
 
-  if (message.role === 'assistant' && message.content) {
-    const sections = message.result?.output?.sections as any[] | undefined;
-    const hasSections = sections && Array.isArray(sections) && sections.length > 0;
-    const displayContent = hasSections
-      ? sections.map((s) => s.output?.content || '').filter(Boolean).join('\n\n')
-      : message.content;
+  if (message.role === 'assistant') {
+    const isRunning = message.status === 'running';
+    const isFailed = message.status === 'failed';
+    const displayContent = message.content || '';
+    const hasThinking = thinkingSteps && thinkingSteps.length > 0;
 
     return (
-      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-        <div className="rounded-xl border border-app-border/40 bg-app-elevated p-4">
+      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex justify-start">
+        <div className="max-w-[85%] w-full rounded-xl border border-app-border/40 bg-app-elevated p-4">
+          {/* Header */}
           <div className="mb-3 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-yellow-400" />
-              <span className="text-xs font-medium text-app-text">生成结果</span>
-            </div>
-            <button
-              onClick={() => onCopy(message.id, displayContent)}
-              className="rounded p-1 text-app-text-tertiary hover:text-app-text-secondary transition-colors"
-            >
-              {copiedId === message.id ? (
-                <Check className="w-3.5 h-3.5 text-green-400" />
+              {isRunning ? (
+                <Bot className="w-4 h-4 text-blue-400 animate-pulse" />
+              ) : isFailed ? (
+                <span className="w-4 h-4 text-red-400">⚠️</span>
               ) : (
-                <Copy className="w-3.5 h-3.5" />
+                <Sparkles className="w-4 h-4 text-yellow-400" />
               )}
-            </button>
+              <span className="text-xs font-medium text-app-text">
+                {isRunning ? '生成中...' : isFailed ? '生成失败' : '生成结果'}
+              </span>
+              {isRunning && runningTime !== undefined && (
+                <span className="text-[10px] text-app-text-tertiary">{formatDuration(runningTime)}</span>
+              )}
+            </div>
+            {!isRunning && displayContent && (
+              <button
+                onClick={() => onCopy(message.id, displayContent)}
+                className="rounded p-1 text-app-text-tertiary hover:text-app-text-secondary transition-colors"
+              >
+                {copiedId === message.id ? (
+                  <Check className="w-3.5 h-3.5 text-green-400" />
+                ) : (
+                  <Copy className="w-3.5 h-3.5" />
+                )}
+              </button>
+            )}
           </div>
-          <div className="prose prose-invert prose-xs max-w-none text-sm leading-relaxed text-app-text-secondary">
-            <Markdown components={markdownComponents}>{displayContent}</Markdown>
-          </div>
+
+          {/* Content: Thinking animation (no content yet) */}
+          {isRunning && !displayContent && (
+            <div className="flex items-center gap-1.5 py-2">
+              <span className="text-sm text-app-text-secondary">思考中</span>
+              <span className="flex gap-0.5">
+                <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+              </span>
+            </div>
+          )}
+
+          {/* Content: streaming or completed */}
+          {displayContent && (
+            <div className="prose prose-invert prose-xs max-w-none text-sm leading-relaxed text-app-text-secondary">
+              <Markdown components={markdownComponents}>{displayContent}</Markdown>
+              {isRunning && <span className="inline-block w-1.5 h-4 bg-blue-400 animate-pulse ml-0.5 align-text-bottom" />}
+            </div>
+          )}
+
+          {/* Failed message */}
+          {isFailed && (
+            <div className="text-sm text-red-400 py-1">{displayContent || '请求失败，请重试'}</div>
+          )}
+
+          {/* Collapsible thinking steps (DeepSeek style) */}
+          {hasThinking && (
+            <>
+              <button
+                onClick={() => setShowThinking(!showThinking)}
+                className="mt-3 flex items-center gap-1 text-[10px] text-app-text-tertiary hover:text-app-text-secondary transition-colors"
+              >
+                <span className={cn('transition-transform text-[8px]', showThinking && 'rotate-90')}>▸</span>
+                {showThinking ? '隐藏' : '显示'}思考过程（{thinkingSteps!.length} 步）
+              </button>
+              {showThinking && (
+                <div className="mt-2 space-y-1.5 pl-3 border-l-2 border-app-border/30">
+                  {thinkingSteps!.map((step, i) => (
+                    <div key={i} className="text-[10px] text-app-text-tertiary flex items-start gap-1.5">
+                      <span className={cn(
+                        'inline-block mt-0.5 h-1.5 w-1.5 rounded-full flex-shrink-0',
+                        step.status === 'running' ? 'bg-blue-400 animate-pulse' :
+                        step.status === 'failed' ? 'bg-red-400' : 'bg-green-400'
+                      )} />
+                      <div className="min-w-0">
+                        <span className="font-medium text-app-text-secondary">{step.agent}</span>
+                        <span className="ml-1">{step.action}</span>
+                        {step.output_summary && (
+                          <p className="truncate text-[9px] text-app-text-tertiary mt-0.5">{step.output_summary}</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Usage info for completed */}
+          {!isRunning && message.result?.usage && (
+            <div className="mt-3 flex flex-wrap gap-4 border-t border-app-border/30 pt-2 text-[10px] text-app-text-tertiary">
+              <span>Token: {message.result.usage.tokens_used}</span>
+              <span>耗时: {message.result.usage.time_elapsed?.toFixed(1)}s</span>
+              <span>模型: {message.result.usage.model || 'N/A'}</span>
+            </div>
+          )}
         </div>
       </motion.div>
     );
@@ -385,47 +451,3 @@ function MessageBubble({
   return null;
 }
 
-function ResultBubble({ result, copiedId, onCopy, canPublish }: { result: any; copiedId: string | null; onCopy: (id: string, text: string) => void; canPublish?: boolean }) {
-  const content = result.output?.full_text || result.output?.content || JSON.stringify(result.output, null, 2);
-
-  return (
-    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-      <div className="rounded-xl border border-app-border/40 bg-app-elevated p-4">
-        <div className="mb-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-yellow-400" />
-            <span className="text-xs font-medium text-app-text">最终结果</span>
-          </div>
-          <div className="flex items-center gap-2">
-            {canPublish && (
-              <Button size="xs" variant="gradient" className="gap-1">
-                <Upload className="w-3 h-3" />
-                发布
-              </Button>
-            )}
-            <button
-              onClick={() => onCopy('result', content)}
-              className="rounded p-1 text-app-text-tertiary hover:text-app-text-secondary transition-colors"
-            >
-              {copiedId === 'result' ? (
-                <Check className="w-3.5 h-3.5 text-green-400" />
-              ) : (
-                <Copy className="w-3.5 h-3.5" />
-              )}
-            </button>
-          </div>
-        </div>
-        <div className="prose prose-invert prose-xs max-w-none text-sm leading-relaxed text-app-text-secondary">
-          <Markdown components={markdownComponents}>{content}</Markdown>
-        </div>
-        {result.usage && (
-          <div className="mt-3 flex flex-wrap gap-4 border-t border-app-border/30 pt-3 text-[10px] text-app-text-tertiary">
-            <span>Token: {result.usage.tokens_used}</span>
-            <span>耗时: {result.usage.time_elapsed?.toFixed(1)}s</span>
-            <span>模型: {result.usage.model || 'N/A'}</span>
-          </div>
-        )}
-      </div>
-    </motion.div>
-  );
-}

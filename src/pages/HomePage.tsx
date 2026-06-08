@@ -19,6 +19,7 @@ export function HomePage() {
     currentPlan, pendingDecision, recoveryState,
     currentTaskId, handleConfirmPlan,
     handleClearCurrent, handleClearDecision,
+    handleRetryStep, handleSkipStep,
   } = useExecutionEngine('create');
 
   const handleNewSession = useCallback(() => {
@@ -62,8 +63,8 @@ export function HomePage() {
 
       <RecoveryDialog
         recovery={recoveryState}
-        onRetry={async () => {}}
-        onSkip={async () => {}}
+        onRetry={handleRetryStep}
+        onSkip={handleSkipStep}
         onCancel={handleClearCurrent}
         onClose={handleClearCurrent}
       />

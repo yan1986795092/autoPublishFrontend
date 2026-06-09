@@ -1,7 +1,8 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { cn } from '../../utils/helpers';
 import { useAgentStore } from '../../stores/useAgentStore';
 import { Search, Plus, MessageSquare } from 'lucide-react';
+import type { ChatConversationSummary } from '../../services/api';
 
 interface ConversationHistoryProps {
   activeSessionId: string | null;
@@ -9,21 +10,33 @@ interface ConversationHistoryProps {
   onNewSession: () => void;
 }
 
-function groupByDate(messages: Array<{ id: string; title: string; preview: string; timestamp: number }>) {
+function groupByDate(conversations: ChatConversationSummary[]) {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const yesterday = today - 86400000;
   const thisWeek = today - 6 * 86400000;
+  const thisMonth = today - 29 * 86400000;
 
-  const groups: { label: string; items: typeof messages }[] = [];
-  const todayItems = messages.filter(m => m.timestamp >= today);
-  const yesterdayItems = messages.filter(m => m.timestamp >= yesterday && m.timestamp < today);
-  const weekItems = messages.filter(m => m.timestamp >= thisWeek && m.timestamp < yesterday);
-  const olderItems = messages.filter(m => m.timestamp < thisWeek);
+  const groups: { label: string; items: ChatConversationSummary[] }[] = [];
+  const todayItems = conversations.filter(m => new Date(m.updated_at).getTime() >= today);
+  const yesterdayItems = conversations.filter(m => {
+    const t = new Date(m.updated_at).getTime();
+    return t >= yesterday && t < today;
+  });
+  const weekItems = conversations.filter(m => {
+    const t = new Date(m.updated_at).getTime();
+    return t >= thisWeek && t < yesterday;
+  });
+  const monthItems = conversations.filter(m => {
+    const t = new Date(m.updated_at).getTime();
+    return t >= thisMonth && t < thisWeek;
+  });
+  const olderItems = conversations.filter(m => new Date(m.updated_at).getTime() < thisMonth);
 
   if (todayItems.length) groups.push({ label: '今天', items: todayItems });
   if (yesterdayItems.length) groups.push({ label: '昨天', items: yesterdayItems });
-  if (weekItems.length) groups.push({ label: '最近 7 天', items: weekItems });
+  if (weekItems.length) groups.push({ label: '近 7 天', items: weekItems });
+  if (monthItems.length) groups.push({ label: '近 30 天', items: monthItems });
   if (olderItems.length) groups.push({ label: '更早', items: olderItems });
 
   return groups;
@@ -35,32 +48,40 @@ export function ConversationHistory({
   onNewSession,
 }: ConversationHistoryProps) {
   const [searchQuery, setSearchQuery] = useState('');
-  const messages = useAgentStore((s) => s.messages);
+  const conversationList = useAgentStore((s) => s.conversationList);
+  const conversationId = useAgentStore((s) => s.conversationId);
+  const loadConversations = useAgentStore((s) => s.loadConversations);
+  const switchConversation = useAgentStore((s) => s.switchConversation);
+  const createConversation = useAgentStore((s) => s.createConversation);
 
-  // Build session list from messages
-  const sessions = useMemo(() => {
-    if (messages.length === 0) {
-      return [];
-    }
-    const firstMsg = messages[0];
-    return [{
-      id: 'current',
-      title: firstMsg.content?.slice(0, 30) || '新对话',
-      preview: firstMsg.content?.slice(0, 40) || '',
-      timestamp: firstMsg.timestamp,
-    }];
-  }, [messages]);
+  // Load conversations from backend on mount (localStorage cache shown immediately)
+  useEffect(() => {
+    loadConversations();
+  }, []);
 
   const filtered = useMemo(() => {
-    if (!searchQuery.trim()) return sessions;
+    if (!searchQuery.trim()) return conversationList;
     const q = searchQuery.toLowerCase();
-    return sessions.filter(s => s.title.toLowerCase().includes(q));
-  }, [sessions, searchQuery]);
+    return conversationList.filter(c => c.title.toLowerCase().includes(q));
+  }, [conversationList, searchQuery]);
 
-  const groups = groupByDate(filtered);
+  const groups = useMemo(() => groupByDate(filtered), [filtered]);
+
+  const handleSelect = async (id: string) => {
+    onSelectSession(id);
+    await switchConversation(id);
+  };
+
+  const handleNewConversation = async () => {
+    const newId = await createConversation();
+    if (newId) {
+      onNewSession();
+      await switchConversation(newId);
+    }
+  };
 
   return (
-    <aside className="flex flex-col h-full border-r border-app-border bg-app-surface">
+    <aside className="flex flex-col h-full overflow-hidden border-r border-app-border bg-app-surface">
       {/* Search + New */}
       <div className="flex-shrink-0 p-3 border-b border-app-border">
         <div className="flex items-center gap-2">
@@ -69,12 +90,12 @@ export function ConversationHistory({
             <input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="搜索历史"
+              placeholder="搜索对话"
               className="w-full h-8 rounded-lg border border-app-border bg-app-elevated pl-8 pr-3 text-xs text-app-text placeholder:text-app-text-tertiary outline-none focus:border-primary-500/50 transition-colors"
             />
           </div>
           <button
-            onClick={onNewSession}
+            onClick={handleNewConversation}
             className="flex-shrink-0 w-8 h-8 rounded-lg bg-primary-600 hover:bg-primary-500 flex items-center justify-center transition-colors"
             title="新对话"
           >
@@ -83,7 +104,7 @@ export function ConversationHistory({
         </div>
       </div>
 
-      {/* Session list */}
+      {/* Conversation list */}
       <div className="flex-1 overflow-y-auto py-2">
         {groups.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-center px-4">
@@ -91,6 +112,9 @@ export function ConversationHistory({
             <p className="text-xs text-app-text-tertiary">
               {searchQuery ? '未找到匹配的对话' : '暂无对话历史'}
             </p>
+            {!searchQuery && (
+              <p className="text-[10px] text-app-text-tertiary mt-1">发送消息开启新的对话</p>
+            )}
           </div>
         ) : (
           groups.map((group) => (
@@ -100,22 +124,24 @@ export function ConversationHistory({
                   {group.label}
                 </span>
               </div>
-              {group.items.map((session) => (
+              {group.items.map((conv) => (
                 <button
-                  key={session.id}
-                  onClick={() => onSelectSession(session.id)}
+                  key={conv.id}
+                  onClick={() => handleSelect(conv.id)}
                   className={cn(
                     'w-full text-left px-4 py-2 transition-colors border-l-2',
-                    session.id === activeSessionId
+                    conv.id === conversationId
                       ? 'bg-primary-600/10 border-l-primary-500'
                       : 'border-l-transparent hover:bg-app-hover'
                   )}
                 >
                   <p className="text-xs font-medium text-app-text truncate">
-                    {session.title}
+                    {conv.title || '新对话'}
                   </p>
                   <p className="text-[10px] text-app-text-tertiary truncate mt-0.5">
-                    {session.preview || '空对话'}
+                    {conv.last_message
+                      ? conv.last_message.content.slice(0, 40)
+                      : `${conv.message_count} 条消息`}
                   </p>
                 </button>
               ))}
@@ -125,10 +151,10 @@ export function ConversationHistory({
       </div>
 
       {/* Empty state hint */}
-      {messages.length === 0 && !searchQuery && (
+      {conversationList.length === 0 && !searchQuery && (
         <div className="flex-shrink-0 px-4 py-3 border-t border-app-border">
           <p className="text-[10px] text-app-text-tertiary text-center">
-            输入需求开始新的对话
+            发送消息开始新的对话
           </p>
         </div>
       )}

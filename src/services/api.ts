@@ -512,11 +512,77 @@ export interface TraceStats {
   p99_duration_ms: number;
 }
 
+export interface AgentEventRow {
+  timestamp: string;
+  session_id: string;
+  run_id: string;
+  step_index: number;
+  parent_span_id: string;
+  agent_name: string;
+  event_type: string;
+  level: string;
+  message: string;
+  thought?: string;
+  tool_name?: string;
+  tool_input?: Record<string, unknown>;
+  tool_output?: string;
+  duration_ms?: number;
+  token_usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+    cost_usd?: number;
+  };
+  error_type?: string;
+  error_message?: string;
+  error_stack?: string;
+  llm_model?: string;
+  llm_provider?: string;
+  service: string;
+  trace_id: string;
+  index: string;
+  score: number;
+}
+
+export interface AgentEventSearchResult {
+  total: number;
+  page: number;
+  page_size: number;
+  events: AgentEventRow[];
+}
+
 export interface DashboardOverview {
   trace_stats_hour: TraceStats;
   trace_stats_day: TraceStats;
   metrics: Record<string, number | null>;
   generated_at: string;
+}
+
+// ===================== Chat/Conversation Types =====================
+
+export interface ChatMessageRecord {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  status: 'sending' | 'running' | 'completed' | 'failed';
+  result?: AgentResult;
+  task_id?: string;
+  plan?: ExecutionPlan;
+  created_at: string;
+}
+
+export interface ChatConversationSummary {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  message_count: number;
+  last_message?: ChatMessageRecord;
+}
+
+export interface ChatConversationDetail {
+  conversation: ChatConversationSummary;
+  messages: ChatMessageRecord[];
 }
 
 const obsClient: AxiosInstance = axios.create({
@@ -547,6 +613,23 @@ export const observabilityApi = {
   }): Promise<TraceSearchResult> {
     return obsClient
       .get<{ data: TraceSearchResult }>('/api/v1/observability/traces', { params })
+      .then((r) => r.data.data);
+  },
+
+  searchAgentEvents(params: {
+    service?: string;
+    session_id?: string;
+    run_id?: string;
+    agent_name?: string;
+    event_type?: string;
+    keyword?: string;
+    level?: string;
+    time?: string;
+    page?: number;
+    page_size?: number;
+  }): Promise<AgentEventSearchResult> {
+    return obsClient
+      .get<{ data: AgentEventSearchResult }>('/api/v1/observability/agent-events', { params })
       .then((r) => r.data.data);
   },
 
@@ -592,4 +675,88 @@ export const observabilityApi = {
       .get('/api/v1/observability/metrics', { params: { query } })
       .then((r) => r.data);
   },
+};
+
+// ===================== Chat API =====================
+
+export const chatApi = {
+  listConversations: (params?: { limit?: number; offset?: number; q?: string }) =>
+    apiClient.get<{
+      success: boolean;
+      data: {
+        conversations: ChatConversationSummary[];
+        total: number;
+        offset: number;
+        limit: number;
+      };
+    }>('/api/v1/chat/conversations', { params }),
+
+  createConversation: (data?: { title?: string }) =>
+    apiClient.post<{
+      success: boolean;
+      data: ChatConversationSummary;
+    }>('/api/v1/chat/conversations', data),
+
+  getConversation: (conversationId: string) =>
+    apiClient.get<{
+      success: boolean;
+      data: ChatConversationDetail;
+    }>(`/api/v1/chat/conversations/${conversationId}`),
+
+  updateConversation: (conversationId: string, data: { title?: string }) =>
+    apiClient.put<{
+      success: boolean;
+      data: ChatConversationSummary;
+    }>(`/api/v1/chat/conversations/${conversationId}`, data),
+
+  deleteConversation: (conversationId: string) =>
+    apiClient.delete<{
+      success: boolean;
+      data: { id: string };
+    }>(`/api/v1/chat/conversations/${conversationId}`),
+
+  addMessage: (conversationId: string, data: {
+    role: string;
+    content: string;
+    status?: string;
+    result?: Record<string, unknown>;
+    task_id?: string;
+    plan?: Record<string, unknown>;
+  }) =>
+    apiClient.post<{
+      success: boolean;
+      data: ChatMessageRecord;
+    }>(`/api/v1/chat/conversations/${conversationId}/messages`, data),
+
+  updateMessage: (messageId: string, data: {
+    content?: string;
+    status?: string;
+    result?: Record<string, unknown>;
+  }) =>
+    apiClient.put<{
+      success: boolean;
+      data: ChatMessageRecord;
+    }>(`/api/v1/chat/messages/${messageId}`, data),
+
+  deleteMessage: (messageId: string) =>
+    apiClient.delete<{
+      success: boolean;
+      data: { id: string };
+    }>(`/api/v1/chat/messages/${messageId}`),
+
+  quickStart: (data: {
+    role: string;
+    content: string;
+    status?: string;
+    result?: Record<string, unknown>;
+    task_id?: string;
+    plan?: Record<string, unknown>;
+  }) =>
+    apiClient.post<{
+      success: boolean;
+      data: {
+        conversation_id: string;
+        message: ChatMessageRecord;
+      };
+    }>('/api/v1/chat/quick-start', data),
 };

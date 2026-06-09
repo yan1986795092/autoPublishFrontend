@@ -235,3 +235,11 @@ export type {
   SkillImportResult,
   AppliedSkill,
 } from './skill';
+
+// ===================== Chat/Conversation Types =====================
+
+export type {
+  ChatMessageRecord,
+  ChatConversationSummary,
+  ChatConversationDetail,
+} from '../services/api';

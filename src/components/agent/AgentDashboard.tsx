@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { Button } from '../ui/button';
 import { cn } from '../../utils/helpers';
 import { getAgentLabel } from '../../config/agents';
+import { getResultThinkingSteps } from '../../utils/agentEvents';
 import type { PreviousGeneration } from '../../types';
 import { observabilityApi, type DashboardOverview } from '../../services/api';
 import {
@@ -131,7 +132,7 @@ export function AgentDashboard({ generations }: AgentDashboardProps) {
 
     const agentMap = new Map<string, AgentStat>();
     generations.forEach((g) => {
-      const steps = g.result?.thinking_trace?.steps || [];
+      const steps = getResultThinkingSteps(g.result);
       steps.forEach((step) => {
         const existing = agentMap.get(step.agent) || {
           agentType: step.agent,

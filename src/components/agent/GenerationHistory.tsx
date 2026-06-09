@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { cn } from '../../utils/helpers';
 import { getAgentLabel } from '../../config/agents';
+import { getResultThinkingSteps } from '../../utils/agentEvents';
 import type { PreviousGeneration } from '../../types';
 import {
   History, FileText, ChevronDown, Eye, RotateCcw,
@@ -157,15 +158,18 @@ export function GenerationHistory({ generations, onRestore, maxDisplay = 20 }: G
                           Token: {gen.result.usage.tokens_used} | 耗时: {gen.result.usage.time_elapsed.toFixed(1)}s
                         </p>
                       )}
-                      {gen.result?.thinking_trace?.steps && (
-                        <div className="flex flex-wrap gap-1">
-                          {gen.result.thinking_trace.steps.map((s, i) => (
-                            <span key={`${s.step_number ?? s.agent}-${i}`} className="text-[9px] px-1 py-0.5 rounded bg-app-border/30 text-app-text-tertiary">
-                              {getAgentLabel(s.agent)}
-                            </span>
-                          ))}
-                        </div>
-                      )}
+                      {(() => {
+                        const steps = getResultThinkingSteps(gen.result);
+                        return steps.length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {steps.map((s, i) => (
+                              <span key={`${s.step_number ?? s.agent}-${i}`} className="text-[9px] px-1 py-0.5 rounded bg-app-border/30 text-app-text-tertiary">
+                                {getAgentLabel(s.agent)}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null;
+                      })()}
                       <div className="flex gap-2 pt-0.5">
                         <button
                           onClick={(e) => { e.stopPropagation(); handleRestore(gen); }}

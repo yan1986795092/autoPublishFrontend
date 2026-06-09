@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import type { AsyncTask, AgentResult, ExecutionPlan, PendingDecision, DecisionSubmitRequest, ChatMessage, ThinkingStep, StreamEvent, LLMChunk, ReasoningChunk, PreviousGeneration, RecoveryState } from '../types';
-import { agentApi } from '../services/api';
+import { getResultThinkingSteps } from '../utils/agentEvents';
+import { resultToTimelineEvents } from '../utils/agentEventTimeline';
+import { agentApi, chatApi, type ChatConversationSummary } from '../services/api';
 import { SSEProcessor } from '../services/sse-processor';
 import { useAuthStore } from './useAuthStore';
 
@@ -49,6 +51,16 @@ interface AgentState {
   clearMessages: () => void;
   clearHistory: () => void;
 
+  // === 对话持久化 ===
+  conversationId: string | null;
+  conversationList: ChatConversationSummary[];
+  loadConversations: (opts?: { showErrorToast?: (msg: string) => void }) => Promise<void>;
+  loadConversationMessages: (conversationId: string) => Promise<void>;
+  createConversation: (title?: string) => Promise<string | null>;
+  deleteConversation: (conversationId: string) => Promise<boolean>;
+  updateConversationTitle: (conversationId: string, title: string) => Promise<boolean>;
+  switchConversation: (conversationId: string | null) => Promise<void>;
+
   // Actions
   previewPlan: (prompt: string) => Promise<ExecutionPlan | null>;
   runSync: (prompt: string) => Promise<AgentResult | null>;
@@ -83,8 +95,28 @@ interface AgentState {
   setWsConnectionState: (state: 'connecting' | 'connected' | 'disconnected') => void;
 }
 
-export const useAgentStore = create<AgentState>()(
-  (set, get) => ({
+const _CONV_STORAGE_KEY = 'autopublish-conversations';
+
+function _loadConvFromStorage(): Pick<AgentState, 'conversationId' | 'conversationList'> {
+  try {
+    const raw = localStorage.getItem(_CONV_STORAGE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch { /* ignore */ }
+  return { conversationId: null, conversationList: [] };
+}
+
+function _saveConvToStorage(state: Pick<AgentState, 'conversationId' | 'conversationList'>) {
+  try {
+    localStorage.setItem(_CONV_STORAGE_KEY, JSON.stringify({
+      conversationId: state.conversationId,
+      conversationList: state.conversationList,
+    }));
+  } catch { /* ignore */ }
+}
+
+const _initFromStorage = _loadConvFromStorage();
+
+export const useAgentStore = create<AgentState>()((set, get) => ({
   currentTaskId: null,
   currentTask: null,
   currentResult: null,
@@ -93,6 +125,7 @@ export const useAgentStore = create<AgentState>()(
   error: null,
   pendingDecision: null,
   thinkingSteps: [],
+  streamEvents: [],
   llmChunks: {},
   reasoningChunks: {},
   wsConnectionState: 'disconnected',
@@ -106,6 +139,8 @@ export const useAgentStore = create<AgentState>()(
   contentTypeConfig: null,
   appliedSkill: null,
   appliedSkillFull: null,
+  conversationId: _initFromStorage.conversationId,
+  conversationList: _initFromStorage.conversationList,
 
   setAppliedSkill: (applied, full) => set({ appliedSkill: applied, appliedSkillFull: full }),
   setContentTypeConfig: (config) => set({ contentTypeConfig: config }),
@@ -117,6 +152,139 @@ export const useAgentStore = create<AgentState>()(
   clearMessages: () => set({ messages: [] }),
   clearHistory: () => set({ previousGenerations: [] }),
   addStreamEvent: (event) => set((state) => ({ streamEvents: [...state.streamEvents, event] })),
+
+  // === 对话持久化 ===
+  loadConversations: async (opts?: { showErrorToast?: (msg: string) => void }) => {
+    const savedId = localStorage.getItem('currentConversationId');
+    console.log('[loadConversations] start, savedId from localStorage:', savedId);
+    try {
+      const response = await chatApi.listConversations({ limit: 50 });
+      console.log('[loadConversations] response:', response.data);
+      if (response.data.success && response.data.data) {
+        const conversations = response.data.data.conversations;
+        const validId = savedId && conversations.some((c) => c.id === savedId)
+          ? savedId
+          : (conversations[0]?.id ?? null);
+        console.log('[loadConversations] conversations count:', conversations.length, 'validId:', validId);
+        if (validId !== savedId) {
+          if (validId) localStorage.setItem('currentConversationId', validId);
+          else localStorage.removeItem('currentConversationId');
+        }
+        set({ conversationList: conversations, conversationId: validId });
+        _saveConvToStorage(get());
+        if (validId) {
+          console.log('[loadConversations] loading messages for:', validId);
+          await get().loadConversationMessages(validId);
+        }
+      }
+    } catch (e) {
+      const msg = '加载对话历史失败，请检查网络连接';
+      console.error('[loadConversations] failed:', e);
+      opts?.showErrorToast?.(msg);
+    }
+  },
+
+  loadConversationMessages: async (conversationId: string) => {
+    try {
+      const response = await chatApi.getConversation(conversationId);
+      if (response.data.success && response.data.data) {
+        const { messages } = response.data.data;
+        const chatMessages: ChatMessage[] = messages.map((m) => ({
+          id: m.id,
+          role: m.role as 'user' | 'assistant' | 'system',
+          content: m.content,
+          timestamp: new Date(m.created_at).getTime(),
+          status: m.status as ChatMessage['status'],
+          result: m.result as AgentResult | undefined,
+          taskId: m.task_id,
+          plan: m.plan as ExecutionPlan | undefined,
+        }));
+        localStorage.setItem('currentConversationId', conversationId);
+        set({ conversationId, messages: chatMessages });
+        _saveConvToStorage(get());
+      }
+    } catch (e) {
+      console.error('loadConversationMessages failed:', e);
+    }
+  },
+
+  createConversation: async (title?: string) => {
+    try {
+      const response = await chatApi.createConversation({ title });
+      if (response.data.success && response.data.data) {
+        const conv = response.data.data;
+        localStorage.setItem('currentConversationId', conv.id);
+        set((state) => ({
+          conversationList: [conv, ...state.conversationList],
+          conversationId: conv.id,
+          messages: [],
+        }));
+        _saveConvToStorage(get());
+        return conv.id;
+      }
+      return null;
+    } catch (e) {
+      console.error('createConversation failed:', e);
+      return null;
+    }
+  },
+
+  deleteConversation: async (conversationId: string) => {
+    try {
+      const response = await chatApi.deleteConversation(conversationId);
+      if (response.data.success) {
+        const state = get();
+        const remaining = state.conversationList.filter((c) => c.id !== conversationId);
+        const nextId = remaining[0]?.id ?? null;
+        if (nextId) localStorage.setItem('currentConversationId', nextId);
+        else localStorage.removeItem('currentConversationId');
+        set({
+          conversationList: remaining,
+          conversationId: state.conversationId === conversationId ? nextId : state.conversationId,
+          messages: state.conversationId === conversationId ? [] : state.messages,
+        });
+        _saveConvToStorage(get());
+        if (state.conversationId === conversationId && nextId) {
+          await get().loadConversationMessages(nextId);
+        }
+        return true;
+      }
+      return false;
+    } catch (e) {
+      console.error('deleteConversation failed:', e);
+      return false;
+    }
+  },
+
+  updateConversationTitle: async (conversationId: string, title: string) => {
+    try {
+      const response = await chatApi.updateConversation(conversationId, { title });
+      if (response.data.success && response.data.data) {
+        set((state) => ({
+          conversationList: state.conversationList.map((c) =>
+            c.id === conversationId ? { ...c, title } : c
+          ),
+        }));
+        _saveConvToStorage(get());
+        return true;
+      }
+      return false;
+    } catch (e) {
+      console.error('updateConversationTitle failed:', e);
+      return false;
+    }
+  },
+
+  switchConversation: async (conversationId: string | null) => {
+    if (!conversationId) {
+      localStorage.removeItem('currentConversationId');
+      set({ conversationId: null, messages: [] });
+      _saveConvToStorage(get());
+      return;
+    }
+    localStorage.setItem('currentConversationId', conversationId);
+    await get().loadConversationMessages(conversationId);
+  },
 
   setWsConnectionState: (wsConnectionState) => set({ wsConnectionState }),
 
@@ -150,15 +318,19 @@ export const useAgentStore = create<AgentState>()(
           useAgentStore.getState().setPendingDecision(decision);
           // showToast is a UI concern, handled by the component
         } else if (data.type === 'result') {
-          const result = data.data;
+          const result = data.data as AgentResult;
           useAgentStore.getState().setCurrentResult(result);
+          const eventSteps = getResultThinkingSteps(result);
+          if (eventSteps.length > 0) {
+            set({ thinkingSteps: eventSteps });
+          }
           useAgentStore.getState().loadTaskHistory();
           const msgs = useAgentStore.getState().messages;
           const assistantMsg = msgs.find((m) => m.role === 'assistant' && m.status === 'running');
           if (assistantMsg) {
             useAgentStore.getState().updateMessage(assistantMsg.id, {
               status: 'completed',
-              content: result.output?.full_text || result.output?.content || JSON.stringify(result.output, null, 2),
+              content: (result.output as any)?.full_text || (result.output as any)?.content || JSON.stringify(result.output, null, 2),
               result,
             });
           }
@@ -257,13 +429,100 @@ export const useAgentStore = create<AgentState>()(
 
   runStreaming: async (prompt: string) => {
     const token = useAuthStore.getState().accessToken;
+    const state = get();
+
+    // 如果没有 conversationId，先创建对话并保存用户消息
+    let conversationId: string | null = state.conversationId;
+    let userMsgId: string = crypto.randomUUID();
+    let assistantMsgId: string = crypto.randomUUID();
+
+    if (!conversationId) {
+      try {
+        const resp = await chatApi.quickStart({
+          role: 'user',
+          content: prompt,
+          status: 'completed',
+        });
+        if (resp.data.success && resp.data.data) {
+          conversationId = resp.data.data.conversation_id;
+          userMsgId = resp.data.data.message.id;
+          set({ conversationId, messages: [{
+            id: userMsgId,
+            role: 'user' as const,
+            content: prompt,
+            timestamp: new Date(resp.data.data.message.created_at).getTime(),
+            status: 'completed' as const,
+          }] });
+          const assistantResp = await chatApi.addMessage(conversationId, {
+            role: 'assistant',
+            content: '',
+            status: 'running',
+          });
+          if (assistantResp.data.success && assistantResp.data.data) {
+            assistantMsgId = assistantResp.data.data.id;
+            get().addMessage({
+              id: assistantMsgId,
+              role: 'assistant',
+              content: '',
+              status: 'running',
+              timestamp: new Date(assistantResp.data.data.created_at).getTime(),
+            });
+          }
+          get().loadConversations();
+        }
+      } catch (e) {
+        console.error('quickStart failed:', e);
+      }
+    } else {
+      // 已有 conversation，添加用户消息
+      try {
+        const resp = await chatApi.addMessage(conversationId, {
+          role: 'user',
+          content: prompt,
+          status: 'completed',
+        });
+        if (resp.data.success && resp.data.data) {
+          userMsgId = resp.data.data.id;
+          get().addMessage({
+            id: userMsgId,
+            role: 'user',
+            content: prompt,
+            timestamp: new Date(resp.data.data.created_at).getTime(),
+            status: 'completed',
+          });
+        }
+      } catch (e) {
+        console.error('addMessage failed:', e);
+      }
+      // 添加助手消息占位
+      try {
+        const assistantResp = await chatApi.addMessage(conversationId, {
+          role: 'assistant',
+          content: '',
+          status: 'running',
+        });
+        if (assistantResp.data.success && assistantResp.data.data) {
+          assistantMsgId = assistantResp.data.data.id;
+          get().addMessage({
+            id: assistantMsgId,
+            role: 'assistant',
+            content: '',
+            status: 'running',
+            timestamp: new Date(assistantResp.data.data.created_at).getTime(),
+          });
+        }
+        get().loadConversations();
+      } catch (e) {
+        console.error('add assistant message failed:', e);
+      }
+    }
 
     // Archive previous generation before clearing for new run
-    const prevState = useAgentStore.getState();
+    const prevState = get();
     if (prevState.thinkingSteps.length > 0 || prevState.currentResult) {
       const gen: PreviousGeneration = {
         id: crypto.randomUUID(),
-        prompt: prevState.messages.find(m => m.role === 'user')?.content || '',
+        prompt: prompt,
         result: prevState.currentResult,
         events: [],
         timestamp: Date.now(),
@@ -272,13 +531,7 @@ export const useAgentStore = create<AgentState>()(
       set((s) => ({ previousGenerations: [...s.previousGenerations, gen] }));
     }
 
-    set({ isRunning: true, error: null, thinkingSteps: [], currentResult: null, llmChunks: {}, reasoningChunks: {}, recoveryState: null });
-
-    // ── 创建助理消息（用于流式输出展示）──
-    const msgId = crypto.randomUUID();
-    get().addMessage({
-      id: msgId, role: 'assistant', content: '', status: 'running', timestamp: Date.now(),
-    });
+    set({ isRunning: true, error: null, thinkingSteps: [], currentResult: null, llmChunks: {}, reasoningChunks: {}, recoveryState: null, streamEvents: [] });
 
     const controller = new AbortController();
     set({ _abortController: controller });
@@ -294,13 +547,21 @@ export const useAgentStore = create<AgentState>()(
       const now = Date.now();
       if (now - lastUpdate >= THROTTLE_MS) {
         lastUpdate = now;
-        get().updateMessage(msgId, { content });
+        get().updateMessage(assistantMsgId, { content });
       }
     };
 
     // Register SSE handlers
     processor.on('plan', (event) => {
-      set({ currentPlan: event.data as unknown as ExecutionPlan });
+      set((s) => ({
+        currentPlan: event.data as unknown as ExecutionPlan,
+        streamEvents: [...s.streamEvents, {
+          id: `plan-${Date.now()}`,
+          type: 'plan',
+          timestamp: Date.now(),
+          data: event.data,
+        }],
+      }));
     });
 
     processor.on('task_created', (event) => {
@@ -309,16 +570,28 @@ export const useAgentStore = create<AgentState>()(
 
     processor.on('thinking_step', (event) => {
       lastStep = event.data as unknown as ThinkingStep;
+      const streamEvent: StreamEvent = {
+        id: `thinking-${Date.now()}-${(event.data.step_number as number) || 0}`,
+        type: 'thinking_step',
+        timestamp: Date.now(),
+        data: event.data,
+        agent: event.data.agent as string,
+        action: event.data.action as string,
+        reasoning: event.data.reasoning as string,
+        status: event.data.status as string,
+        output_summary: event.data.output_summary as string,
+      };
       set((s) => ({
         thinkingSteps: s.thinkingSteps.length >= 200
           ? [...s.thinkingSteps.slice(1), lastStep!]
           : [...s.thinkingSteps, lastStep!],
+        streamEvents: [...s.streamEvents, streamEvent],
       }));
     });
 
     processor.on('progress', (event) => {
       const existingTask = useAgentStore.getState().currentTask;
-      set({
+      set((s) => ({
         currentTask: {
           ...existingTask,
           id: (event.data.task_id as string) || existingTask?.id || '',
@@ -332,29 +605,59 @@ export const useAgentStore = create<AgentState>()(
           total_steps: (event.data.total_steps as number) || 0,
           created_at: existingTask?.created_at || new Date().toISOString(),
         } as AsyncTask,
-      });
+        streamEvents: [...s.streamEvents, {
+          id: `progress-${Date.now()}`,
+          type: 'progress',
+          timestamp: Date.now(),
+          data: event.data,
+        }],
+      }));
     });
 
     processor.on('result', (event) => {
       const result = event.data as unknown as AgentResult;
+      const timelineEvents = resultToTimelineEvents(result);
       const fullText = (result.output as any)?.full_text || (result.output as any)?.content || accumulated;
+      const eventSteps = getResultThinkingSteps(result);
       // Flush & mark completed
-      get().updateMessage(msgId, {
+      get().updateMessage(assistantMsgId, {
         status: 'completed',
         content: fullText,
         result,
       });
-      set({ currentResult: result, isRunning: false, currentTaskId: null });
+      set((s) => ({
+        currentResult: result,
+        isRunning: false,
+        currentTaskId: null,
+        thinkingSteps: eventSteps.length > 0 ? eventSteps : s.thinkingSteps,
+        streamEvents: timelineEvents.length > 0 ? timelineEvents : s.streamEvents,
+      }));
       get().loadTaskHistory();
+      // 同步助手消息到数据库
+      if (conversationId) {
+        chatApi.updateMessage(assistantMsgId, {
+          status: 'completed',
+          content: fullText,
+          result: result as unknown as Record<string, unknown>,
+        }).catch(console.error);
+      }
     });
 
     processor.on('decision_required', (event) => {
-      set({ pendingDecision: event.data as unknown as PendingDecision });
+      set((s) => ({
+        pendingDecision: event.data as unknown as PendingDecision,
+        streamEvents: [...s.streamEvents, {
+          id: `decision-${Date.now()}`,
+          type: 'decision_required',
+          timestamp: Date.now(),
+          data: event.data,
+        }],
+      }));
     });
 
     processor.on('error', (event) => {
       errorOccurred = true;
-      get().updateMessage(msgId, {
+      get().updateMessage(assistantMsgId, {
         status: 'failed',
         content: (event.data.message as string) || '执行出错',
       });
@@ -362,6 +665,14 @@ export const useAgentStore = create<AgentState>()(
         error: (event.data.message as string) || '执行出错',
         isRunning: false,
         currentTaskId: null,
+        streamEvents: [...s.streamEvents, {
+          id: `error-${Date.now()}`,
+          type: 'error',
+          timestamp: Date.now(),
+          data: event.data,
+          content: (event.data.message as string) || '执行出错',
+          status: 'failed',
+        }],
         recoveryState: {
           failedStepIndex: s.thinkingSteps.length,
           failedStep: lastStep,
@@ -370,6 +681,13 @@ export const useAgentStore = create<AgentState>()(
           planSnapshot: s.currentPlan,
         },
       }));
+      // 同步失败状态到数据库
+      if (conversationId) {
+        chatApi.updateMessage(assistantMsgId, {
+          status: 'failed',
+          content: (event.data.message as string) || '执行出错',
+        }).catch(console.error);
+      }
     });
 
     processor.on('reasoning', (event) => {
@@ -379,6 +697,14 @@ export const useAgentStore = create<AgentState>()(
         const existing = s.reasoningChunks[agent] || [];
         return {
           reasoningChunks: { ...s.reasoningChunks, [agent]: [...existing, { agent, content, timestamp: Date.now() }] },
+          streamEvents: [...s.streamEvents, {
+            id: `reasoning-${Date.now()}-${agent}`,
+            type: 'reasoning',
+            timestamp: Date.now(),
+            data: event.data,
+            agent,
+            content,
+          }],
         };
       });
     });
@@ -392,16 +718,33 @@ export const useAgentStore = create<AgentState>()(
         const existing = s.llmChunks[agent] || [];
         return {
           llmChunks: { ...s.llmChunks, [agent]: [...existing, { agent, content, timestamp: Date.now() }] },
+          streamEvents: [...s.streamEvents, {
+            id: `llm-${Date.now()}-${agent}`,
+            type: 'llm_chunk',
+            timestamp: Date.now(),
+            data: event.data,
+            agent,
+            content,
+          }],
         };
       });
     });
 
     processor.on('done', () => {
-      // Flush remaining content before marking done
       if (accumulated) {
-        get().updateMessage(msgId, { content: accumulated });
+        get().updateMessage(assistantMsgId, { content: accumulated });
       }
-      set({ isRunning: false, currentTaskId: null, _abortController: null });
+      set((s) => ({
+        isRunning: false,
+        currentTaskId: null,
+        _abortController: null,
+        streamEvents: [...s.streamEvents, {
+          id: `done-${Date.now()}`,
+          type: 'done',
+          timestamp: Date.now(),
+          data: {},
+        }],
+      }));
     });
 
     // Connect and process stream — wire external signal so cancelTask aborts the fetch
@@ -427,7 +770,7 @@ export const useAgentStore = create<AgentState>()(
           errorMessage: errorMsg,
           planSnapshot: useAgentStore.getState().currentPlan,
         } : undefined;
-        set((s) => ({
+        set((_) => ({
           error: errorMsg,
           isRunning: false,
           currentTaskId: null,
@@ -585,6 +928,7 @@ export const useAgentStore = create<AgentState>()(
       thinkingSteps: [],
       llmChunks: {},
       reasoningChunks: {},
+      // 保留 conversationId，只清除当前界面的 messages
       messages: [],
       contentTypeConfig: null,
       appliedSkill: null,

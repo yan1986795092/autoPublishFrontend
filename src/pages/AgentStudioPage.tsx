@@ -6,6 +6,7 @@ import { useAgentStore } from '../stores/useAgentStore';
 import { useUIStore } from '../stores/useUIStore';
 import { useWebSocketAgent } from '../hooks/useWebSocketAgent';
 import { cn } from '../utils/helpers';
+import { AgentThinkingStream } from '../components/agent/AgentThinkingStream';
 import {
   Send, Square, Eye, Code2, Sparkles,
   Bot, ChevronRight, X,
@@ -359,7 +360,7 @@ export function AgentStudioPage() {
                     agent_type: 'ManagerAgent',
                     output: {},
                     usage: { tokens_used: 0, estimated_cost: 0, time_elapsed: runningTime, model: '' },
-                    thinking_trace: { task_id: currentTaskId || '', total_elapsed: runningTime, steps: thinkingSteps },
+                    agent_events: { events: [] },
                   }}
                   thinkingSteps={thinkingSteps}
                 />
@@ -420,16 +421,9 @@ export function AgentStudioPage() {
               <ScrollArea className="flex-1 p-4">
                 {isRunning ? (
                   activeRightTab === 'trace' ? (
-                    <AgentThinkingPanel result={{
-                      task_id: currentTaskId || '',
-                      status: 'running',
-                      agent_type: 'ManagerAgent',
-                      output: {},
-                      usage: { tokens_used: 0, estimated_cost: 0, time_elapsed: 0, model: '' },
-                      thinking_trace: { task_id: currentTaskId || '', total_elapsed: 0, steps: thinkingSteps },
-                    }}
-                      thinkingSteps={thinkingSteps}
-                    />
+                    <div className="h-[520px] rounded-lg overflow-hidden">
+                      <AgentThinkingStream />
+                    </div>
                   ) : activeRightTab === 'debug' ? (
                     <AgentLiveView />
                   ) : (
@@ -437,8 +431,10 @@ export function AgentStudioPage() {
                   )
                 ) : (
                   <>
-                    {activeRightTab === 'preview' && <ResultPreview result={currentResult} />}
-                    {activeRightTab === 'trace' && <AgentThinkingPanel result={currentResult} />}
+                    {activeRightTab === 'preview' && <ResultPreview result={currentResult} selectedPlatform={null} />}
+                    {activeRightTab === 'trace' && (
+                      currentResult?.agent_events?.events?.length ? <AgentThinkingStream /> : <AgentThinkingPanel result={currentResult} />
+                    )}
                     {activeRightTab === 'debug' && <AgentDebugView result={currentResult} />}
                   </>
                 )}

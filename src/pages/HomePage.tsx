@@ -1,5 +1,4 @@
 import { useState, useCallback } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
 import { useAgentStore } from '../stores/useAgentStore';
 import { ConversationHistory } from '../components/layout/ConversationHistory';
 import { Workspace } from '../components/agent/Workspace';
@@ -9,8 +8,10 @@ import { ExecutionPlanEditor } from '../components/agent/ExecutionPlanEditor';
 import { useExecutionEngine } from '../hooks/useExecutionEngine';
 
 export function HomePage() {
-  const navigate = useNavigate();
-  const location = useLocation();
+  const conversationId = useAgentStore((s) => s.conversationId);
+  const switchConversation = useAgentStore((s) => s.switchConversation);
+  const createConversation = useAgentStore((s) => s.createConversation);
+  const clearCurrent = useAgentStore((s) => s.clearCurrent);
 
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [showPlanEditor, setShowPlanEditor] = useState(false);
@@ -22,16 +23,29 @@ export function HomePage() {
     handleRetryStep, handleSkipStep,
   } = useExecutionEngine('create');
 
-  const handleNewSession = useCallback(() => {
-    handleClearCurrent();
-    setActiveSessionId(null);
-  }, [handleClearCurrent]);
+  const handleSelectSession = useCallback(async (id: string) => {
+    setActiveSessionId(id);
+    if (id !== conversationId) {
+      await switchConversation(id);
+    }
+  }, [conversationId, switchConversation]);
+
+  const handleNewSession = useCallback(async () => {
+    const newId = await createConversation();
+    if (newId) {
+      setActiveSessionId(newId);
+      await switchConversation(newId);
+    } else {
+      clearCurrent();
+      setActiveSessionId(null);
+    }
+  }, [createConversation, switchConversation, clearCurrent]);
 
   const handleDecisionSubmitLocal = useCallback(
-    async (taskId: string, data: { decision_id: string; choice: string; text?: string }) => {
+    async (_taskId: string, data: { decision_id: string; choice: string; text?: string }) => {
       const store = useAgentStore.getState();
       if (store.pendingDecision && store.pendingDecision.decision_id === data.decision_id) {
-        store.submitDecision(data);
+        store.submitDecision(_taskId, data);
       }
     },
     [],
@@ -40,16 +54,16 @@ export function HomePage() {
   return (
     <div className="flex h-full overflow-hidden">
       {/* Left: Conversation History */}
-      <div className="w-[260px] flex-shrink-0 hidden md:flex">
+      <div className="w-[260px] flex-shrink-0 hidden md:flex relative z-10">
         <ConversationHistory
           activeSessionId={activeSessionId}
-          onSelectSession={setActiveSessionId}
+          onSelectSession={handleSelectSession}
           onNewSession={handleNewSession}
         />
       </div>
 
       {/* Right: Workspace */}
-      <div className="flex-1 min-w-0">
+      <div className="flex-1 min-w-0 relative z-0">
         <Workspace />
       </div>
 

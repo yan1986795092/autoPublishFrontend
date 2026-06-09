@@ -89,6 +89,36 @@ export interface AgentUsage {
   model: string;
 }
 
+export interface AgentEventTokenUsage {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  cost_usd: number;
+}
+
+export interface AgentEvent {
+  timestamp?: string;
+  session_id?: string;
+  run_id?: string;
+  step_index: number;
+  parent_span_id?: string;
+  agent_name: string;
+  event_type: string;
+  level: string;
+  message: string;
+  thought?: string;
+  tool_name?: string;
+  tool_input?: Record<string, unknown>;
+  tool_output?: string;
+  duration_ms?: number;
+  token_usage?: AgentEventTokenUsage;
+  error_type?: string;
+  error_message?: string;
+  llm_model?: string;
+  llm_provider?: string;
+  trace_id?: string;
+}
+
 export interface AgentResult {
   task_id: string;
   status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped' | 'partial';
@@ -96,10 +126,8 @@ export interface AgentResult {
   output: Record<string, unknown>;
   error?: string;
   usage: AgentUsage;
-  thinking_trace: {
-    task_id: string;
-    total_elapsed: number;
-    steps: ThinkingStep[];
+  agent_events?: {
+    events: AgentEvent[];
   };
 }
 

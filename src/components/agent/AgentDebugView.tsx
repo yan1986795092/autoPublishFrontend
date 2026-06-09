@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { cn } from '../../utils/helpers';
+import { getResultThinkingSteps, getResultTotalElapsed } from '../../utils/agentEvents';
 import type { AgentResult } from '../../types';
 
 interface AgentDebugViewProps {
@@ -23,8 +24,8 @@ export function AgentDebugView({ result, className }: AgentDebugViewProps) {
     );
   }
 
-  const trace = result.thinking_trace;
-  const steps = trace?.steps || [];
+  const steps = getResultThinkingSteps(result);
+  const totalElapsed = getResultTotalElapsed(result);
 
   return (
     <Card variant="glass" className={cn('w-full', className)}>
@@ -60,7 +61,7 @@ export function AgentDebugView({ result, className }: AgentDebugViewProps) {
             <div className="mb-3 flex items-center gap-2 text-[10px] text-app-text-secondary">
               <span>总步骤: {steps.length}</span>
               <span>|</span>
-              <span>总耗时: {trace?.total_elapsed?.toFixed(1) || '?'}s</span>
+              <span>总耗时: {totalElapsed?.toFixed(1) || '?'}s</span>
               <span>|</span>
               <span>Token 数: {result.usage?.tokens_used || 0}</span>
               <span>|</span>

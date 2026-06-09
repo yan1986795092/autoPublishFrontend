@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { cn } from '../../utils/helpers';
 import { ChevronDown, Brain } from 'lucide-react';
 import type { ThinkingStep, AgentResult } from '../../types';
+import { getResultThinkingSteps, getResultTotalElapsed } from '../../utils/agentEvents';
 import { getAgentColor, AGENT_ACTION_LABELS } from '../../config/agents';
 import { AgentIcon } from './AgentIcon';
 
@@ -141,15 +142,14 @@ function StepCard({ step, index }: { step: ThinkingStep; index: number }) {
 export function AgentThinkingPanel({ result, thinkingSteps, className, compact = false }: AgentThinkingPanelProps) {
   const [showAll, setShowAll] = useState(false);
 
-  // 优先使用实时 SSE steps（SSE result 里没有完整的 thinking_trace.steps），
-  // 备选使用 result 里的 steps（用于从 history 恢复的场景）
+  // 优先使用实时 SSE steps，备选使用 result 里的 agent_events（用于 history 恢复）
   const liveSteps: ThinkingStep[] = thinkingSteps ?? [];
-  const resultSteps: ThinkingStep[] = result?.thinking_trace?.steps ?? [];
+  const resultSteps: ThinkingStep[] = getResultThinkingSteps(result);
   const allSteps: ThinkingStep[] = liveSteps.length > 0 ? liveSteps : resultSteps;
 
   if (allSteps.length === 0) return null;
 
-  const totalElapsed = result?.thinking_trace?.total_elapsed ?? liveSteps.reduce((sum, s) => sum + (s.time_elapsed ?? 0), 0);
+  const totalElapsed = getResultTotalElapsed(result) || liveSteps.reduce((sum, s) => sum + (s.time_elapsed ?? 0), 0);
 
   const uniqueSteps = deduplicateSteps(allSteps);
   const completedSteps = uniqueSteps.filter(s => s.status === 'done').length;

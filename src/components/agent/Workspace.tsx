@@ -128,7 +128,7 @@ export function Workspace() {
         </div>
 
         {/* Messages area */}
-        <ScrollArea className="flex-1 px-6 py-4">
+        <ScrollArea className="flex-1 min-w-0 px-6 py-4">
           <div className="max-w-3xl mx-auto space-y-4">
             {isIdle ? (
               <EmptyWorkspace

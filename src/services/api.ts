@@ -599,6 +599,13 @@ obsClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   return config;
 });
 
+const unwrapApiData = <T>(payload: T | { data: T }): T => {
+  if (payload && typeof payload === 'object' && 'data' in payload) {
+    return (payload as { data: T }).data;
+  }
+  return payload as T;
+};
+
 export const observabilityApi = {
   searchTraces(params: {
     service?: string;
@@ -612,8 +619,8 @@ export const observabilityApi = {
     page_size?: number;
   }): Promise<TraceSearchResult> {
     return obsClient
-      .get<{ data: TraceSearchResult }>('/api/v1/observability/traces', { params })
-      .then((r) => r.data.data);
+      .get<TraceSearchResult | { data: TraceSearchResult }>('/api/v1/observability/traces', { params })
+      .then((r) => unwrapApiData(r.data));
   },
 
   searchAgentEvents(params: {
@@ -629,14 +636,14 @@ export const observabilityApi = {
     page_size?: number;
   }): Promise<AgentEventSearchResult> {
     return obsClient
-      .get<{ data: AgentEventSearchResult }>('/api/v1/observability/agent-events', { params })
-      .then((r) => r.data.data);
+      .get<AgentEventSearchResult | { data: AgentEventSearchResult }>('/api/v1/observability/agent-events', { params })
+      .then((r) => unwrapApiData(r.data));
   },
 
   getTrace(traceId: string): Promise<TraceDetail> {
     return obsClient
-      .get<{ data: TraceDetail }>(`/api/v1/observability/traces/${traceId}`)
-      .then((r) => r.data.data);
+      .get<TraceDetail | { data: TraceDetail }>(`/api/v1/observability/traces/${traceId}`)
+      .then((r) => unwrapApiData(r.data));
   },
 
   getSpan(traceId: string, spanId: string): Promise<Record<string, unknown>> {
@@ -647,8 +654,8 @@ export const observabilityApi = {
 
   getStats(params: { service?: string; time?: string }): Promise<TraceStats> {
     return obsClient
-      .get<{ data: TraceStats }>('/api/v1/observability/stats', { params })
-      .then((r) => r.data.data);
+      .get<TraceStats | { data: TraceStats }>('/api/v1/observability/stats', { params })
+      .then((r) => unwrapApiData(r.data));
   },
 
   getDashboardOverview(): Promise<DashboardOverview> {

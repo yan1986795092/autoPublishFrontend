@@ -244,7 +244,7 @@ export function TracesPage() {
   const [showFilters, setShowFilters] = useState(false);
 
   const [traceParams, setTraceParams] = useState<TraceSearchParams>({
-    service: 'autopublish-api',
+    service: '',
     operation: '',
     keyword: '',
     span_type: '',
@@ -588,7 +588,7 @@ export function TracesPage() {
                     setAgentParams((p) => ({ ...p, service: value }));
                   }
                 }}
-                placeholder="autopublish-api"
+                placeholder="留空表示全部服务"
               />
             </div>
 

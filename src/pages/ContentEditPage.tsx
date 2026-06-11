@@ -1,19 +1,27 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { contentsApi } from '../services/api';
+import { contentsApi, aiEditApi, publishApi } from '../services/api';
 import type { Content, ContentVersion } from '../types';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Input } from '../components/ui/input';
 import { Textarea } from '../components/ui/textarea';
+import { Separator } from '../components/ui/separator';
 import { SkeletonCard, SkeletonText } from '../components/ui/Skeleton';
 import { TagInput } from '../components/ui/TagInput';
 import { formatRelativeTime, cn } from '../utils/helpers';
+import { PLATFORM_MAP } from '../components/agent/PlatformSelector';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useUIStore } from '../stores/useUIStore';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
-import { History as HistoryIcon, Loader2, Save, RotateCcw, Eye, Download, ClipboardCopy, ArrowLeft, FileText, MessageSquare, Palette } from 'lucide-react';
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../components/ui/select';
+import {
+  History as HistoryIcon, Loader2, Save, RotateCcw, Eye, Download,
+  ClipboardCopy, ArrowLeft, FileText, MessageSquare, Palette,
+  CheckCircle2, Send, Wand2, Expand, AlignLeft, Languages,
+  Volume2, Hash, Search as SearchIcon, AlertTriangle, Tags,
+} from 'lucide-react';
 
 const platformConfig: Record<string, { label: string; icon: React.ReactNode }> = {
   xiaohongshu: { label: '小红书', icon: <Palette className="w-3 h-3" /> },
@@ -23,7 +31,7 @@ const platformConfig: Record<string, { label: string; icon: React.ReactNode }> =
 export function ContentEditPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { showToast } = useUIStore();
+  const { showToast, openPublishDialog } = useUIStore();
 
   const [content, setContent] = useState<Content | null>(null);
   const [versions, setVersions] = useState<ContentVersion[]>([]);
@@ -34,7 +42,140 @@ export function ContentEditPage() {
   const [editContentMd, setEditContentMd] = useState('');
   const [editTags, setEditTags] = useState<string[]>([]);
   const [isDirty, setIsDirty] = useState(false);
+  const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [platform, setPlatform] = useState('xiaohongshu');
+  const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Autosave: debounce 10s after content changes
+  useEffect(() => {
+    if (!isDirty || !id) return;
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    autoSaveTimer.current = setTimeout(async () => {
+      setAutoSaveStatus('saving');
+      try {
+        await contentsApi.autosave(id, editContentMd);
+        setAutoSaveStatus('saved');
+        setTimeout(() => setAutoSaveStatus('idle'), 2000);
+      } catch {
+        // silent — autosave failures are non-critical
+        setAutoSaveStatus('idle');
+      }
+    }, 10_000);
+    return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
+  }, [id, editContentMd, isDirty]);
+
+  // ── AI Editing ──
+  const [aiLoading, setAiLoading] = useState(false);
+  const [seoResult, setSeoResult] = useState<{ overall: number; suggestions: string[] } | null>(null);
+  const [seoOpen, setSeoOpen] = useState(false);
+  const [headlines, setHeadlines] = useState<string[]>([]);
+  const [headlinesOpen, setHeadlinesOpen] = useState(false);
+  const [rewriteInput, setRewriteInput] = useState('');
+  const [rewriteOpen, setRewriteOpen] = useState(false);
+
+  const runAiEdit = useCallback(async (action: string, extra?: Record<string, unknown>) => {
+    if (!editContentMd.trim()) {
+      showToast('请先输入内容', 'error');
+      return;
+    }
+    setAiLoading(true);
+    try {
+      let newContent = editContentMd;
+      switch (action) {
+        case 'rewrite': {
+          const res = await aiEditApi.rewrite(editContentMd, (extra?.instruction as string) || '');
+          if (res.data.success) newContent = (res.data.data as { result: string }).result;
+          break;
+        }
+        case 'expand': {
+          const res = await aiEditApi.expand(editContentMd);
+          if (res.data.success) newContent = editContentMd + '\n\n' + (res.data.data as { result: string }).result;
+          break;
+        }
+        case 'summarize': {
+          const res = await aiEditApi.summarize(editContentMd);
+          if (res.data.success) newContent = (res.data.data as { result: string }).result;
+          break;
+        }
+        case 'translate': {
+          const lang = (extra?.lang as string) || 'en';
+          const res = await aiEditApi.translate(editContentMd, lang);
+          if (res.data.success) newContent = (res.data.data as { result: string }).result;
+          break;
+        }
+        case 'tone': {
+          const tone = (extra?.tone as string) || 'professional';
+          const res = await aiEditApi.improveTone(editContentMd, tone);
+          if (res.data.success) newContent = (res.data.data as { result: string }).result;
+          break;
+        }
+        case 'headlines': {
+          const res = await aiEditApi.generateHeadlines(editContentMd);
+          if (res.data.success) {
+            setHeadlines((res.data.data as { headlines: string[] }).headlines || []);
+            setHeadlinesOpen(true);
+          }
+          setAiLoading(false);
+          return;
+        }
+        case 'seo': {
+          const res = await aiEditApi.analyzeSeo(editContentMd, platform);
+          if (res.data.success) {
+            const data = res.data.data as { overall: number; suggestions: Array<{ type: string; message: string }> };
+            setSeoResult({
+              overall: data.overall || 0,
+              suggestions: (data.suggestions || []).map(s => s.message),
+            });
+            setSeoOpen(true);
+          }
+          setAiLoading(false);
+          return;
+        }
+        case 'tags': {
+          const res = await aiEditApi.suggestTags(editContentMd);
+          if (res.data.success) {
+            const data = res.data.data as { tags: string[] };
+            const newTags = [...new Set([...editTags, ...(data.tags || [])])];
+            setEditTags(newTags);
+            showToast(`已添加 ${data.tags?.length || 0} 个推荐标签`, 'success');
+          }
+          setAiLoading(false);
+          return;
+        }
+        case 'banned': {
+          const res = await aiEditApi.checkBannedWords(editContentMd, platform);
+          if (res.data.success) {
+            const data = res.data.data as { words: Array<{ word: string }>; total: number };
+            if (data.total > 0) {
+              showToast(`发现 ${data.total} 个违规词: ${data.words.map(w => w.word).join(', ')}`, 'error');
+            } else {
+              showToast('没有发现违规词 ✅', 'success');
+            }
+          }
+          setAiLoading(false);
+          return;
+        }
+      }
+      if (newContent !== editContentMd) {
+        setEditContentMd(newContent);
+        setIsDirty(true);
+        showToast(`${getActionLabel(action)}成功`, 'success');
+      }
+    } catch {
+      showToast(`${getActionLabel(action)}失败`, 'error');
+    } finally {
+      setAiLoading(false);
+    }
+  }, [editContentMd, editTags, platform, showToast]);
+
+  function getActionLabel(action: string): string {
+    const labels: Record<string, string> = {
+      rewrite: '改写', expand: '扩写', summarize: '总结',
+      translate: '翻译', tone: '语调优化', headlines: '生成标题',
+      seo: 'SEO 分析', tags: '标签推荐', banned: '违禁词检测',
+    };
+    return labels[action] || action;
+  }
 
   // Preview dialog
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -42,6 +183,11 @@ export function ContentEditPage() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [diffMode, setDiffMode] = useState(false);
   const [diffBase, setDiffBase] = useState<string | null>(null);
+
+  // Publish history
+  const [publishHistoryOpen, setPublishHistoryOpen] = useState(false);
+  const [publishRecords, setPublishRecords] = useState<Array<{ id: string; platform_code: string; status: string; platform_url?: string; published_at?: string; created_at: string }>>([]);
+  const [publishHistoryLoading, setPublishHistoryLoading] = useState(false);
 
   useEffect(() => {
     if (!id) { navigate('/content'); return; }
@@ -180,10 +326,33 @@ export function ContentEditPage() {
             <Eye className="h-3.5 w-3.5 mr-1" />
             预览
           </Button>
+          {content && (
+            <Button variant="primary" size="sm" onClick={() => openPublishDialog(content.id)} className="h-8 text-xs">
+              <Send className="h-3.5 w-3.5 mr-1" />
+              发布
+            </Button>
+          )}
           {versions.length > 0 && (
             <Button variant="outline" size="sm" onClick={() => setHistoryOpen(true)} className="h-8 text-xs">
               <HistoryIcon className="h-3.5 w-3.5 mr-1" />
               历史
+            </Button>
+          )}
+          {content && (
+            <Button variant="outline" size="sm" onClick={async () => {
+              setPublishHistoryLoading(true);
+              setPublishHistoryOpen(true);
+              try {
+                const res = await publishApi.getContentHistory(content.id);
+                setPublishRecords(res.data.data?.records || []);
+              } catch {
+                setPublishRecords([]);
+              } finally {
+                setPublishHistoryLoading(false);
+              }
+            }} className="h-8 text-xs">
+              <Send className="h-3.5 w-3.5 mr-1" />
+              发布记录
             </Button>
           )}
           {isDirty && (
@@ -236,7 +405,73 @@ export function ContentEditPage() {
         <div className="px-4 py-2 border-b border-app-border bg-app-surface text-[11px] font-medium text-app-text-secondary flex items-center gap-2">
           <span className="w-1.5 h-1.5 rounded-full bg-app-text-tertiary" />
           Markdown 编辑
-          <span className="ml-auto text-app-text-tertiary">{Array.from(editContentMd).length} 字</span>
+          <span className="ml-auto flex items-center gap-2">
+            {autoSaveStatus === 'saving' && (
+              <span className="text-[10px] text-app-text-tertiary flex items-center gap-1">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                自动保存中...
+              </span>
+            )}
+            {autoSaveStatus === 'saved' && (
+              <span className="text-[10px] text-green-400 flex items-center gap-1">
+                <CheckCircle2 className="w-3 h-3" />
+                已保存
+              </span>
+            )}
+            <span className="text-app-text-tertiary">{Array.from(editContentMd).length} 字</span>
+          </span>
+        </div>
+        {/* AI Editing Toolbar */}
+        <div className="flex items-center gap-0.5 px-2 py-1.5 border-b border-app-border/30 bg-app-surface/50 overflow-x-auto">
+          <span className="text-[9px] text-app-text-tertiary mr-1 shrink-0 font-medium">AI</span>
+          <Button variant="ghost" size="xs" onClick={() => setRewriteOpen(true)} disabled={aiLoading} title="改写">
+            <Wand2 className="w-3 h-3" />
+          </Button>
+          <Button variant="ghost" size="xs" onClick={() => runAiEdit('expand')} disabled={aiLoading} title="扩写">
+            <Expand className="w-3 h-3" />
+          </Button>
+          <Button variant="ghost" size="xs" onClick={() => runAiEdit('summarize')} disabled={aiLoading} title="总结">
+            <AlignLeft className="w-3 h-3" />
+          </Button>
+          <Separator orientation="vertical" className="h-4 mx-1" />
+          <Select onValueChange={(lang) => runAiEdit('translate', { lang })}>
+            <SelectTrigger className="h-6 w-auto gap-1 border-0 bg-transparent text-[10px] text-app-text-secondary hover:text-app-text" disabled={aiLoading}>
+              <Languages className="w-3 h-3" />
+              <SelectValue placeholder="翻译" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="en">English</SelectItem>
+              <SelectItem value="ja">日本語</SelectItem>
+              <SelectItem value="ko">한국어</SelectItem>
+              <SelectItem value="zh-CN">简体中文</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select onValueChange={(tone) => runAiEdit('tone', { tone })}>
+            <SelectTrigger className="h-6 w-auto gap-1 border-0 bg-transparent text-[10px] text-app-text-secondary hover:text-app-text" disabled={aiLoading}>
+              <Volume2 className="w-3 h-3" />
+              <SelectValue placeholder="语调" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="professional">专业</SelectItem>
+              <SelectItem value="humorous">幽默</SelectItem>
+              <SelectItem value="warm">温暖</SelectItem>
+              <SelectItem value="formal">正式</SelectItem>
+            </SelectContent>
+          </Select>
+          <Separator orientation="vertical" className="h-4 mx-1" />
+          <Button variant="ghost" size="xs" onClick={() => runAiEdit('headlines')} disabled={aiLoading} title="生成标题">
+            <Hash className="w-3 h-3" />
+          </Button>
+          <Button variant="ghost" size="xs" onClick={() => runAiEdit('seo')} disabled={aiLoading} title="SEO分析">
+            <SearchIcon className="w-3 h-3" />
+          </Button>
+          <Button variant="ghost" size="xs" onClick={() => runAiEdit('banned')} disabled={aiLoading} title="违禁词检测">
+            <AlertTriangle className="w-3 h-3" />
+          </Button>
+          <Button variant="ghost" size="xs" onClick={() => runAiEdit('tags')} disabled={aiLoading} title="推荐标签">
+            <Tags className="w-3 h-3" />
+          </Button>
+          {aiLoading && <Loader2 className="w-3 h-3 animate-spin text-primary-400 ml-1" />}
         </div>
         <Textarea
           value={editContentMd}
@@ -246,6 +481,77 @@ export function ContentEditPage() {
         />
       </div>
 
+      {/* ── Rewrite Dialog ── */}
+      <Dialog open={rewriteOpen} onOpenChange={setRewriteOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle className="text-sm flex items-center gap-2"><Wand2 className="w-4 h-4 text-primary-400" />改写内容</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <p className="text-xs text-app-text-secondary">输入改写要求（如：更口语化、更专业、缩短到200字）</p>
+            <Input
+              value={rewriteInput}
+              onChange={(e) => setRewriteInput(e.target.value)}
+              placeholder="例：更口语化，适合小红书风格"
+            />
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setRewriteOpen(false)}>取消</Button>
+              <Button size="sm" onClick={() => { runAiEdit('rewrite', { instruction: rewriteInput }); setRewriteOpen(false); setRewriteInput(''); }} disabled={!rewriteInput.trim()}>执行改写</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Headlines Dialog ── */}
+      <Dialog open={headlinesOpen} onOpenChange={setHeadlinesOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle className="text-sm flex items-center gap-2"><Hash className="w-4 h-4 text-primary-400" />推荐标题</DialogTitle></DialogHeader>
+          <div className="space-y-2">
+            {headlines.length === 0 ? (
+              <p className="text-xs text-app-text-tertiary py-4 text-center">暂无推荐标题</p>
+            ) : (
+              headlines.map((h, i) => (
+                <button
+                  key={i}
+                  onClick={() => { setEditTitle(h); setIsDirty(true); setHeadlinesOpen(false); showToast('标题已更新', 'success'); }}
+                  className="w-full text-left rounded-lg border border-app-border bg-app-surface px-3 py-2 text-xs text-app-text hover:border-primary-500/30 hover:bg-primary-500/5 transition-colors"
+                >
+                  {h}
+                </button>
+              ))
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── SEO Dialog ── */}
+      <Dialog open={seoOpen} onOpenChange={setSeoOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle className="text-sm flex items-center gap-2"><SearchIcon className="w-4 h-4 text-primary-400" />SEO 分析</DialogTitle></DialogHeader>
+          {seoResult && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <span className="text-2xl font-bold" style={{ color: seoResult.overall >= 70 ? '#22c55e' : seoResult.overall >= 40 ? '#eab308' : '#ef4444' }}>
+                  {seoResult.overall}
+                </span>
+                <span className="text-xs text-app-text-tertiary">/ 100</span>
+              </div>
+              {seoResult.suggestions.length > 0 ? (
+                <div className="space-y-1.5">
+                  <p className="text-[10px] font-medium text-app-text-tertiary">优化建议</p>
+                  {seoResult.suggestions.map((s, i) => (
+                    <div key={i} className="flex items-start gap-2 text-[11px] text-app-text-secondary">
+                      <span className="text-yellow-400 mt-0.5 shrink-0">•</span>
+                      <span>{s}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-green-400">内容质量良好，无需优化 🎉</p>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Preview Dialog */}
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
         <DialogContent className="max-w-3xl max-h-[80vh] overflow-auto">
@@ -254,25 +560,40 @@ export function ContentEditPage() {
               <Eye className="w-4 h-4 text-primary-400" />
               预览
               <div className="flex gap-1 ml-auto">
-                {(['xiaohongshu', 'wechat'] as const).map((p) => (
-                  <button
-                    key={p}
-                    onClick={() => setPlatform(p)}
-                    className={cn(
-                      'px-2 py-0.5 rounded text-[10px] font-medium border transition-colors',
-                      platform === p
-                        ? 'bg-primary-600/20 text-primary-400 border-primary-500/30'
-                        : 'bg-app-surface text-app-text-tertiary border-app-border'
-                    )}
-                  >
-                    {platformConfig[p]?.icon} {platformConfig[p]?.label}
-                  </button>
-                ))}
+                {['xiaohongshu', 'wechat', 'weibo', 'douyin'].map((p) => {
+                  const entry = PLATFORM_MAP.get(p);
+                  return (
+                    <button
+                      key={p}
+                      onClick={() => setPlatform(p)}
+                      className={cn(
+                        'px-2 py-0.5 rounded text-[10px] font-medium border transition-colors',
+                        platform === p
+                          ? 'bg-primary-600/20 text-primary-400 border-primary-500/30'
+                          : 'bg-app-surface text-app-text-tertiary border-app-border'
+                      )}
+                    >
+                      {entry?.icon || '📄'} {entry?.label || p}
+                    </button>
+                  );
+                })}
               </div>
             </DialogTitle>
           </DialogHeader>
-          <div className="min-h-[200px] bg-white/5 rounded-xl overflow-hidden">
-            <div className="prose max-w-none p-4 [&_h1]:text-gray-100 [&_h2]:text-gray-200 [&_p]:text-gray-300 [&_p]:leading-relaxed">
+          <div className={cn(
+            'rounded-xl overflow-hidden',
+            platform === 'xiaohongshu' && 'bg-gradient-to-b from-pink-50/5 to-white/5',
+            platform === 'wechat' && 'bg-gradient-to-b from-green-50/5 to-white/5',
+            platform === 'weibo' && 'bg-gradient-to-b from-yellow-50/5 to-white/5',
+            platform === 'douyin' && 'bg-gradient-to-b from-purple-50/5 to-white/5',
+          )}>
+            <div className={cn(
+              'prose max-w-none p-4',
+              platform === 'xiaohongshu' ? 'text-sm leading-relaxed' : '',
+              platform === 'wechat' ? 'text-base leading-8' : '',
+              platform === 'weibo' ? 'text-xs leading-relaxed' : '',
+              '[&_h1]:text-gray-100 [&_h2]:text-gray-200 [&_p]:text-gray-300',
+            )}>
               <ReactMarkdown remarkPlugins={[remarkGfm]}>
                 {editContentMd || '*暂无内容*'}
               </ReactMarkdown>
@@ -370,6 +691,21 @@ export function ContentEditPage() {
                   {version.change_summary && (
                     <p className="text-[10px] text-app-text-secondary mb-2">{version.change_summary}</p>
                   )}
+                  {idx > 0 && !diffMode && (
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      onClick={() => {
+                        setEditContentMd(version.content_md || '');
+                        setIsDirty(true);
+                        setHistoryOpen(false);
+                        showToast(`已恢复到 v${version.version_number}，记得保存`, 'info');
+                      }}
+                      className="text-[10px] text-primary-400 hover:text-primary-300 mb-2"
+                    >
+                      <RotateCcw className="w-3 h-3 mr-1" />恢复到此版本
+                    </Button>
+                  )}
                   {version.content_md && !diffMode && (
                     <div className="p-2 bg-app-elevated rounded max-h-20 overflow-auto text-[10px] text-app-text-secondary">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>
@@ -385,6 +721,50 @@ export function ContentEditPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      {/* ── Publish History Dialog ── */}
+      <Dialog open={publishHistoryOpen} onOpenChange={setPublishHistoryOpen}>
+        <DialogContent className="max-w-lg max-h-[60vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-sm">
+              <Send className="w-4 h-4 text-primary-400" />
+              发布记录
+            </DialogTitle>
+          </DialogHeader>
+          {publishHistoryLoading ? (
+            <div className="flex items-center justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-app-text-tertiary" /></div>
+          ) : publishRecords.length === 0 ? (
+            <p className="text-center text-xs text-app-text-tertiary py-8">暂无发布记录</p>
+          ) : (
+            <div className="flex-1 overflow-auto space-y-2 pr-1">
+              {publishRecords.map((record, idx) => {
+                const plat = PLATFORM_MAP.get(record.platform_code);
+                return (
+                  <div key={record.id || idx} className="rounded-lg border border-app-border bg-app-surface p-3 flex items-center gap-3">
+                    <span className="text-base">{plat?.icon || '📄'}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-app-text">{plat?.label || record.platform_code}</p>
+                      <p className="text-[10px] text-app-text-tertiary">{formatRelativeTime(record.published_at || record.created_at)}</p>
+                    </div>
+                    <span className={cn(
+                      'text-[10px] px-2 py-0.5 rounded-full font-medium',
+                      record.status === 'published' ? 'bg-green-500/10 text-green-400' :
+                      record.status === 'failed' ? 'bg-red-500/10 text-red-400' :
+                      'bg-yellow-500/10 text-yellow-400'
+                    )}>
+                      {record.status === 'published' ? '已发布' : record.status === 'failed' ? '失败' : '草稿'}
+                    </span>
+                    {record.platform_url && (
+                      <a href={record.platform_url} target="_blank" rel="noreferrer" className="text-[10px] text-primary-400 hover:underline shrink-0">查看</a>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
     </div>
   );
 }

@@ -257,4 +257,27 @@ export interface AgentMetrics {
     enable_hitl: boolean;
     worker_max_retries: number;
   };
+  /** Agent 运行统计 */
+  agent_runs: {
+    total: number;
+    success: number;
+    failed: number;
+    timeout: number;
+    success_rate: number;
+    p95_duration_ms: number;
+  };
+  /** LLM 调用统计 */
+  llm_calls: {
+    total: number;
+    errors: number;
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+    p95_duration_ms: number;
+  };
+  /** 工具调用统计 */
+  tool_calls: Record<string, {
+    total: number;
+    errors: number;
+  }>;
 }

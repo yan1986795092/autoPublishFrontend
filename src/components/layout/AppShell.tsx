@@ -1,6 +1,7 @@
 import { Outlet } from 'react-router-dom';
 import { TopNav } from './TopNav';
 import { TOPNAV } from '../../config/layout';
+import { PublishDialog } from '../content/PublishDialog';
 
 export function AppShell() {
   return (
@@ -14,6 +15,7 @@ export function AppShell() {
       >
         <Outlet />
       </main>
+      <PublishDialog />
     </div>
   );
 }

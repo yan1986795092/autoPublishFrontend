@@ -4,9 +4,11 @@ import { agentApi } from '../../services/api';
 import { Button } from '../ui/button';
 import type { AgentMetrics } from '../../types';
 import {
-  Activity, Database, Zap, Cpu,
-  CheckCircle2, XCircle, AlertTriangle,
+  Activity, Database, Zap, Cpu, Brain, Globe,
+  CheckCircle2, XCircle, AlertTriangle, BarChart3,
+  Timer, Terminal,
 } from 'lucide-react';
+import { StatCard } from './StatCard';
 
 function formatPct(v: number): string {
   return `${(v * 100).toFixed(1)}%`;
@@ -21,6 +23,17 @@ function StatusBadge({ ok, label }: { ok: boolean; label: string }) {
       {label}
     </span>
   );
+}
+
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+}
+
+function formatMs(ms: number): string {
+  if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${Math.round(ms)}ms`;
 }
 
 export function SystemTab() {
@@ -80,6 +93,13 @@ export function SystemTab() {
     );
   }
 
+  if (!metrics) return null;
+
+  const { agent_runs: ar, llm_calls: llm, tool_calls: tc } = metrics;
+  const runColor = ar.success_rate >= 0.9 ? 'text-green-400' : ar.success_rate >= 0.7 ? 'text-yellow-400' : 'text-red-400';
+  const llmErrColor = llm.errors === 0 ? 'text-green-400' : 'text-red-400';
+  const toolErrCount = Object.values(tc).reduce((s, v) => s + v.errors, 0);
+
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
       {metrics && (
@@ -91,55 +111,102 @@ export function SystemTab() {
             </div>
           )}
 
+          {/* ── 系统概览 ── */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <div className="rounded-lg border border-app-border/50 bg-app-surface p-4 shadow-sm">
-              <div className="flex items-center gap-2 mb-2.5">
-                <Cpu className={`w-4 h-4 ${metrics.worker.running ? 'text-green-400' : 'text-red-400'}`} />
-                <span className="text-[10px] font-medium text-app-text-tertiary uppercase tracking-wider">Worker 状态</span>
-              </div>
-              <p className={`text-2xl font-bold ${metrics.worker.running ? 'text-green-400' : 'text-red-400'}`}>
-                {metrics.worker.running ? '运行中' : '已停止'}
-              </p>
-            </div>
-            <div className="rounded-lg border border-app-border/50 bg-app-surface p-4 shadow-sm">
-              <div className="flex items-center gap-2 mb-2.5">
-                <Activity className="w-4 h-4 text-blue-400" />
-                <span className="text-[10px] font-medium text-app-text-tertiary uppercase tracking-wider">活跃任务</span>
-              </div>
-              <p className="text-2xl font-bold text-blue-400">{metrics.tasks.active}</p>
-              <p className="text-[10px] text-app-text-tertiary mt-0.5">当前排队/执行中</p>
-            </div>
-            <div className="rounded-lg border border-app-border/50 bg-app-surface p-4 shadow-sm">
-              <div className="flex items-center gap-2 mb-2.5">
-                <AlertTriangle className={`w-4 h-4 ${metrics.tasks.dlq_size > 0 ? 'text-yellow-400' : 'text-app-text-tertiary'}`} />
-                <span className="text-[10px] font-medium text-app-text-tertiary uppercase tracking-wider">死信队列</span>
-              </div>
-              <p className={`text-2xl font-bold ${metrics.tasks.dlq_size > 0 ? 'text-yellow-400' : 'text-app-text-tertiary'}`}>
-                {metrics.tasks.dlq_size}
-              </p>
-              <p className="text-[10px] text-app-text-tertiary mt-0.5">重试耗尽的任务</p>
-            </div>
-            <div className="rounded-lg border border-app-border/50 bg-app-surface p-4 shadow-sm">
-              <div className="flex items-center gap-2 mb-2.5">
-                <Database className="w-4 h-4 text-purple-400" />
-                <span className="text-[10px] font-medium text-app-text-tertiary uppercase tracking-wider">LLM Provider</span>
-              </div>
-              <p className="text-2xl font-bold text-purple-400">{metrics.config.default_llm_provider || 'N/A'}</p>
-            </div>
+            <StatCard icon={Cpu} label="Worker 状态" value={metrics.worker.running ? '运行中' : '已停止'}
+              color={metrics.worker.running ? 'text-green-400' : 'text-red-400'} />
+            <StatCard icon={Activity} label="活跃任务" value={metrics.tasks.active}
+              color="text-blue-400" sub="当前排队/执行中" />
+            <StatCard icon={AlertTriangle} label="死信队列" value={metrics.tasks.dlq_size}
+              color={metrics.tasks.dlq_size > 0 ? 'text-yellow-400' : 'text-app-text-tertiary'}
+              sub="重试耗尽的任务" />
+            <StatCard icon={Database} label="LLM Provider" value={metrics.config.default_llm_provider || 'N/A'}
+              color="text-purple-400" />
           </div>
 
-          {/* Cache */}
+          {/* ── Agent 运行统计 ── */}
+          <section className="space-y-3">
+            <h2 className="text-xs font-medium text-app-text-tertiary uppercase tracking-wider flex items-center gap-2">
+              <Brain className="w-3.5 h-3.5" />
+              Agent 运行统计
+            </h2>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <StatCard icon={BarChart3} label="总运行次数" value={ar.total} color="text-blue-400" />
+              <StatCard icon={CheckCircle2} label="成功率" value={formatPct(ar.success_rate)} color={runColor}
+                sub={`成功 ${ar.success} / 失败 ${ar.failed}`} />
+              <StatCard icon={Timer} label="P95 耗时" value={formatMs(ar.p95_duration_ms)} color="text-cyan-400" />
+              <StatCard icon={XCircle} label="超时次数" value={ar.timeout} color={ar.timeout > 0 ? 'text-yellow-400' : 'text-app-text-tertiary'} />
+            </div>
+          </section>
+
+          {/* ── LLM 调用统计 ── */}
+          <section className="space-y-3">
+            <h2 className="text-xs font-medium text-app-text-tertiary uppercase tracking-wider flex items-center gap-2">
+              <Terminal className="w-3.5 h-3.5" />
+              LLM 调用统计
+            </h2>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <StatCard icon={BarChart3} label="总请求数" value={llm.total} color="text-blue-400" />
+              <StatCard icon={Activity} label="Token 消耗" value={formatTokens(llm.total_tokens)}
+                color="text-purple-400"
+                sub={`输入 ${formatTokens(llm.prompt_tokens)} / 输出 ${formatTokens(llm.completion_tokens)}`} />
+              <StatCard icon={Timer} label="P95 延迟" value={formatMs(llm.p95_duration_ms)} color="text-cyan-400" />
+              <StatCard icon={XCircle} label="错误数" value={llm.errors} color={llmErrColor} />
+            </div>
+          </section>
+
+          {/* ── 工具调用统计 ── */}
+          {Object.keys(tc).length > 0 && (
+            <section className="space-y-3">
+              <h2 className="text-xs font-medium text-app-text-tertiary uppercase tracking-wider flex items-center gap-2">
+                <Globe className="w-3.5 h-3.5" />
+                工具调用统计
+              </h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {Object.entries(tc).map(([name, data]) => (
+                  <div key={name} className="rounded-lg border border-app-border/50 bg-app-surface p-3 space-y-2 shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-app-text">{name}</span>
+                      {data.errors > 0 ? (
+                        <span className="text-[10px] text-red-400">{data.errors} 错误</span>
+                      ) : (
+                        <span className="text-[10px] text-green-400">正常</span>
+                      )}
+                    </div>
+                    <div className="flex gap-4 text-[10px]">
+                      <span className="text-app-text-secondary">调用 <strong className="text-app-text">{data.total}</strong> 次</span>
+                      <span className="text-app-text-secondary">错误率 <strong className={data.errors > 0 ? 'text-red-400' : 'text-app-text'}>
+                        {data.total > 0 ? formatPct(data.errors / data.total) : '0%'}
+                      </strong></span>
+                    </div>
+                    <div className="h-1 rounded-full bg-app-border/30 overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${
+                          data.errors > 0 ? 'bg-gradient-to-r from-yellow-500 to-red-500' : 'bg-gradient-to-r from-blue-500 to-purple-500'
+                        }`}
+                        style={{ width: `${Math.min(100, data.total * 2)}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* ── 缓存统计 ── */}
           <section className="space-y-3">
             <h2 className="text-xs font-medium text-app-text-tertiary uppercase tracking-wider">缓存统计</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {[
+              {([
                 { title: 'Agent 缓存', icon: Zap, color: 'text-yellow-400',
                   data: metrics.cache.agent_cache, rate: metrics.cache.agent_cache.hit_rate,
-                  gradFrom: 'from-yellow-500', gradTo: 'to-orange-500' },
+                  gradFrom: 'from-yellow-500', gradTo: 'to-orange-500',
+                  entryKey: 'entries', maxKey: 'max_entries' },
                 { title: 'LLM 缓存', icon: Database, color: 'text-cyan-400',
-                  data: metrics.cache.llm_cache, rate: metrics.cache.llm_cache.hit_rate,
-                  gradFrom: 'from-cyan-500', gradTo: 'to-blue-500' },
-              ].map(({ title, icon: Icon, color, data, rate, gradFrom, gradTo }) => (
+                  data: metrics.cache.llm_cache as any, rate: metrics.cache.llm_cache.hit_rate,
+                  gradFrom: 'from-cyan-500', gradTo: 'to-blue-500',
+                  entryKey: 'size', maxKey: 'max_size' },
+              ] as const).map(({ title, icon: Icon, color, data, rate, gradFrom, gradTo, entryKey, maxKey }) => (
                 <div key={title} className="rounded-lg border border-app-border/50 bg-app-surface p-4 space-y-3 shadow-sm hover:shadow-md transition-all">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -149,18 +216,18 @@ export function SystemTab() {
                     <StatusBadge ok={rate > 0.3} label={formatPct(rate)} />
                   </div>
                   <div className="grid grid-cols-3 gap-3 text-center text-[10px]">
-                    <div><p className="text-app-text font-medium">{data.entries}</p><p className="text-app-text-tertiary">条目</p></div>
+                    <div><p className="text-app-text font-medium">{(data as any)[entryKey]}</p><p className="text-app-text-tertiary">条目</p></div>
                     <div><p className="text-app-text font-medium">{data.hits}</p><p className="text-app-text-tertiary">命中</p></div>
                     <div><p className="text-app-text font-medium">{data.misses}</p><p className="text-app-text-tertiary">未命中</p></div>
                   </div>
                   <div className="space-y-1">
                     <div className="flex justify-between text-[9px] text-app-text-tertiary">
                       <span>缓存利用率</span>
-                      <span>{Math.round((data.entries / data.max_entries) * 100)}%</span>
+                      <span>{Math.round(((data as any)[entryKey] / Math.max((data as any)[maxKey], 1)) * 100)}%</span>
                     </div>
                     <div className="h-1.5 rounded-full bg-app-border/50 overflow-hidden">
                       <motion.div initial={{ width: 0 }}
-                        animate={{ width: `${(data.entries / data.max_entries) * 100}%` }}
+                        animate={{ width: `${((data as any)[entryKey] / Math.max((data as any)[maxKey], 1)) * 100}%` }}
                         className={`h-full rounded-full bg-gradient-to-r ${gradFrom} ${gradTo}`} />
                     </div>
                   </div>
@@ -169,51 +236,10 @@ export function SystemTab() {
             </div>
           </section>
 
-          {/* Queue & Rate */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="rounded-lg border border-app-border/50 bg-app-surface p-4 shadow-sm">
-              <h3 className="text-xs font-medium text-app-text mb-3">队列深度</h3>
-              {metrics.queue?.queues?.length > 0 ? (
-                <div className="space-y-2">
-                  {metrics.queue.queues.map((q: any, i: number) => (
-                    <div key={i}>
-                      <div className="flex justify-between text-[10px] text-app-text-secondary mb-1">
-                        <span>{q.name || `队列 ${i + 1}`}</span>
-                        <span>{q.depth ?? 0}</span>
-                      </div>
-                      <div className="h-1 rounded-full bg-app-border/30 overflow-hidden">
-                        <div className="h-full rounded-full bg-gradient-to-r from-blue-500 to-purple-500"
-                          style={{ width: `${Math.min(100, (q.depth ?? 0) * 10)}%` }} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-[10px] text-app-text-tertiary">无队列数据</p>
-              )}
-            </div>
-            <div className="rounded-lg border border-app-border/50 bg-app-surface p-4 shadow-sm">
-              <h3 className="text-xs font-medium text-app-text mb-3">速率限制</h3>
-              {metrics.rate_limits ? (
-                <div className="space-y-2 text-[10px] text-app-text-secondary">
-                  <div className="flex justify-between">
-                    <span>每分钟请求</span>
-                    <span>{metrics.rate_limits.requests_per_minute ?? '无限制'}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>当前使用</span>
-                    <span>{metrics.rate_limits.current_usage ?? 0}</span>
-                  </div>
-                </div>
-              ) : (
-                <p className="text-[10px] text-app-text-tertiary">当前无限制</p>
-              )}
-            </div>
-          </div>
-
+          {/* Auto-refresh */}
           <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-app-border/50 bg-app-surface">
             <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-            <span className="text-[10px] text-app-text-tertiary">每 15 秒自动刷新 · 上次刷新: 刚刚</span>
+            <span className="text-[10px] text-app-text-tertiary">每 15 秒自动刷新 · Agent/LLM/Tool 指标来自 StatsCollector</span>
           </div>
         </>
       )}

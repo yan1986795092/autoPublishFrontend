@@ -50,8 +50,8 @@ export function CostTab() {
   const [error, setError] = useState('');
   const [showAllDays, setShowAllDays] = useState(false);
 
-  const fetch = useCallback(async () => {
-    setLoading(true);
+  const fetch = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     setError('');
     try {
       const res = await operationsApi.getCostMetrics();
@@ -69,7 +69,7 @@ export function CostTab() {
 
   useEffect(() => {
     fetch();
-    const timer = setInterval(fetch, 300_000);
+    const timer = setInterval(() => fetch(true), 300_000);
     return () => clearInterval(timer);
   }, [fetch]);
 

@@ -48,8 +48,8 @@ export function ProductionTab() {
   const [error, setError] = useState('');
   const [trendDays, setTrendDays] = useState<7 | 30>(7);
 
-  const fetch = useCallback(async () => {
-    setLoading(true);
+  const fetch = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     setError('');
     try {
       const res = await operationsApi.getProductionMetrics();
@@ -67,7 +67,7 @@ export function ProductionTab() {
 
   useEffect(() => {
     fetch();
-    const timer = setInterval(fetch, 60_000);
+    const timer = setInterval(() => fetch(true), 60_000);
     return () => clearInterval(timer);
   }, [fetch]);
 

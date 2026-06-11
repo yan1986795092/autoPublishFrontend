@@ -1,15 +1,13 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { contentsApi } from '../../services/api';
 import { useUIStore } from '../../stores/useUIStore';
+import { PLATFORM_MAP } from '../agent/PlatformSelector';
 import { cn } from '../../utils/helpers';
 import { ChevronLeft, ChevronRight, CalendarDays, FileText, Clock } from 'lucide-react';
 
 const DAYS = ['日', '一', '二', '三', '四', '五', '六'];
-const PLATFORM_EMOJIS: Record<string, string> = {
-  xiaohongshu: '🎨',
-  wechat: '📱',
-};
 
 interface CalendarItem {
   id: string;
@@ -21,6 +19,7 @@ interface CalendarItem {
 
 export function ContentCalendar() {
   const { showToast } = useUIStore();
+  const navigate = useNavigate();
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
@@ -183,9 +182,10 @@ export function ContentCalendar() {
             )}
             <div className="space-y-1">
               {selectedItems.map((item, i) => (
-                <div
+                <button
                   key={`${item.id}-${i}`}
-                  className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] transition-colors"
+                  onClick={() => navigate(`/content/${item.id}`)}
+                  className="flex items-center gap-2 w-full px-2.5 py-1.5 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] transition-colors text-left"
                 >
                   {item.type === 'scheduled' ? (
                     <Clock className="w-3 h-3 text-blue-400 flex-shrink-0" />
@@ -193,14 +193,14 @@ export function ContentCalendar() {
                     <FileText className="w-3 h-3 text-green-400 flex-shrink-0" />
                   )}
                   <span className="text-[10px] text-app-text-secondary flex-1 truncate">{item.title}</span>
-                  <span className="text-[10px]">{PLATFORM_EMOJIS[item.platform_code] || '📄'}</span>
+                  <span className="text-[10px]">{PLATFORM_MAP.get(item.platform_code)?.icon || '📄'}</span>
                   <span className={cn(
                     'text-[8px] px-1 py-0.5 rounded',
                     item.type === 'scheduled' ? 'bg-blue-500/10 text-blue-400' : 'bg-green-500/10 text-green-400'
                   )}>
                     {item.type === 'scheduled' ? '定时' : '已创建'}
                   </span>
-                </div>
+                </button>
               ))}
             </div>
           </motion.div>

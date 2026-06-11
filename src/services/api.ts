@@ -10,8 +10,6 @@ import type {
   PublishRequest,
   PublishResponse,
   Platform,
-  PromptTemplate,
-  PromptTemplateDetail,
   PaginatedResponse,
   ModelsResponse,
   PresetListItem,
@@ -107,7 +105,7 @@ export const contentsApi = {
   calendar: (year?: number, month?: number) =>
     apiClient.get<ApiResponse<{ calendar: Record<string, Array<{ id: string; title: string; type: string; platform_code: string; status: string }>>; year: number; month: number }>>('/api/v1/contents/calendar', { params: { year, month } }),
 
-  list: (params?: { page?: number; page_size?: number; status?: string; platform_code?: string }) =>
+  list: (params?: { page?: number; page_size?: number; status?: string; platform_code?: string; search?: string; tag?: string }) =>
     apiClient.get<ApiResponse<PaginatedResponse<Content>>>('/api/v1/contents', { params }),
 
   get: (id: string) =>
@@ -223,19 +221,6 @@ export const personasApi = {
     apiClient.delete<ApiResponse<null>>(`/api/v1/personas/${id}`),
 };
 
-export const templatesApi = {
-  list: (params?: { platform_code?: string; category?: string; search?: string; page?: number; page_size?: number }) =>
-    apiClient.get<ApiResponse<{ items: PromptTemplate[]; total: number; page: number; page_size: number; total_pages: number; total_platforms?: number }>>('/api/v1/templates', { params }),
-  get: (id: string) =>
-    apiClient.get<ApiResponse<PromptTemplateDetail>>(`/api/v1/templates/${id}`),
-  create: (data: Partial<PromptTemplateDetail>) =>
-    apiClient.post<ApiResponse<{ id: string }>>('/api/v1/templates', data),
-  update: (id: string, data: Partial<PromptTemplateDetail>) =>
-    apiClient.put<ApiResponse<{ id: string }>>(`/api/v1/templates/${id}`, data),
-  delete: (id: string) =>
-    apiClient.delete<ApiResponse<null>>(`/api/v1/templates/${id}`),
-};
-
 // ===================== Agent API =====================
 
 /** Agent API 独立客户端（超时 300s，因为 LLM 调用可能持续数分钟） */
@@ -320,6 +305,28 @@ export const agentApi = {
   /** 获取系统监控指标 */
   getMetrics: () =>
     apiClient.get<{ success: boolean; data: import('../types').AgentMetrics }>('/api/v1/agent/metrics'),
+};
+
+// ===================== Operations Center API =====================
+
+export const operationsApi = {
+  /** 获取产能看板数据 */
+  getProductionMetrics: () =>
+    apiClient.get<{ success: boolean; data: import('../types/operations').ProductionMetrics }>(
+      '/api/v1/admin/metrics/production'
+    ),
+
+  /** 获取发布监控数据 */
+  getPublishingMetrics: () =>
+    apiClient.get<{ success: boolean; data: import('../types/operations').PublishingMetrics }>(
+      '/api/v1/admin/metrics/publishing'
+    ),
+
+  /** 获取成本分析数据 */
+  getCostMetrics: () =>
+    apiClient.get<{ success: boolean; data: import('../types/operations').CostMetrics }>(
+      '/api/v1/admin/metrics/cost'
+    ),
 };
 
 // ===================== Skills API =====================

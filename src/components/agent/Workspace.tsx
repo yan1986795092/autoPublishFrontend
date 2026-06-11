@@ -2,10 +2,15 @@ import { useState, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Button } from '../ui/button';
 import { ScrollArea } from '../ui/scroll-area';
+import { Separator } from '../ui/separator';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { useExecutionEngine } from '../../hooks/useExecutionEngine';
+import { useNavigate } from 'react-router-dom';
+import { contentsApi, aiEditApi } from '../../services/api';
+import { useUIStore } from '../../stores/useUIStore';
 import {
   Send, Square, Bot, Sparkles, Copy, Check, X,
-  BookTemplate, Cpu, SlidersHorizontal, Upload, Globe,
+  Cpu, SlidersHorizontal, Upload, Globe, Save,
 } from 'lucide-react';
 import { AdvancedPanel } from './AdvancedPanel';
 import { PlatformSelector, PLATFORM_MAP } from './PlatformSelector';
@@ -62,6 +67,16 @@ export function Workspace() {
   const [selectedPlatform, setSelectedPlatform] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // ── Params dialog ──
+  const [paramsOpen, setParamsOpen] = useState(false);
+  const [creativity, setCreativity] = useState(0.7);
+  const [contentLength, setContentLength] = useState<'short' | 'medium' | 'long'>('medium');
+  const [tone, setTone] = useState<string>('friendly');
+  const [audience, setAudience] = useState<string>('intermediate');
+
+  // ── Adapt loading ──
+  const [adapting, setAdapting] = useState(false);
 
   const platform = selectedPlatform ? PLATFORM_MAP.get(selectedPlatform) : null;
   const canPublish = platform?.category === 'publishable';
@@ -166,17 +181,33 @@ export function Workspace() {
 
         {/* Toolbar */}
         <div className="flex-shrink-0 flex items-center gap-2 px-6 py-2 border-t border-app-border/30 bg-app-surface/50">
-          <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-app-border/50 text-[10px] text-app-text-secondary hover:text-app-text hover:border-primary-500/30 transition-colors">
-            <BookTemplate className="w-3 h-3" />
-            模板
-          </button>
-          <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-app-border/50 text-[10px] text-app-text-secondary hover:text-app-text hover:border-primary-500/30 transition-colors">
+          <button
+            onClick={() => setParamsOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-app-border/50 text-[10px] text-app-text-secondary hover:text-app-text hover:border-primary-500/30 transition-colors"
+          >
             <SlidersHorizontal className="w-3 h-3" />
             参数
           </button>
           {selectedPlatform && (
-            <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-app-border/50 text-[10px] text-app-text-secondary hover:text-app-text hover:border-primary-500/30 transition-colors">
-              <Cpu className="w-3 h-3" />
+            <button
+              onClick={async () => {
+                if (!messages.length || !selectedPlatform) return;
+                setAdapting(true);
+                try {
+                  const lastMsg = [...messages].reverse().find(m => m.role === 'assistant' && m.content);
+                  if (lastMsg) {
+                    const res = await aiEditApi.adaptContent(lastMsg.content, 'auto', selectedPlatform);
+                    if (res.data.success) {
+                      const adapted = (res.data.data as { result: string }).result;
+                      setPrompt(adapted || lastMsg.content);
+                    }
+                  }
+                } catch { /* silent */ } finally { setAdapting(false); }
+              }}
+              disabled={adapting || messages.length === 0}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-app-border/50 text-[10px] text-app-text-secondary hover:text-app-text hover:border-primary-500/30 transition-colors disabled:opacity-40"
+            >
+              <Cpu className={`w-3 h-3 ${adapting ? 'animate-spin' : ''}`} />
               适配 {platform?.label}
             </button>
           )}
@@ -247,6 +278,95 @@ export function Workspace() {
       </div>
 
       <AdvancedPanel selectedPlatform={selectedPlatform} />
+
+      {/* ── Params Dialog ── */}
+      <Dialog open={paramsOpen} onOpenChange={setParamsOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-sm flex items-center gap-2">
+              <SlidersHorizontal className="w-4 h-4 text-primary-400" />
+              生成参数
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <p className="text-xs font-medium text-app-text-secondary mb-2">创造力 ({creativity.toFixed(1)})</p>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.1"
+                value={creativity}
+                onChange={(e) => setCreativity(parseFloat(e.target.value))}
+                className="w-full accent-primary-500"
+              />
+            </div>
+            <Separator />
+            <div>
+              <p className="text-xs font-medium text-app-text-secondary mb-2">篇幅</p>
+              <div className="flex gap-1">
+                {(['short', 'medium', 'long'] as const).map((l) => (
+                  <button
+                    key={l}
+                    onClick={() => setContentLength(l)}
+                    className={cn(
+                      'flex-1 rounded-lg border px-3 py-1.5 text-xs transition-colors',
+                      contentLength === l ? 'border-primary-500/50 bg-primary-500/10 text-primary-400' : 'border-app-border text-app-text-secondary'
+                    )}
+                  >
+                    {l === 'short' ? '短篇' : l === 'medium' ? '中篇' : '长篇'}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <Separator />
+            <div>
+              <p className="text-xs font-medium text-app-text-secondary mb-2">语调</p>
+              <div className="flex flex-wrap gap-1">
+                {[
+                  { id: 'friendly', label: '友好' },
+                  { id: 'professional', label: '专业' },
+                  { id: 'humorous', label: '幽默' },
+                  { id: 'warm', label: '温暖' },
+                ].map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => setTone(t.id)}
+                    className={cn(
+                      'rounded-full px-3 py-1 text-xs transition-colors',
+                      tone === t.id ? 'bg-primary-500/20 text-primary-400 ring-1 ring-primary-500/30' : 'bg-app-surface text-app-text-secondary'
+                    )}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <Separator />
+            <div>
+              <p className="text-xs font-medium text-app-text-secondary mb-2">目标读者</p>
+              <div className="flex gap-1">
+                {[
+                  { id: 'beginner', label: '初学者' },
+                  { id: 'intermediate', label: '进阶' },
+                  { id: 'expert', label: '专家' },
+                ].map((a) => (
+                  <button
+                    key={a.id}
+                    onClick={() => setAudience(a.id)}
+                    className={cn(
+                      'flex-1 rounded-lg border px-3 py-1.5 text-xs transition-colors',
+                      audience === a.id ? 'border-primary-500/50 bg-primary-500/10 text-primary-400' : 'border-app-border text-app-text-secondary'
+                    )}
+                  >
+                    {a.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -325,6 +445,32 @@ function MessageBubble({
   runningTime?: number;
 }) {
   const [showThinking, setShowThinking] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const navigate = useNavigate();
+  const { showToast } = useUIStore();
+
+  const handleSaveToContent = useCallback(async () => {
+    if (!message.content) return;
+    setSaving(true);
+    try {
+      // Use the generate endpoint to create a content record, or just save content text
+      const res = await contentsApi.generate({
+        topic: message.content.slice(0, 80),
+        platform_code: 'xiaohongshu',
+      });
+      // Check if result has content_id
+      const contentId = (res.data.data as any)?.content_id;
+      if (contentId) {
+        showToast('已保存到内容管理', 'success', { label: '查看', onClick: () => navigate(`/content/${contentId}`) });
+      } else {
+        showToast('已保存但无法跳转，请在内容管理中查看', 'success');
+      }
+    } catch {
+      showToast('保存失败，请稍后重试', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }, [message.content, navigate, showToast]);
 
   if (message.role === 'user') {
     return (
@@ -435,12 +581,26 @@ function MessageBubble({
             </>
           )}
 
-          {/* Usage info for completed */}
-          {!isRunning && message.result?.usage && (
-            <div className="mt-3 flex flex-wrap gap-4 border-t border-app-border/30 pt-2 text-[10px] text-app-text-tertiary">
-              <span>Token: {message.result.usage.tokens_used}</span>
-              <span>耗时: {message.result.usage.time_elapsed?.toFixed(1)}s</span>
-              <span>模型: {message.result.usage.model || 'N/A'}</span>
+          {/* Save & Usage */}
+          {!isRunning && displayContent && (
+            <div className="mt-3 flex items-center justify-between border-t border-app-border/30 pt-2">
+              <Button
+                onClick={handleSaveToContent}
+                disabled={saving}
+                variant="ghost"
+                size="xs"
+                className="text-app-text-tertiary hover:text-primary-400"
+              >
+                <Save className="w-3 h-3 mr-1" />
+                {saving ? '保存中...' : '保存到内容管理'}
+              </Button>
+              {message.result?.usage && (
+                <div className="flex flex-wrap gap-3 text-[10px] text-app-text-tertiary">
+                  <span>Token: {message.result.usage.tokens_used}</span>
+                  <span>耗时: {message.result.usage.time_elapsed?.toFixed(1)}s</span>
+                  <span>模型: {message.result.usage.model || 'N/A'}</span>
+                </div>
+              )}
             </div>
           )}
         </div>

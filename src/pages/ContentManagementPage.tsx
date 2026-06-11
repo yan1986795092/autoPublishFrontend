@@ -9,6 +9,8 @@ import { SkeletonList } from '../components/ui/Skeleton';
 import { Pagination } from '../components/ui/pagination';
 import { EmptyState } from '../components/ui/empty-state';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
+import { BulkActionBar } from '../components/ui/bulk-action-bar';
+import { Card } from '../components/ui/card';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -18,6 +20,7 @@ import {
 } from '../components/ui/dropdown-menu';
 import { formatRelativeTime, debounce, cn } from '../utils/helpers';
 import { ContentCalendar } from '../components/content/ContentCalendar';
+import { PLATFORM_MAP } from '../components/agent/PlatformSelector';
 import { useNavigate } from 'react-router-dom';
 import { useUIStore } from '../stores/useUIStore';
 import {
@@ -30,6 +33,11 @@ import {
   MoreHorizontal,
   CalendarDays,
   List,
+  Send,
+  BarChart3,
+  FileEdit,
+  Globe,
+  Archive,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -40,27 +48,20 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/
 const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
   draft: { label: '草稿', className: 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/30' },
   published: { label: '已发布', className: 'bg-green-500/10 text-green-400 border border-green-500/30' },
-  pending_review: { label: '待审核', className: 'bg-blue-500/10 text-blue-400 border border-blue-500/30' },
   archived: { label: '已下架', className: 'bg-gray-500/10 text-gray-400 border border-gray-500/30' },
 };
 
-const PLATFORM_CONFIG: Record<string, { label: string; dotColor: string }> = {
-  xiaohongshu: { label: '小红书', dotColor: 'bg-pink-400' },
-  wechat: { label: '公众号', dotColor: 'bg-green-400' },
-};
+function getPlatformDisplay(code: string): { icon: string; label: string } {
+  const entry = PLATFORM_MAP.get(code);
+  return entry ? { icon: entry.icon, label: entry.label } : { icon: '📄', label: code };
+}
 
 const FILTERS = [
   { value: 'all', label: '全部' },
   { value: 'draft', label: '草稿' },
   { value: 'published', label: '已发布' },
-  { value: 'pending_review', label: '待审核' },
-  { value: 'unlisted', label: '已下架' },
+  { value: 'archived', label: '已下架' },
 ] as const;
-
-function getEffectiveFilter(filter: string): string {
-  const map: Record<string, string> = { unlisted: 'archived' };
-  return map[filter] || filter;
-}
 
 // ─── Component ──────────────────────────────────────────────────
 
@@ -70,7 +71,7 @@ export function ContentManagementPage() {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<string>('all');
   const [tagFilter, setTagFilter] = useState<string | null>(null);
-  const [view, setView] = useState<'list' | 'calendar'>('list');
+  const [view, setView] = useState<'list' | 'calendar' | 'card'>('card');
 
   // Search
   const [searchQuery, setSearchQuery] = useState('');
@@ -82,7 +83,11 @@ export function ContentManagementPage() {
   const pageSize = 10;
 
   const navigate = useNavigate();
-  const { showToast } = useUIStore();
+  const { showToast, openPublishDialog } = useUIStore();
+
+  // Bulk selection
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkLoading, setBulkLoading] = useState(false);
 
   // Version history dialog
   const [historyContent, setHistoryContent] = useState<Content | null>(null);
@@ -106,12 +111,13 @@ export function ContentManagementPage() {
       setLoading(true);
       setError(null);
       try {
-        const params: { page: number; page_size: number; status?: string } = {
+        const params: { page: number; page_size: number; status?: string; search?: string; tag?: string } = {
           page: pageNum,
           page_size: pageSize,
         };
-        const effectiveFilter = getEffectiveFilter(filter);
-        if (effectiveFilter !== 'all') params.status = effectiveFilter;
+        if (filter !== 'all') params.status = filter;
+        if (searchQuery) params.search = searchQuery;
+        if (tagFilter) params.tag = tagFilter;
         const res = await contentsApi.list(params);
         if (res.data.success && res.data.data) {
           setContents(res.data.data.items || []);
@@ -123,7 +129,7 @@ export function ContentManagementPage() {
         setLoading(false);
       }
     },
-    [filter, pageSize],
+    [filter, pageSize, searchQuery, tagFilter],
   );
 
   useEffect(() => {
@@ -155,30 +161,11 @@ export function ContentManagementPage() {
   // ── Processed data ──
 
   const processedContents = useMemo(() => {
-    let items = [...contents];
-
-    const effectiveFilter = getEffectiveFilter(filter);
-    if (effectiveFilter !== 'all') {
-      items = items.filter((c) => c.status === effectiveFilter);
-    }
-    if (tagFilter) {
-      items = items.filter((c) => (c.tags || []).includes(tagFilter));
-    }
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      items = items.filter(
-        (c) =>
-          (c.title || '').toLowerCase().includes(q) ||
-          (c.content_md || '').slice(0, 200).toLowerCase().includes(q),
-      );
-    }
-
-    items.sort(
+    return [...contents].sort(
       (a, b) =>
         new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
     );
-    return items;
-  }, [contents, filter, tagFilter, searchQuery]);
+  }, [contents]);
 
   const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
   const safePage = Math.min(page, totalPages);
@@ -248,6 +235,32 @@ export function ContentManagementPage() {
         </div>
       </div>
 
+      {/* ── Stats Bar ── */}
+      {contents.length > 0 && (() => {
+        const draftCount = contents.filter(c => c.status === 'draft').length;
+        const publishedCount = contents.filter(c => c.status === 'published').length;
+        const archiveCount = contents.filter(c => c.status === 'archived').length;
+        const totalTags = [...new Set(contents.flatMap(c => c.tags || []))].length;
+        return (
+          <div className="grid grid-cols-4 gap-3">
+            {[
+              { icon: FileText, label: '总数', value: totalItems, color: 'text-blue-400' },
+              { icon: FileEdit, label: '草稿', value: draftCount, color: 'text-yellow-400' },
+              { icon: Globe, label: '已发布', value: publishedCount, color: 'text-green-400' },
+              { icon: Archive, label: '标签', value: totalTags, color: 'text-purple-400' },
+            ].map(({ icon: Icon, label, value, color }) => (
+              <div key={label} className="rounded-lg border border-app-border/50 bg-app-elevated p-3 flex items-center gap-3">
+                <Icon className={`w-4 h-4 ${color}`} />
+                <div>
+                  <p className="text-lg font-bold text-app-text">{value}</p>
+                  <p className="text-[10px] text-app-text-tertiary">{label}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+
       {/* ── Header: Search + View Toggle + New Button ── */}
       <div className="flex items-center justify-between gap-3">
         <div className="relative flex-1 max-w-xs">
@@ -262,6 +275,19 @@ export function ContentManagementPage() {
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <div className="flex items-center gap-0.5 p-0.5 rounded-lg border border-app-border bg-app-surface">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => setView('card')}
+              className={cn(
+                view === 'card'
+                  ? 'bg-primary-600/20 text-primary-400'
+                  : 'text-app-text-tertiary',
+              )}
+              title="卡片视图"
+            >
+              <FileText className="w-3.5 h-3.5" />
+            </Button>
             <Button
               variant="ghost"
               size="icon-sm"
@@ -344,6 +370,133 @@ export function ContentManagementPage() {
         )}
       </div>
 
+      {/* ── Bulk Action Bar ── */}
+      {selectedIds.size > 0 && (
+        <BulkActionBar
+          selectedCount={selectedIds.size}
+          onClearSelection={() => setSelectedIds(new Set())}
+          onBulkDelete={async () => {
+            setBulkLoading(true);
+            try {
+              await Promise.all(Array.from(selectedIds).map(id => contentsApi.delete(id)));
+              showToast(`已删除 ${selectedIds.size} 条内容`, 'success');
+              setSelectedIds(new Set());
+              loadContents(page);
+            } catch {
+              showToast('批量删除失败', 'error');
+            } finally {
+              setBulkLoading(false);
+            }
+          }}
+          onBulkArchive={async () => {
+            setBulkLoading(true);
+            try {
+              await Promise.all(Array.from(selectedIds).map(id => contentsApi.update(id, { status: 'archived' })));
+              showToast(`已归档 ${selectedIds.size} 条内容`, 'success');
+              setSelectedIds(new Set());
+              loadContents(page);
+            } catch {
+              showToast('批量归档失败', 'error');
+            } finally {
+              setBulkLoading(false);
+            }
+          }}
+          loading={bulkLoading}
+        />
+      )}
+
+      {/* ── Card View ── */}
+      {view === 'card' && (
+        <AnimatePresence mode="wait">
+          {processedContents.length === 0 ? (
+            <EmptyState icon={<FileText className="w-6 h-6 text-app-text-tertiary" />}
+              title={searchQuery ? '未找到匹配内容' : '暂无内容'}
+              description={searchQuery ? '尝试更换搜索关键词' : '开始创作你的第一篇内容吧'}
+              action={!searchQuery ? { label: '去生成', onClick: () => navigate('/') } : undefined}
+            />
+          ) : (
+            <motion.div
+              key="card-grid"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3"
+            >
+              {processedContents.map((content, idx) => {
+                const statusCfg = STATUS_CONFIG[content.status] || STATUS_CONFIG.draft;
+                const display = getPlatformDisplay(content.platform_code || '');
+                const preview = (content.content_md || '').slice(0, 100);
+                return (
+                  <motion.div
+                    key={content.id}
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: idx * 0.03 }}
+                  >
+                    <Card
+                      variant="interactive"
+                      className="h-full cursor-pointer hover:border-primary-500/30 transition-all"
+                      onClick={() => navigate(`/content/${content.id}`)}
+                    >
+                      <div className="p-3 flex flex-col h-full gap-2">
+                        {/* Header: title + checkbox */}
+                        <div className="flex items-start gap-2">
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(content.id)}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              const next = new Set(selectedIds);
+                              if (e.target.checked) next.add(content.id);
+                              else next.delete(content.id);
+                              setSelectedIds(next);
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                            className="mt-0.5 rounded border-app-border bg-app-surface text-primary-500 focus:ring-primary-500 shrink-0"
+                          />
+                          <h3 className="text-sm font-medium text-app-text line-clamp-1 flex-1 min-w-0">
+                            {content.title || '无标题'}
+                          </h3>
+                          <span className={`shrink-0 inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] ${statusCfg.className}`}>
+                            {statusCfg.label}
+                          </span>
+                        </div>
+
+                        {/* Content preview */}
+                        {preview && (
+                          <p className="text-[11px] text-app-text-tertiary line-clamp-2 leading-relaxed">
+                            {preview}
+                          </p>
+                        )}
+
+                        {/* Footer: platform + tags + time */}
+                        <div className="mt-auto flex items-center gap-2 pt-1">
+                          <span className="text-xs">{display.icon} {display.label}</span>
+                          <span className="text-[10px] text-app-text-tertiary ml-auto">
+                            {formatRelativeTime(content.updated_at)}
+                          </span>
+                        </div>
+                        {content.tags && content.tags.length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            {content.tags.slice(0, 3).map(tag => (
+                              <span key={tag} className="text-[9px] px-1.5 py-0.5 rounded-full bg-app-surface border border-app-border/30 text-app-text-tertiary">
+                                {tag}
+                              </span>
+                            ))}
+                            {content.tags.length > 3 && (
+                              <span className="text-[9px] text-app-text-tertiary">+{content.tags.length - 3}</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </Card>
+                  </motion.div>
+                );
+              })}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      )}
+
       {/* ── Calendar View ── */}
       {view === 'calendar' && (
         <div className="rounded-lg border border-app-border bg-app-elevated p-4">
@@ -382,6 +535,20 @@ export function ContentManagementPage() {
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-app-border bg-app-elevated/80">
+                      <th className="w-8 px-2 py-2.5 text-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.size > 0 && selectedIds.size === processedContents.length}
+                          onChange={() => {
+                            if (selectedIds.size === processedContents.length) {
+                              setSelectedIds(new Set());
+                            } else {
+                              setSelectedIds(new Set(processedContents.map(c => c.id)));
+                            }
+                          }}
+                          className="rounded border-app-border bg-app-surface text-primary-500 focus:ring-primary-500"
+                        />
+                      </th>
                       <th className="px-3 py-2.5 text-left">
                         <span className="text-[10px] font-semibold text-app-text-tertiary uppercase tracking-wider">
                           标题
@@ -409,14 +576,24 @@ export function ContentManagementPage() {
                     {processedContents.map((content) => {
                       const statusCfg =
                         STATUS_CONFIG[content.status] || STATUS_CONFIG.draft;
-                      const platformCfg = content.platform_code
-                        ? PLATFORM_CONFIG[content.platform_code]
-                        : null;
                       return (
                         <tr
                           key={content.id}
                           className="border-b border-app-border/50 last:border-b-0 hover:bg-app-hover/30 transition-colors"
                         >
+                          <td className="px-2 py-2.5 text-center">
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.has(content.id)}
+                              onChange={(e) => {
+                                const next = new Set(selectedIds);
+                                if (e.target.checked) next.add(content.id);
+                                else next.delete(content.id);
+                                setSelectedIds(next);
+                              }}
+                              className="rounded border-app-border bg-app-surface text-primary-500 focus:ring-primary-500"
+                            />
+                          </td>
                           <td className="px-3 py-2.5">
                             <button
                               onClick={() =>
@@ -428,20 +605,14 @@ export function ContentManagementPage() {
                             </button>
                           </td>
                           <td className="px-3 py-2.5">
-                            {platformCfg ? (
-                              <div className="flex items-center gap-1.5">
-                                <span
-                                  className={`w-1.5 h-1.5 rounded-full shrink-0 ${platformCfg.dotColor}`}
-                                />
+                            {(() => {
+                              const display = getPlatformDisplay(content.platform_code || '');
+                              return (
                                 <span className="text-xs text-app-text">
-                                  {platformCfg.label}
+                                  {display.icon} {display.label}
                                 </span>
-                              </div>
-                            ) : (
-                              <span className="text-xs text-app-text-tertiary">
-                                --
-                              </span>
-                            )}
+                              );
+                            })()}
                           </td>
                           <td className="px-3 py-2.5">
                             <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[9px] ${statusCfg.className}`}>
@@ -474,6 +645,11 @@ export function ContentManagementPage() {
                                 >
                                   <History className="w-3.5 h-3.5" />{' '}
                                   版本历史
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => openPublishDialog(content.id)}
+                                >
+                                  <Send className="w-3.5 h-3.5" /> 发布
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem

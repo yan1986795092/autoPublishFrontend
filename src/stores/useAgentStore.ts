@@ -66,9 +66,9 @@ interface AgentState {
   _abortController: AbortController | null;
   clearCurrent: () => void;
 
-  // Content type config (from ContentTypeSelector)
-  contentTypeConfig: import('../components/agent/ContentTypeSelector').ContentTypeConfig | null;
-  setContentTypeConfig: (config: import('../components/agent/ContentTypeSelector').ContentTypeConfig | null) => void;
+  // Content type config (deprecated — kept for store shape compatibility)
+  contentTypeConfig: any;
+  setContentTypeConfig: (config: any) => void;
 
   // Applied Skill
   appliedSkill: import('../types').AppliedSkill | null;
@@ -77,6 +77,10 @@ interface AgentState {
 
   // Stream events
   addStreamEvent: (event: StreamEvent) => void;
+
+  // Streaming
+  _streamingProcessor: SSEProcessor | null;
+  stopStreaming: () => void;
 
   // WebSocket 管理
   connectWebSocket: (taskId: string) => WebSocket | null;
@@ -128,6 +132,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
   appliedSkillFull: null,
   conversationId: _initFromStorage.conversationId,
   conversationList: _initFromStorage.conversationList,
+  _streamingProcessor: null,
 
   setAppliedSkill: (applied, full) => set({ appliedSkill: applied, appliedSkillFull: full }),
   setContentTypeConfig: (config) => set({ contentTypeConfig: config }),
@@ -139,6 +144,26 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
   clearMessages: () => set({ messages: [] }),
   clearHistory: () => set({ previousGenerations: [] }),
   addStreamEvent: (event) => set((state) => ({ streamEvents: [...state.streamEvents, event] })),
+
+  stopStreaming: () => {
+    const { _streamingProcessor, _abortController } = useAgentStore.getState();
+    if (_streamingProcessor) {
+      _streamingProcessor.abort();
+    }
+    if (_abortController) {
+      _abortController.abort();
+    }
+    set({
+      isRunning: false,
+      currentTaskId: null,
+      thinkingSteps: [],
+      llmChunks: {},
+      reasoningChunks: {},
+      streamEvents: [],
+      _streamingProcessor: null,
+      _abortController: null,
+    });
+  },
 
   // === 对话持久化 ===
   loadConversations: async (opts?: { showErrorToast?: (msg: string) => void }) => {
@@ -702,6 +727,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
         isRunning: false,
         currentTaskId: null,
         _abortController: null,
+        _streamingProcessor: null,
         streamEvents: [...s.streamEvents, {
           id: `done-${Date.now()}`,
           type: 'done',
@@ -717,6 +743,9 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     if (appliedSkill?.skill_id) {
       bodyPayload.skill_id = appliedSkill.skill_id;
     }
+    set({ _streamingProcessor: processor });
+
+    let connectError: string | null = null;
     await processor.connect(agentApi.streamUrl(), {
       method: 'POST',
       headers: {
@@ -727,18 +756,28 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     }, {
       onError(errorMsg) {
         if (errorOccurred) return; // already handled by error event
-        set((_) => ({
-          error: errorMsg,
-          isRunning: false,
-          currentTaskId: null,
-          _abortController: null,
-        }));
+        connectError = errorMsg;
       },
     }, controller.signal);
 
-    if (!errorOccurred) {
-      set({ _abortController: null });
+    // Only clear if the stream ended without an error being already handled
+    if (!errorOccurred && !connectError) {
+      // processor done event already set isRunning: false
+    } else if (connectError && !errorOccurred) {
+      // fetch-level error (non-abort)
+      get().updateMessage(assistantMsgId, {
+        status: 'failed',
+        content: connectError,
+      });
+      set({
+        error: connectError,
+        isRunning: false,
+        currentTaskId: null,
+        _abortController: null,
+        _streamingProcessor: null,
+      });
     }
+    set({ _abortController: null, _streamingProcessor: null });
   },
 
   loadTaskStatus: async (taskId: string) => {
@@ -775,22 +814,24 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
   setCurrentTask: (task) => set({ currentTask: task }),
 
   cancelTask: async (taskId: string) => {
-    const { _abortController } = useAgentStore.getState();
+    // Stop the SSE stream via AbortController
+    const { _abortController, _streamingProcessor } = useAgentStore.getState();
     if (_abortController) {
       _abortController.abort();
-      set({ _abortController: null });
     }
+    if (_streamingProcessor) {
+      _streamingProcessor.abort();
+    }
+    set({
+      isRunning: false,
+      currentTaskId: null,
+      _abortController: null,
+      _streamingProcessor: null,
+    });
+    if (!taskId) return true;
     try {
       const response = await agentApi.cancelTask(taskId);
-      if (response.data.success) {
-        set({
-          isRunning: false,
-          currentTaskId: null,
-          currentTask: null,
-        });
-        return true;
-      }
-      return false;
+      return response.data.success;
     } catch (e) {
       console.error('cancelTask failed:', e);
       return false;
@@ -800,6 +841,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
   clearCurrent: () => {
     const s = useAgentStore.getState();
     if (s._abortController) s._abortController.abort();
+    if (s._streamingProcessor) s._streamingProcessor.abort();
     // Archive current generation before clearing
     if (s.thinkingSteps.length > 0 || s.currentResult) {
       const gen: PreviousGeneration = {
@@ -822,12 +864,14 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       thinkingSteps: [],
       llmChunks: {},
       reasoningChunks: {},
+      streamEvents: [],
       // 保留 conversationId，只清除当前界面的 messages
       messages: [],
       contentTypeConfig: null,
       appliedSkill: null,
       appliedSkillFull: null,
       _abortController: null,
+      _streamingProcessor: null,
     });
   },
 }));

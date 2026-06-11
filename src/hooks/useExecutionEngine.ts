@@ -86,7 +86,7 @@ export function useExecutionEngine(_mode: WorkspaceMode): UseExecutionEngineRetu
 
   const runStreaming = useAgentStore((s) => s.runStreaming);
   const runAsync = useAgentStore((s) => s.runAsync);
-  const cancelTask = useAgentStore((s) => s.cancelTask);
+  const stopStreaming = useAgentStore((s) => s.stopStreaming);
   const disconnectWebSocket = useAgentStore((s) => s.disconnectWebSocket);
   const clearCurrent = useAgentStore((s) => s.clearCurrent);
   const setAppliedSkill = useAgentStore((s) => s.setAppliedSkill);
@@ -139,10 +139,10 @@ export function useExecutionEngine(_mode: WorkspaceMode): UseExecutionEngineRetu
   }, [prompt, useStreaming, runStreaming, runAsync, addMessage, showToast, appliedSkillFull, contentTypeConfig]);
 
   const handleStop = useCallback(() => {
-    if (currentTaskId) cancelTask(currentTaskId);
+    stopStreaming();
     disconnectWebSocket();
     showToast('任务已终止', 'info');
-  }, [currentTaskId, cancelTask, disconnectWebSocket, showToast]);
+  }, [stopStreaming, disconnectWebSocket, showToast]);
 
   return {
     prompt, setPrompt,
@@ -152,7 +152,7 @@ export function useExecutionEngine(_mode: WorkspaceMode): UseExecutionEngineRetu
     appliedSkill, appliedSkillFull,
     wsConnectionState,
     useStreaming, setUseStreaming,
-    handleExecute, handleStop, handleDirectExecute,
+    handleExecute, handleStop: () => stopStreaming(), handleDirectExecute,
     handleClearCurrent: clearCurrent,
     handleSetAppliedSkill: setAppliedSkill,
     addMessage,

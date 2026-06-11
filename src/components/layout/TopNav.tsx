@@ -3,7 +3,7 @@ import { useAuthStore } from '../../stores/useAuthStore';
 import { TOPNAV } from '../../config/layout';
 import { cn } from '../../utils/helpers';
 import type { LucideIcon } from 'lucide-react';
-import { PenLine, FileText, Settings, Library, BarChart3, Activity, LogOut } from 'lucide-react';
+import { PenLine, FileText, Settings, BarChart3, LogOut } from 'lucide-react';
 
 interface NavItem {
   id: string;
@@ -14,10 +14,8 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { id: 'create', label: '创作', path: '/', icon: PenLine },
-  { id: 'templates', label: '模板', path: '/templates', icon: Library },
   { id: 'content', label: '内容', path: '/content', icon: FileText },
   { id: 'operations', label: '监控', path: '/operations', icon: BarChart3 },
-  { id: 'traces', label: '追踪', path: '/traces', icon: Activity },
   { id: 'settings', label: '设置', path: '/settings', icon: Settings },
 ];
 

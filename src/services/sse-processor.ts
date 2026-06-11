@@ -7,7 +7,6 @@ type SSEHandler = (event: SSEEvent) => void;
 
 export class SSEProcessor {
   private handlers = new Map<string, SSEHandler[]>();
-  private _abortController: AbortController | null = null;
   private _heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
   on(eventType: string, handler: SSEHandler) {
@@ -23,14 +22,25 @@ export class SSEProcessor {
   /** Parse a single SSE block into events */
   parseSSE(block: string): SSEEvent[] {
     const events: SSEEvent[] = [];
-    const eventMatch = block.match(/^event: (\w+)/m);
-    const dataMatch = block.match(/^data: (.+)$/m);
-    if (!eventMatch || !dataMatch) return events;
+    const lines = block.split('\n');
+    let eventType = '';
+    let dataLines: string[] = [];
 
+    for (const line of lines) {
+      if (line.startsWith('event: ')) {
+        eventType = line.slice(7).trim();
+      } else if (line.startsWith('data: ')) {
+        dataLines.push(line.slice(6));
+      }
+    }
+
+    if (!eventType || dataLines.length === 0) return events;
+
+    const rawData = dataLines.join('\n');
     try {
       events.push({
-        type: eventMatch[1],
-        data: JSON.parse(dataMatch[1]) as Record<string, unknown>,
+        type: eventType,
+        data: JSON.parse(rawData) as Record<string, unknown>,
       });
     } catch {
       // skip malformed data
@@ -48,14 +58,19 @@ export class SSEProcessor {
     },
     externalSignal?: AbortSignal,
   ): Promise<void> {
-    // Use external signal if provided (e.g., from store's _abortController),
-    // so that cancelTask aborts this stream too. Otherwise create an internal one.
-    this._abortController = externalSignal ? null : new AbortController();
+    const controller = new AbortController();
+
+    // Proxy external abort → internal controller, so either signal stops the stream
+    if (externalSignal) {
+      const h = () => { if (!controller.signal.aborted) controller.abort(); };
+      externalSignal.addEventListener('abort', h);
+      if (externalSignal.aborted) controller.abort();
+    }
 
     try {
       const response = await fetch(url, {
         ...options,
-        signal: externalSignal ?? this._abortController!.signal,
+        signal: controller.signal,
       });
 
       if (!response.ok) {
@@ -79,14 +94,16 @@ export class SSEProcessor {
       const HEARTBEAT_TIMEOUT = 30_000;
       let lastDataTime = Date.now();
       this._heartbeatTimer = setInterval(() => {
+        if (controller.signal.aborted) return;
         if (Date.now() - lastDataTime > HEARTBEAT_TIMEOUT) {
-          this.abort();
+          controller.abort();
           callbacks?.onError?.('连接超时，服务器长时间无响应');
           this.cleanup();
         }
       }, 5000);
 
       while (true) {
+        if (controller.signal.aborted) break;
         const { done, value } = await reader.read();
         if (done) break;
 
@@ -98,9 +115,9 @@ export class SSEProcessor {
         const parts = buffer.replace(/\r\n/g, '\n').split('\n\n');
         buffer = parts.pop() || '';
 
-        for (const block of parts) {
-          if (!block.trim()) continue;
-          const events = this.parseSSE(block);
+        for (const part of parts) {
+          if (!part.trim()) continue;
+          const events = this.parseSSE(part);
           for (const event of events) {
             this.dispatch(event);
           }
@@ -129,21 +146,14 @@ export class SSEProcessor {
       clearInterval(this._heartbeatTimer);
       this._heartbeatTimer = null;
     }
-    if (this._abortController !== null) {
-      this._abortController.abort();
-      this._abortController = null;
-    }
   }
 
   abort() {
-    // External signal abort is handled by the caller (store's _abortController)
-    if (this._abortController !== null) {
-      this._abortController.abort();
-    }
+    this.cleanup();
   }
 
   /** Returns true if there's an active fetch running */
   get isRunning() {
-    return this._abortController !== null;
+    return this._heartbeatTimer !== null;
   }
 }

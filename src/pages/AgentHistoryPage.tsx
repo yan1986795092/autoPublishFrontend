@@ -49,11 +49,6 @@ const STATE_CONFIG: Record<string, { icon: React.ReactNode; label: string; class
     label: '已取消',
     className: 'text-app-text-tertiary bg-app-border/10 border border-app-border/30',
   },
-  awaiting_input: {
-    icon: <AlertCircle className="w-3.5 h-3.5" />,
-    label: '等待输入',
-    className: 'text-orange-400 bg-orange-500/10 border border-orange-500/30',
-  },
 };
 
 const STATE_FILTERS = [

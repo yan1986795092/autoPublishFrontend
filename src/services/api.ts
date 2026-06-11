@@ -19,7 +19,6 @@ import type {
   AgentResult,
   ExecutionPlan,
   AsyncTask,
-  DecisionSubmitRequest,
   HotTopic,
 } from '../types';
 import { useAuthStore } from '../stores/useAuthStore';
@@ -305,9 +304,6 @@ export const agentApi = {
 
   listAsyncTasks: (limit?: number) =>
     agentApiClient.get<{ success: boolean; data: { tasks: AsyncTask[]; total: number } }>('/api/v1/agent/async/list', { params: { limit } }),
-
-  submitDecision: (taskId: string, data: DecisionSubmitRequest) =>
-    agentApiClient.post<{ success: boolean; data: { task_id: string; state: string } }>(`/api/v1/agent/decision/${taskId}`, data),
 
   cancelTask: (taskId: string) =>
     agentApiClient.delete<{ success: boolean }>(`/api/v1/agent/async/${taskId}`),

@@ -9,12 +9,8 @@ import { useUIStore } from '../stores/useUIStore';
 import { getAgentEventSummary } from '../utils/agentEvents';
 import Markdown from 'react-markdown';
 import { Send, Bot, Sparkles, Plus, Copy, Check, AlertCircle, Square } from 'lucide-react';
-import type { AsyncTask, PendingDecision, DecisionSubmitRequest, ChatMessage, AgentResult } from '../types';
-import { DecisionDialog } from '../components/agent/DecisionDialog';
-import { RecoveryDialog } from '../components/agent/RecoveryDialog';
+import type { AsyncTask, ChatMessage, AgentResult } from '../types';
 import { AgentThinkingStream } from '../components/agent/AgentThinkingStream';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
-import { getAgentLabel } from '../config/agents';
 import { useWebSocketAgent } from '../hooks/useWebSocketAgent';
 import { ConversationSidebar } from '../components/chat/ConversationSidebar';
 
@@ -65,12 +61,11 @@ const markdownComponents = {
 export function AgentPage() {
   const {
     currentTaskId, currentTask,
-    isRunning, error, pendingDecision, messages,
-    recoveryState, wsConnectionState,
+    isRunning, error, messages,
+    wsConnectionState,
     addMessage, updateMessage,
     runAsync, runStreaming, clearCurrent,
-    retryStep, skipStep,
-    submitDecision, clearDecision, cancelTask,
+    cancelTask,
     disconnectWebSocket, loadConversations, createConversation,
   } = useAgentStore();
 
@@ -78,7 +73,6 @@ export function AgentPage() {
   const [prompt, setPrompt] = useState('');
   const [runningTime, setRunningTime] = useState(0);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [showPreview, setShowPreview] = useState(false);
   const [useStreaming, setUseStreaming] = useState(true);
   const [showSidebar, setShowSidebar] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -116,10 +110,6 @@ export function AgentPage() {
       switch (data.type) {
         case 'progress':
           store.setCurrentTask(data.data as AsyncTask);
-          break;
-        case 'decision_required':
-          store.setPendingDecision(data.data as PendingDecision);
-          showToast('Agent 需要你的决定', 'info');
           break;
         case 'result': {
           const result = data.data as AgentResult;
@@ -216,11 +206,6 @@ export function AgentPage() {
     }
   }, []);
 
-  const handleDecisionSubmit = useCallback(async (taskId: string, data: DecisionSubmitRequest) => {
-    const ok = await submitDecision(taskId, data);
-    showToast(ok ? '决定已提交，Agent 继续执行' : '提交决定失败，请重试', ok ? 'success' : 'error');
-  }, [submitDecision, showToast]);
-
   const handleStop = useCallback(() => {
     if (currentTaskId) cancelTask(currentTaskId);
     disconnectWebSocket();
@@ -235,7 +220,6 @@ export function AgentPage() {
       clearCurrent();
     }
     setPrompt('');
-    setShowPreview(false);
     inputRef.current?.focus();
   }, [createConversation, clearCurrent]);
 
@@ -367,65 +351,7 @@ export function AgentPage() {
         </div>
       </div>
 
-      <DecisionDialog
-        decision={pendingDecision}
-        taskId={currentTaskId}
-        onSubmit={handleDecisionSubmit}
-        onClose={clearDecision}
-      />
-
-      <RecoveryDialog
-        recovery={recoveryState}
-        onRetry={retryStep}
-        onSkip={skipStep}
-        onCancel={clearCurrent}
-        onClose={clearCurrent}
-      />
-
-      <PlanPreviewDialog open={showPreview} onClose={() => setShowPreview(false)} />
     </div>
-  );
-}
-
-function PlanPreviewDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { currentPlan } = useAgentStore();
-
-  return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle className="text-sm">执行计划</DialogTitle>
-        </DialogHeader>
-        <p className="text-xs text-app-text-secondary mb-3">
-          {currentPlan?.goal || '正在生成计划...'}
-        </p>
-        {currentPlan ? (
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 text-[11px] text-app-text-tertiary">
-              <span>预计 {currentPlan.estimated_steps} 步</span>
-              <span>·</span>
-              <span>{currentPlan.tasks.length} 个子任务</span>
-            </div>
-            <div className="max-h-64 space-y-1.5 overflow-auto">
-              {currentPlan.tasks.map((task, i) => {
-                const label = getAgentLabel(task.agent_type);
-                return (
-                  <div key={i} className="flex items-center gap-2 rounded-lg border border-app-border bg-app-surface px-3 py-2 text-xs">
-                    <span className="text-app-text-tertiary">#{i + 1}</span>
-                    <span className="font-medium text-app-text">{label}</span>
-                    <span className="ml-auto text-app-text-tertiary">
-                      {task.dependencies.length > 0 ? `依赖: ${task.dependencies.join(', ')}` : '无依赖'}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        ) : (
-          <p className="py-4 text-center text-xs text-app-text-tertiary">加载中...</p>
-        )}
-      </DialogContent>
-    </Dialog>
   );
 }
 

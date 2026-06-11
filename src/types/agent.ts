@@ -45,14 +45,6 @@ export interface LLMToolEventData {
   content: string;
 }
 
-export interface DecisionRequiredData {
-  task_id: string;
-  decision_id: string;
-  question: string;
-  options: Array<{ value: string; label: string }>;
-  context?: Record<string, unknown>;
-}
-
 export interface AgentTask {
   id: string;
   agent_type: string;
@@ -135,7 +127,7 @@ export interface AsyncTask {
   id: string;
   user_id: string;
   prompt: string;
-  state: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'awaiting_input';
+  state: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
   progress: number;
   progress_message: string;
   current_step: string;
@@ -145,26 +137,6 @@ export interface AsyncTask {
   created_at: string;
   completed_at?: string;
   result?: unknown;
-  pending_decision?: PendingDecision;
-}
-
-export interface DecisionOption {
-  value: string;
-  label: string;
-}
-
-export interface PendingDecision {
-  decision_id: string;
-  task_id: string;
-  question: string;
-  options: DecisionOption[];
-  context?: Record<string, unknown>;
-}
-
-export interface DecisionSubmitRequest {
-  decision_id: string;
-  choice: string;
-  text?: string;
 }
 
 export interface ChatMessage {
@@ -189,7 +161,7 @@ export interface StreamToolUse {
 // === Stream Event (for real-time agent thinking display) ===
 export interface StreamEvent {
   id: string;
-  type: 'user_message' | 'plan' | 'thinking_step' | 'progress' | 'decision_required' | 'result' | 'error' | 'done' | 'llm_chunk' | 'reasoning' | 'tool_use' | 'tool_result';
+  type: 'user_message' | 'plan' | 'thinking_step' | 'progress' | 'result' | 'error' | 'done' | 'llm_chunk' | 'reasoning' | 'tool_use' | 'tool_result';
   timestamp: number;
   /** Event payload — always a flat Record. Use typed accessors below. */
   data: Record<string, unknown>;
@@ -223,9 +195,6 @@ export function asErrorData(data: Record<string, unknown>): ErrorEventData {
 export function asLLMToolData(data: Record<string, unknown>): LLMToolEventData {
   return data as unknown as LLMToolEventData;
 }
-export function asDecisionRequired(data: Record<string, unknown>): DecisionRequiredData {
-  return data as unknown as DecisionRequiredData;
-}
 
 // LLM 流式 token（用于打字机效果）
 export interface LLMChunk {
@@ -253,17 +222,6 @@ export interface PreviousGeneration {
 
 export type ContentType = 'blog' | 'social_post' | 'copywriting' | 'script' | 'newsletter' | 'report' | 'auto';
 export type ContentStyle = '技术' | '种草' | '干货' | '幽默' | '深度' | '教程' | '';
-
-/** 步骤执行失败后的恢复选项 */
-export type RecoveryAction = 'retry' | 'skip' | 'cancel';
-
-export interface RecoveryState {
-  failedStepIndex: number;
-  failedStep: ThinkingStep | null;
-  retryCount: number;
-  errorMessage: string;
-  planSnapshot: ExecutionPlan | null;
-}
 
 /** 系统监控指标 from GET /agent/metrics */
 export interface AgentMetrics {

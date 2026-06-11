@@ -8,19 +8,16 @@ import { useWebSocketAgent } from '../hooks/useWebSocketAgent';
 import { cn } from '../utils/helpers';
 import { AgentThinkingStream } from '../components/agent/AgentThinkingStream';
 import {
-  Send, Square, Eye, Code2, Sparkles,
+  Send, Square, Code2, Sparkles,
   Bot, ChevronRight, X,
 } from 'lucide-react';
 import type { ExecutionPlan, ChatMessage } from '../types';
-import { DecisionDialog } from '../components/agent/DecisionDialog';
-import { RecoveryDialog } from '../components/agent/RecoveryDialog';
 import { AgentThinkingPanel } from '../components/agent/AgentThinkingPanel';
 import { AgentLiveView } from '../components/agent/AgentLiveView';
 import { AgentDebugView } from '../components/agent/AgentDebugView';
 import { Switch } from '../components/ui/switch';
 import { SkillSelector } from '../components/skill/SkillSelector';
 import { TaskProgressBar } from '../components/agent/TaskProgressBar';
-import { ExecutionPlanEditor } from '../components/agent/ExecutionPlanEditor';
 import { ResultPreview } from '../components/agent/ResultPreview';
 import { GenerationHistory } from '../components/agent/GenerationHistory';
 import { EmptyStudioState, QuickTemplates, PlanProgressStrip, PlanSummaryCard, ResultSection } from '../components/agent/StudioComponents';
@@ -38,14 +35,13 @@ function formatDuration(seconds: number) {
 export function AgentStudioPage() {
   const {
     currentTaskId, currentTask, currentResult, currentPlan,
-    isRunning, pendingDecision,
-    thinkingSteps, recoveryState, previousGenerations,
+    isRunning,
+    thinkingSteps, previousGenerations,
     addMessage,
     runAsync, runStreaming,
-    retryStep, skipStep,
-    submitDecision, clearDecision, cancelTask,
+    cancelTask,
     disconnectWebSocket, clearCurrent,
-    previewPlan, loadTaskStatus,
+    loadTaskStatus,
     appliedSkill, appliedSkillFull,
     setAppliedSkill,
   } = useAgentStore();
@@ -53,7 +49,6 @@ export function AgentStudioPage() {
   const showToast = useUIStore((s) => s.showToast);
 
   const [prompt, setPrompt] = useState('');
-  const [showPlanEditor, setShowPlanEditor] = useState(false);
   const [runningTime, setRunningTime] = useState(0);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [activeRightTab, setActiveRightTab] = useState<'preview' | 'trace' | 'debug'>('preview');
@@ -122,47 +117,7 @@ export function AgentStudioPage() {
   // WebSocket fallback (仅非 streaming 模式)
   useWebSocketAgent(currentTaskId, { enabled: !useStreaming });
 
-  // Preview plan
-  const handlePreviewPlan = useCallback(async () => {
-    if (!prompt.trim()) return;
-    showToast('正在生成执行计划...', 'info');
-    const plan = await previewPlan(prompt.trim());
-    if (plan) {
-      setShowPlanEditor(true);
-      showToast(`计划包含 ${plan.tasks.length} 个步骤`, 'info');
-    } else {
-      showToast('生成计划失败', 'error');
-    }
-  }, [prompt, previewPlan, showToast]);
-
-  // Confirm plan → execute
-  const handleConfirmPlan = useCallback(async (adjustedPlan: ExecutionPlan) => {
-    setShowPlanEditor(false);
-    showToast(`执行计划已确认，共 ${adjustedPlan.tasks.length} 个步骤`, 'info');
-
-    const enriched = enrichPrompt(prompt.trim());
-    // Incorporate plan into the execution prompt
-    const planContext = adjustedPlan.goal
-      ? `${enriched}\n\n[已确认计划: ${adjustedPlan.goal} — ${adjustedPlan.tasks.length} 个步骤]`
-      : enriched;
-
-    const userMsg: ChatMessage = {
-      id: crypto.randomUUID(),
-      role: 'user',
-      content: prompt.trim(),
-      timestamp: Date.now(),
-    };
-    addMessage(userMsg);
-
-    if (useStreaming) {
-      await runStreaming(planContext);
-    } else {
-      const taskId = await runAsync(planContext);
-      if (!taskId) showToast('提交任务失败', 'error');
-    }
-  }, [prompt, enrichPrompt, runAsync, runStreaming, useStreaming, addMessage, showToast]);
-
-  // Direct execute (skip plan)
+  // Direct execute
   const handleDirectExecute = useCallback(async () => {
     if (!prompt.trim()) return;
 
@@ -199,12 +154,6 @@ export function AgentStudioPage() {
       setTimeout(() => setCopiedId(null), 2000);
     } catch { /* fallback */ }
   }, []);
-
-  // Decision
-  const handleDecisionSubmit = useCallback(async (taskId: string, data: { decision_id: string; choice: string; text?: string }) => {
-    const ok = await submitDecision(taskId, data);
-    showToast(ok ? '决定已提交' : '提交失败', ok ? 'success' : 'error');
-  }, [submitDecision, showToast]);
 
   return (
     <div className="flex h-full gap-0">
@@ -255,9 +204,6 @@ export function AgentStudioPage() {
                       <>
                         <Button onClick={handleDirectExecute} disabled={!prompt.trim()} className="flex-1 h-8 text-xs">
                           <Send className="w-3 h-3 mr-1" /> 直接执行
-                        </Button>
-                        <Button onClick={handlePreviewPlan} disabled={!prompt.trim()} variant="outline" size="sm" className="h-8 text-xs px-2">
-                          <Eye className="w-3 h-3 mr-1" /> 预览计划
                         </Button>
                       </>
                     )}
@@ -451,30 +397,6 @@ export function AgentStudioPage() {
         >
           <Eye className="w-4 h-4" />
         </button>
-      )}
-
-      <DecisionDialog
-        decision={pendingDecision}
-        taskId={currentTaskId}
-        onSubmit={handleDecisionSubmit}
-        onClose={clearDecision}
-      />
-
-      <RecoveryDialog
-        recovery={recoveryState}
-        onRetry={retryStep}
-        onSkip={skipStep}
-        onCancel={clearCurrent}
-        onClose={clearCurrent}
-      />
-
-      {currentPlan && (
-        <ExecutionPlanEditor
-          plan={currentPlan}
-          open={showPlanEditor}
-          onConfirm={handleConfirmPlan}
-          onCancel={() => setShowPlanEditor(false)}
-        />
       )}
     </div>
   );

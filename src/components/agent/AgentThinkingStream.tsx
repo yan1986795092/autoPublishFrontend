@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAgentStore } from '../../stores/useAgentStore';
 import { cn } from '../../utils/helpers';
 import Markdown from 'react-markdown';
-import { InlineDecision } from './InlineDecision';
 import {
   Brain, CheckCircle, AlertCircle, Loader2,
   ChevronDown, MessageSquare, ListChecks,
@@ -292,7 +291,7 @@ function ReasoningCard({ chunks }: { agent: string; chunks: ReasoningChunk[] }) 
 export function AgentThinkingStream({ onPublish }: {
   onPublish?: (contentId: string) => void;
 }) {
-  const { streamEvents, currentTaskId, pendingDecision, submitDecision } = useAgentStore();
+  const { streamEvents } = useAgentStore();
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -307,11 +306,6 @@ export function AgentThinkingStream({ onPublish }: {
     if (!containerRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
     setAutoScroll(scrollHeight - scrollTop - clientHeight < 60);
-  };
-
-  const handleDecision = async (decisionId: string, choice: string) => {
-    if (!currentTaskId) return;
-    await submitDecision(currentTaskId, { decision_id: decisionId, choice });
   };
 
   // Render groups: timeline steps + other event types
@@ -385,9 +379,6 @@ export function AgentThinkingStream({ onPublish }: {
               <ToolCard tool={event.data as unknown as StreamToolUse} status="result" />
             </div>
           )}
-          {event.type === 'decision_required' && (
-            <InlineDecision event={event} onSubmit={handleDecision} />
-          )}
         </>
       )});
     }
@@ -430,19 +421,6 @@ export function AgentThinkingStream({ onPublish }: {
               <div key={item.id}>{item.el}</div>
             ))}
           </div>
-        )}
-
-        {/* Pending decision */}
-        {pendingDecision && !streamEvents.some(e => e.type === 'decision_required') && (
-          <InlineDecision
-            event={{
-              id: 'pending-decision',
-              type: 'decision_required',
-              timestamp: Date.now(),
-              data: pendingDecision as unknown as Record<string, unknown>,
-            }}
-            onSubmit={handleDecision}
-          />
         )}
 
         <div ref={bottomRef} />

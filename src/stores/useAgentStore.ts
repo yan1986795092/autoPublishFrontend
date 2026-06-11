@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { AsyncTask, AgentResult, ExecutionPlan, PendingDecision, DecisionSubmitRequest, ChatMessage, ThinkingStep, StreamEvent, LLMChunk, ReasoningChunk, PreviousGeneration, RecoveryState } from '../types';
+import type { AsyncTask, AgentResult, ExecutionPlan, ChatMessage, ThinkingStep, StreamEvent, LLMChunk, ReasoningChunk, PreviousGeneration } from '../types';
 import { getResultThinkingSteps } from '../utils/agentEvents';
 import { resultToTimelineEvents } from '../utils/agentEventTimeline';
 import { agentApi, chatApi, type ChatConversationSummary } from '../services/api';
@@ -14,9 +14,6 @@ interface AgentState {
   currentPlan: ExecutionPlan | null;
   isRunning: boolean;
   error: string | null;
-
-  // 决策
-  pendingDecision: PendingDecision | null;
 
   // Thinking trace（实时步骤）
   thinkingSteps: ThinkingStep[];
@@ -38,11 +35,6 @@ interface AgentState {
 
   // 历史生成记录（多次执行的结果存档）
   previousGenerations: PreviousGeneration[];
-
-  // 错误恢复状态
-  recoveryState: RecoveryState | null;
-  retryStep: () => Promise<void>;
-  skipStep: () => Promise<void>;
 
   // 消息列表（Chat 式界面）
   messages: ChatMessage[];
@@ -70,9 +62,6 @@ interface AgentState {
   loadTaskHistory: () => Promise<void>;
   setCurrentResult: (result: AgentResult | null) => void;
   setCurrentTask: (task: AsyncTask | null) => void;
-  setPendingDecision: (decision: PendingDecision | null) => void;
-  submitDecision: (taskId: string, data: DecisionSubmitRequest) => Promise<boolean>;
-  clearDecision: () => void;
   cancelTask: (taskId: string) => Promise<boolean>;
   _abortController: AbortController | null;
   clearCurrent: () => void;
@@ -123,7 +112,6 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
   currentPlan: null,
   isRunning: false,
   error: null,
-  pendingDecision: null,
   thinkingSteps: [],
   streamEvents: [],
   llmChunks: {},
@@ -133,7 +121,6 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
   _reconnectTimer: null,
   taskHistory: [],
   _abortController: null,
-  recoveryState: null,
   previousGenerations: [],
   messages: [],
   contentTypeConfig: null,
@@ -313,10 +300,6 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
         } else if (data.type === 'thinking_step') {
           const step = data.data as ThinkingStep;
           set((s) => ({ thinkingSteps: [...s.thinkingSteps, step] }));
-        } else if (data.type === 'decision_required') {
-          const decision = data.data as PendingDecision;
-          useAgentStore.getState().setPendingDecision(decision);
-          // showToast is a UI concern, handled by the component
         } else if (data.type === 'result') {
           const result = data.data as AgentResult;
           useAgentStore.getState().setCurrentResult(result);
@@ -531,7 +514,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       set((s) => ({ previousGenerations: [...s.previousGenerations, gen] }));
     }
 
-    set({ isRunning: true, error: null, thinkingSteps: [], currentResult: null, llmChunks: {}, reasoningChunks: {}, recoveryState: null, streamEvents: [] });
+    set({ isRunning: true, error: null, thinkingSteps: [], currentResult: null, llmChunks: {}, reasoningChunks: {}, streamEvents: [] });
 
     const controller = new AbortController();
     set({ _abortController: controller });
@@ -643,18 +626,6 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       }
     });
 
-    processor.on('decision_required', (event) => {
-      set((s) => ({
-        pendingDecision: event.data as unknown as PendingDecision,
-        streamEvents: [...s.streamEvents, {
-          id: `decision-${Date.now()}`,
-          type: 'decision_required',
-          timestamp: Date.now(),
-          data: event.data,
-        }],
-      }));
-    });
-
     processor.on('error', (event) => {
       errorOccurred = true;
       get().updateMessage(assistantMsgId, {
@@ -673,13 +644,6 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
           content: (event.data.message as string) || '执行出错',
           status: 'failed',
         }],
-        recoveryState: {
-          failedStepIndex: s.thinkingSteps.length,
-          failedStep: lastStep,
-          retryCount: s.recoveryState?.retryCount ?? 0,
-          errorMessage: (event.data.message as string) || '执行出错',
-          planSnapshot: s.currentPlan,
-        },
       }));
       // 同步失败状态到数据库
       if (conversationId) {
@@ -763,19 +727,11 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     }, {
       onError(errorMsg) {
         if (errorOccurred) return; // already handled by error event
-        const recovery = lastStep ? {
-          failedStepIndex: useAgentStore.getState().thinkingSteps.length,
-          failedStep: lastStep,
-          retryCount: useAgentStore.getState().recoveryState?.retryCount ?? 0,
-          errorMessage: errorMsg,
-          planSnapshot: useAgentStore.getState().currentPlan,
-        } : undefined;
         set((_) => ({
           error: errorMsg,
           isRunning: false,
           currentTaskId: null,
           _abortController: null,
-          ...(recovery ? { recoveryState: recovery } : {}),
         }));
       },
     }, controller.signal);
@@ -817,21 +773,6 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
 
   setCurrentResult: (result) => set({ currentResult: result }),
   setCurrentTask: (task) => set({ currentTask: task }),
-  setPendingDecision: (decision) => set({ pendingDecision: decision }),
-  submitDecision: async (taskId: string, data: DecisionSubmitRequest) => {
-    try {
-      const response = await agentApi.submitDecision(taskId, data);
-      if (response.data.success) {
-        set({ pendingDecision: null });
-        return true;
-      }
-      return false;
-    } catch (e) {
-      console.error('submitDecision failed:', e);
-      return false;
-    }
-  },
-  clearDecision: () => set({ pendingDecision: null }),
 
   cancelTask: async (taskId: string) => {
     const { _abortController } = useAgentStore.getState();
@@ -856,52 +797,6 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     }
   },
 
-  retryStep: async () => {
-    const state = useAgentStore.getState();
-    if (!state.recoveryState) return;
-    // Abort any in-flight SSE stream before starting a new one
-    const { _abortController } = state;
-    if (_abortController) {
-      _abortController.abort();
-    }
-    const lastPrompt = state.messages.find(m => m.role === 'user')?.content || '';
-    set({ error: null, recoveryState: null, isRunning: true });
-    try {
-      if (lastPrompt) {
-        // runStreaming is an async action; await it to ensure isRunning is managed correctly
-        await state.runStreaming(lastPrompt);
-      } else {
-        set({ isRunning: false });
-      }
-    } catch {
-      set({ isRunning: false, error: '重试失败' });
-    }
-  },
-
-  skipStep: async () => {
-    const state = useAgentStore.getState();
-    if (!state.recoveryState) return;
-    // 在 thinkingSteps 中添加一个标记为 skipped 的步骤
-    const skippedStep: ThinkingStep = {
-      step_number: state.recoveryState.failedStepIndex,
-      agent: state.recoveryState.failedStep?.agent || 'unknown',
-      action: 'skipped',
-      reasoning: '用户选择跳过此步骤',
-      input_summary: '',
-      output_summary: '已跳过',
-      tokens_used: 0,
-      time_elapsed: 0,
-      status: 'done',
-    };
-    // 清除错误和恢复状态
-    set((s) => ({
-      error: null,
-      recoveryState: null,
-      thinkingSteps: [...s.thinkingSteps, skippedStep],
-      isRunning: false,
-    }));
-  },
-
   clearCurrent: () => {
     const s = useAgentStore.getState();
     if (s._abortController) s._abortController.abort();
@@ -924,7 +819,6 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       currentPlan: null,
       isRunning: false,
       error: null,
-      pendingDecision: null,
       thinkingSteps: [],
       llmChunks: {},
       reasoningChunks: {},

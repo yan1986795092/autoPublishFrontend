@@ -1,12 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAgentStore } from '../stores/useAgentStore';
 import { useUIStore } from '../stores/useUIStore';
-import type { ChatMessage, ExecutionPlan } from '../types';
+import type { ChatMessage } from '../types';
 
 export type WorkspaceMode = 'chat' | 'create' | 'studio';
 
 interface UseExecutionEngineReturn {
-  // State
   prompt: string;
   setPrompt: (v: string) => void;
   runningTime: number;
@@ -21,28 +20,18 @@ interface UseExecutionEngineReturn {
   previousGenerations: ReturnType<typeof useAgentStore.getState>['previousGenerations'];
   appliedSkill: ReturnType<typeof useAgentStore.getState>['appliedSkill'];
   appliedSkillFull: ReturnType<typeof useAgentStore.getState>['appliedSkillFull'];
-  pendingDecision: ReturnType<typeof useAgentStore.getState>['pendingDecision'];
-  recoveryState: ReturnType<typeof useAgentStore.getState>['recoveryState'];
   wsConnectionState: ReturnType<typeof useAgentStore.getState>['wsConnectionState'];
   useStreaming: boolean;
   setUseStreaming: (v: boolean) => void;
 
-  // Actions
   handleExecute: (text: string) => Promise<void>;
   handleStop: () => void;
   handleDirectExecute: () => Promise<void>;
-  handlePreviewPlan: () => Promise<void>;
-  handleConfirmPlan: (adjustedPlan: ExecutionPlan) => Promise<void>;
-  handleDecisionSubmit: (taskId: string, data: { decision_id: string; choice: string; text?: string }) => Promise<boolean>;
-  handleRetryStep: () => Promise<void>;
-  handleSkipStep: () => Promise<void>;
   handleClearCurrent: () => void;
-  handleClearDecision: () => void;
   handleSetAppliedSkill: ReturnType<typeof useAgentStore.getState>['setAppliedSkill'];
   addMessage: ReturnType<typeof useAgentStore.getState>['addMessage'];
 }
 
-/** Enrich prompt with skill template + content type context */
 function enrichPrompt(
   text: string,
   appliedSkillFull: ReturnType<typeof useAgentStore.getState>['appliedSkillFull'],
@@ -86,8 +75,6 @@ export function useExecutionEngine(_mode: WorkspaceMode): UseExecutionEngineRetu
   const previousGenerations = useAgentStore((s) => s.previousGenerations);
   const appliedSkill = useAgentStore((s) => s.appliedSkill);
   const appliedSkillFull = useAgentStore((s) => s.appliedSkillFull);
-  const pendingDecision = useAgentStore((s) => s.pendingDecision);
-  const recoveryState = useAgentStore((s) => s.recoveryState);
   const wsConnectionState = useAgentStore((s) => s.wsConnectionState);
   const contentTypeConfig = useAgentStore((s) => s.contentTypeConfig);
 
@@ -99,18 +86,12 @@ export function useExecutionEngine(_mode: WorkspaceMode): UseExecutionEngineRetu
 
   const runStreaming = useAgentStore((s) => s.runStreaming);
   const runAsync = useAgentStore((s) => s.runAsync);
-  const previewPlan = useAgentStore((s) => s.previewPlan);
-  const retryStep = useAgentStore((s) => s.retryStep);
-  const skipStep = useAgentStore((s) => s.skipStep);
-  const submitDecision = useAgentStore((s) => s.submitDecision);
-  const clearDecision = useAgentStore((s) => s.clearDecision);
   const cancelTask = useAgentStore((s) => s.cancelTask);
   const disconnectWebSocket = useAgentStore((s) => s.disconnectWebSocket);
   const clearCurrent = useAgentStore((s) => s.clearCurrent);
   const setAppliedSkill = useAgentStore((s) => s.setAppliedSkill);
   const addMessage = useAgentStore((s) => s.addMessage);
 
-  // Running timer
   useEffect(() => {
     if (!isRunning) {
       setRunningTime(0);
@@ -163,60 +144,16 @@ export function useExecutionEngine(_mode: WorkspaceMode): UseExecutionEngineRetu
     showToast('任务已终止', 'info');
   }, [currentTaskId, cancelTask, disconnectWebSocket, showToast]);
 
-  const handlePreviewPlan = useCallback(async () => {
-    if (!prompt.trim()) return;
-    showToast('正在生成执行计划...', 'info');
-    const plan = await previewPlan(prompt.trim());
-    if (plan) {
-      showToast(`计划包含 ${plan.tasks.length} 个步骤`, 'info');
-    } else {
-      showToast('生成计划失败', 'error');
-    }
-  }, [prompt, previewPlan, showToast]);
-
-  const handleConfirmPlan = useCallback(async (adjustedPlan: ExecutionPlan) => {
-    const enriched = enrichPrompt(prompt.trim(), appliedSkillFull, contentTypeConfig);
-    const planContext = adjustedPlan.goal
-      ? `${enriched}\n\n[已确认计划: ${adjustedPlan.goal} — ${adjustedPlan.tasks.length} 个步骤]`
-      : enriched;
-
-    const userMsg: ChatMessage = {
-      id: crypto.randomUUID(),
-      role: 'user',
-      content: prompt.trim(),
-      timestamp: Date.now(),
-    };
-    addMessage(userMsg);
-
-    if (useStreaming) {
-      await runStreaming(planContext);
-    } else {
-      const taskId = await runAsync(planContext);
-      if (!taskId) showToast('提交任务失败', 'error');
-    }
-  }, [prompt, useStreaming, runStreaming, runAsync, addMessage, showToast, appliedSkillFull, contentTypeConfig]);
-
-  const handleDecisionSubmit = useCallback(async (taskId: string, data: { decision_id: string; choice: string; text?: string }) => {
-    const ok = await submitDecision(taskId, data);
-    showToast(ok ? '决定已提交' : '提交失败', ok ? 'success' : 'error');
-    return ok;
-  }, [submitDecision, showToast]);
-
   return {
     prompt, setPrompt,
     runningTime, isRunning,
     currentResult, currentPlan, currentTask, currentTaskId,
     thinkingSteps, llmChunks, messages, previousGenerations,
     appliedSkill, appliedSkillFull,
-    pendingDecision, recoveryState, wsConnectionState,
+    wsConnectionState,
     useStreaming, setUseStreaming,
     handleExecute, handleStop, handleDirectExecute,
-    handlePreviewPlan, handleConfirmPlan,
-    handleDecisionSubmit,
-    handleRetryStep: retryStep,
-    handleSkipStep: skipStep,
     handleClearCurrent: clearCurrent,
-    handleClearDecision: clearDecision,
     handleSetAppliedSkill: setAppliedSkill,
     addMessage,
   };

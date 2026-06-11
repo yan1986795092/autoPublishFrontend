@@ -184,7 +184,11 @@ export function ProductionTab() {
             <Tooltip content={<PlatformTooltip />} />
             <Bar dataKey="count" name="产量" fill="#3b82f6" radius={[0, 3, 3, 0]}
               label={{ position: 'right', fontSize: 10, fill: '#888',
-                formatter: ((_: any, entry: any) => `${entry.payload.percentage}% (${entry.payload.count})`) as any }} />
+                formatter: ((value: any, entry: any) => {
+                  if (!entry) return value;
+                  const d = entry.payload || entry;
+                  return `${d.percentage}% (${d.count})`;
+                }) as any }} />
           </BarChart>
         </ResponsiveContainer>
       </div>

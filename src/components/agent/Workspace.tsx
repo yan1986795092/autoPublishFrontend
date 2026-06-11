@@ -68,10 +68,10 @@ export function Workspace() {
 
   const handleSubmit = useCallback(async () => {
     if (!prompt.trim() || isRunning) return;
-    // Pass raw prompt — enrichment handled by useExecutionEngine (skill template / content type config)
-    await engine.handleExecute(prompt.trim());
+    // 传入选中的平台 — 后端使用 platform_profile 中的写作 DNA
+    await engine.handleExecute(prompt.trim(), selectedPlatform);
     setPrompt('');
-  }, [prompt, isRunning, engine, setPrompt]);
+  }, [prompt, isRunning, engine, setPrompt, selectedPlatform]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {

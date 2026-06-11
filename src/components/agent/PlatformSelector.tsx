@@ -7,6 +7,8 @@ export interface Platform {
   label: string;
   icon: string;
   category: 'publishable' | 'content' | 'professional';
+  /** 简短描述，显示在选择器下方 */
+  hint: string;
 }
 
 export const PLATFORM_GROUPS: { key: Platform['category']; label: string; badge: string; platforms: Platform[] }[] = [
@@ -15,11 +17,11 @@ export const PLATFORM_GROUPS: { key: Platform['category']; label: string; badge:
     label: '社交平台',
     badge: '可一键发布',
     platforms: [
-      { id: 'xiaohongshu', label: '小红书', icon: '📕', category: 'publishable' },
-      { id: 'wechat', label: '公众号', icon: '📱', category: 'publishable' },
-      { id: 'weibo', label: '微博', icon: '🔵', category: 'publishable' },
-      { id: 'douyin', label: '抖音', icon: '🎵', category: 'publishable' },
-      { id: 'bilibili', label: 'B站', icon: '🅱️', category: 'publishable' },
+      { id: 'xiaohongshu', label: '小红书', icon: '📕', category: 'publishable', hint: '种草笔记 · 口语化 · 短段落' },
+      { id: 'wechat', label: '公众号', icon: '📱', category: 'publishable', hint: '深度长文 · 专业温暖 · 小标题' },
+      { id: 'weibo', label: '微博', icon: '🔵', category: 'publishable', hint: '短平快 · 140字 · 话题标签' },
+      { id: 'douyin', label: '抖音', icon: '🎵', category: 'publishable', hint: '口播脚本 · 3秒钩子 · 节奏感' },
+      { id: 'bilibili', label: 'B站', icon: '🅱️', category: 'publishable', hint: 'UP主风格 · 弹幕文化 · 专业有趣' },
     ],
   },
   {
@@ -27,11 +29,11 @@ export const PLATFORM_GROUPS: { key: Platform['category']; label: string; badge:
     label: '内容创作',
     badge: '提供文案',
     platforms: [
-      { id: 'copywriting', label: '产品文案', icon: '📝', category: 'content' },
-      { id: 'brand-story', label: '品牌故事', icon: '💼', category: 'content' },
-      { id: 'ad-copy', label: '广告文案', icon: '📢', category: 'content' },
-      { id: 'fiction', label: '小说故事', icon: '📖', category: 'content' },
-      { id: 'script', label: '剧本脚本', icon: '🎬', category: 'content' },
+      { id: 'copywriting', label: '产品文案', icon: '📝', category: 'content', hint: '卖点清晰 · 价值主张 · CTA' },
+      { id: 'brand-story', label: '品牌故事', icon: '💼', category: 'content', hint: '叙事感 · 品牌调性 · 情感共鸣' },
+      { id: 'ad-copy', label: '广告文案', icon: '📢', category: 'content', hint: '标题党 · 转化导向 · 紧迫感' },
+      { id: 'fiction', label: '小说故事', icon: '📖', category: 'content', hint: '人物对白 · 情节节奏 · 叙事' },
+      { id: 'script', label: '剧本脚本', icon: '🎬', category: 'content', hint: '镜头语言 · 景别标注 · 对白' },
     ],
   },
   {
@@ -39,10 +41,10 @@ export const PLATFORM_GROUPS: { key: Platform['category']; label: string; badge:
     label: '专业写作',
     badge: '提供文案',
     platforms: [
-      { id: 'tech-doc', label: '技术文档', icon: '📘', category: 'professional' },
-      { id: 'tutorial', label: '教程指南', icon: '📗', category: 'professional' },
-      { id: 'seo', label: 'SEO文章', icon: '🔍', category: 'professional' },
-      { id: 'email', label: '邮件营销', icon: '📧', category: 'professional' },
+      { id: 'tech-doc', label: '技术文档', icon: '📘', category: 'professional', hint: '结构清晰 · 术语规范 · 示例' },
+      { id: 'tutorial', label: '教程指南', icon: '📗', category: 'professional', hint: '循序渐进 · 步骤清晰 · 学练' },
+      { id: 'seo', label: 'SEO文章', icon: '🔍', category: 'professional', hint: '关键词布局 · 搜索友好 · 优化' },
+      { id: 'email', label: '邮件营销', icon: '📧', category: 'professional', hint: '问候语 · 价值内容 · CTA' },
     ],
   },
 ];
@@ -59,41 +61,70 @@ interface PlatformSelectorProps {
 
 export function PlatformSelector({ selected, onSelect }: PlatformSelectorProps) {
   return (
-    <div className="space-y-2">
+    <div className="space-y-4">
       {PLATFORM_GROUPS.map((group) => (
         <div key={group.key}>
           {/* Category header */}
-          <div className="flex items-center gap-2 mb-1.5 px-1">
-            <span className="text-[10px] font-medium text-app-text-tertiary uppercase tracking-wider">
+          <div className="flex items-center gap-2 mb-2 px-1">
+            <span className="text-xs font-semibold text-app-text uppercase tracking-wider">
               {group.label}
             </span>
             <span className={cn(
-              'text-[9px] px-1.5 py-0.5 rounded-full font-medium',
+              'text-[10px] px-2 py-0.5 rounded-full font-medium',
               group.key === 'publishable'
-                ? 'bg-green-500/10 text-green-400'
-                : 'bg-blue-500/10 text-blue-400'
+                ? 'bg-green-500/10 text-green-400 border border-green-500/20'
+                : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
             )}>
               {group.badge}
             </span>
           </div>
 
-          {/* Platform pills */}
-          <div className="flex flex-wrap gap-1.5">
-            {group.platforms.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => onSelect(selected === p.id ? null : p.id)}
-                className={cn(
-                  'flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-all',
-                  selected === p.id
-                    ? 'border-primary-500/50 bg-primary-600/15 text-primary-400 shadow-sm'
-                    : 'border-app-border bg-app-surface text-app-text-secondary hover:text-app-text hover:border-app-border-light'
-                )}
-              >
-                <span className="text-sm">{p.icon}</span>
-                {p.label}
-              </button>
-            ))}
+          {/* Platform pills — enhanced with hints */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {group.platforms.map((p) => {
+              const isSelected = selected === p.id;
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => onSelect(isSelected ? null : p.id)}
+                  className={cn(
+                    'flex flex-col items-start gap-1 rounded-xl border px-4 py-3 text-left transition-all duration-200',
+                    isSelected
+                      ? cn(
+                          'border-primary-500/60 bg-gradient-to-br from-primary-600/20 to-primary-600/5 shadow-lg shadow-primary-500/10',
+                          'ring-2 ring-primary-500/30'
+                        )
+                      : 'border-app-border/50 bg-app-surface/50 hover:bg-app-elevated/60 hover:border-app-border-light text-app-text-secondary'
+                  )}
+                >
+                  <div className="flex items-center gap-2 w-full">
+                    <span className={cn(
+                      'text-lg flex-shrink-0',
+                      isSelected ? 'scale-110' : ''
+                    )}>
+                      {p.icon}
+                    </span>
+                    <span className={cn(
+                      'text-sm font-semibold',
+                      isSelected ? 'text-primary-300' : 'text-app-text'
+                    )}>
+                      {p.label}
+                    </span>
+                    {isSelected && (
+                      <span className="ml-auto text-[10px] text-primary-400 font-medium bg-primary-500/15 px-2 py-0.5 rounded-full">
+                        已选
+                      </span>
+                    )}
+                  </div>
+                  <span className={cn(
+                    'text-[11px] leading-relaxed',
+                    isSelected ? 'text-primary-300/70' : 'text-app-text-tertiary'
+                  )}>
+                    {p.hint}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
       ))}

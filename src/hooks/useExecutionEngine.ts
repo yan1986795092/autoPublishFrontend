@@ -24,7 +24,7 @@ interface UseExecutionEngineReturn {
   useStreaming: boolean;
   setUseStreaming: (v: boolean) => void;
 
-  handleExecute: (text: string) => Promise<void>;
+  handleExecute: (text: string, platform?: string | null) => Promise<void>;
   handleStop: () => void;
   handleDirectExecute: () => Promise<void>;
   handleClearCurrent: () => void;
@@ -102,7 +102,7 @@ export function useExecutionEngine(_mode: WorkspaceMode): UseExecutionEngineRetu
     return () => clearInterval(timer);
   }, [isRunning]);
 
-  const handleExecute = useCallback(async (text: string) => {
+  const handleExecute = useCallback(async (text: string, platform?: string | null) => {
     if (!text.trim() || isRunning) return;
     const enriched = enrichPrompt(text.trim(), appliedSkillFull, contentTypeConfig);
     const userMsg: ChatMessage = {
@@ -113,7 +113,7 @@ export function useExecutionEngine(_mode: WorkspaceMode): UseExecutionEngineRetu
     };
     addMessage(userMsg);
     if (useStreaming) {
-      await runStreaming(enriched);
+      await runStreaming(enriched, platform);
     } else {
       const taskId = await runAsync(enriched);
       if (!taskId) showToast('提交任务失败', 'error');

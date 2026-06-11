@@ -56,8 +56,8 @@ interface AgentState {
   // Actions
   previewPlan: (prompt: string) => Promise<ExecutionPlan | null>;
   runSync: (prompt: string) => Promise<AgentResult | null>;
-  runAsync: (prompt: string) => Promise<string | null>;
-  runStreaming: (prompt: string) => Promise<void>;
+  runAsync: (prompt: string, platform?: string | null) => Promise<string | null>;
+  runStreaming: (prompt: string, platform?: string | null) => Promise<void>;
   loadTaskStatus: (taskId: string) => Promise<void>;
   loadTaskHistory: () => Promise<void>;
   setCurrentResult: (result: AgentResult | null) => void;
@@ -414,13 +414,14 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     }
   },
 
-  runAsync: async (prompt: string) => {
+  runAsync: async (prompt: string, platform?: string | null) => {
     try {
       set({ isRunning: true, error: null, thinkingSteps: [] });
       const { appliedSkill } = get();
       const response = await agentApi.submitAsync({
         prompt,
         skill_id: appliedSkill?.skill_id,
+        platform: platform || undefined,
       });
       if (response.data.success && response.data.data) {
         const taskId = response.data.data.task_id;
@@ -435,7 +436,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     }
   },
 
-  runStreaming: async (prompt: string) => {
+  runStreaming: async (prompt: string, platform?: string | null) => {
     const token = useAuthStore.getState().accessToken;
     const state = get();
 
@@ -742,6 +743,9 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     const bodyPayload: Record<string, unknown> = { prompt };
     if (appliedSkill?.skill_id) {
       bodyPayload.skill_id = appliedSkill.skill_id;
+    }
+    if (platform) {
+      bodyPayload.platform = platform;
     }
     set({ _streamingProcessor: processor });
 

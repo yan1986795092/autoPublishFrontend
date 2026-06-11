@@ -1,7 +1,7 @@
 import { Eye } from 'lucide-react';
-import Markdown from 'react-markdown';
 import type { AgentResult } from '../../types';
 import { PLATFORM_MAP } from './PlatformSelector';
+import { getPreviewComponent } from '../preview/index';
 
 interface ResultPreviewProps {
   result: AgentResult | null;
@@ -25,6 +25,9 @@ export function ResultPreview({ result, selectedPlatform }: ResultPreviewProps) 
 
   const platform = selectedPlatform ? PLATFORM_MAP.get(selectedPlatform) : null;
 
+  // 使用平台专属预览组件
+  const PreviewComponent = getPreviewComponent(selectedPlatform);
+
   return (
     <div className="space-y-3">
       {/* Platform context — show which platform this was generated for */}
@@ -38,11 +41,9 @@ export function ResultPreview({ result, selectedPlatform }: ResultPreviewProps) 
         </div>
       )}
 
-      <div className="rounded-lg border border-app-border overflow-hidden min-h-[300px]">
+      <div className="rounded-lg border border-app-border overflow-hidden">
         <div className="p-4 text-xs text-app-text-secondary leading-relaxed max-h-[600px] overflow-auto">
-          <div className="prose prose-invert max-w-none text-sm">
-            <Markdown>{content}</Markdown>
-          </div>
+          <PreviewComponent content={content} />
         </div>
       </div>
     </div>

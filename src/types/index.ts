@@ -118,26 +118,6 @@ export interface PublishResponse {
   platform_url?: string;
 }
 
-export interface PromptTemplate {
-  id: string;
-  name: string;
-  platform_code?: string;
-  description?: string;
-  is_public: boolean;
-  use_count: number;
-}
-
-export interface PromptTemplateDetail extends PromptTemplate {
-  system_prompt?: string;
-  user_template?: string;
-  variables?: Array<{ name: string; description: string; required: boolean }>;
-  temperature?: number;
-  max_tokens?: number;
-  model_preferred?: string;
-  created_at?: string;
-  updated_at?: string;
-}
-
 export interface ApiResponse<T = unknown> {
   success: boolean;
   data?: T;
@@ -230,6 +210,21 @@ export type {
   SkillImportResult,
   AppliedSkill,
 } from './skill';
+
+// ===================== Operations Center Types =====================
+
+export type {
+  ProductionMetrics,
+  DailyProductionTrend,
+  PlatformProduction,
+  PublishingMetrics,
+  PlatformHealth,
+  PublishFailure,
+  CostMetrics,
+  TokenDailyTrend,
+  CostStage,
+  CostDailyDetail,
+} from './operations';
 
 // ===================== Chat/Conversation Types =====================
 

@@ -451,94 +451,86 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     const token = useAuthStore.getState().accessToken;
     const state = get();
 
-    // ── Conversation & message setup (parallelized to reduce startup latency) ──
+    // ── Prepare local state immediately (don't wait for DB) ──
     let conversationId: string | null = state.conversationId;
     let assistantMsgId: string = crypto.randomUUID();
+    const temporaryId = assistantMsgId;  // may be replaced when DB returns
 
-    if (!conversationId) {
-      try {
-        const resp = await chatApi.quickStart({
-          role: 'user', content: prompt, status: 'completed',
-        });
-        if (resp.data.success && resp.data.data) {
-          conversationId = resp.data.data.conversation_id;
-          set({
-            conversationId,
-            messages: [{
-              id: resp.data.data.message.id,
-              role: 'user' as const,
-              content: prompt,
-              timestamp: new Date(resp.data.data.message.created_at).getTime(),
-              status: 'completed' as const,
-            }],
-          });
-          const [asstResp] = await Promise.all([
-            chatApi.addMessage(conversationId, {
-              role: 'assistant', content: '', status: 'running',
-            }),
-            get().loadConversations().catch(() => {}),
-          ]);
-          if (asstResp?.data?.success && asstResp.data.data) {
-            assistantMsgId = asstResp.data.data.id;
-            get().addMessage({
-              id: assistantMsgId, role: 'assistant', content: '', status: 'running',
-              timestamp: new Date(asstResp.data.data.created_at).getTime(),
-            });
-          }
-        }
-      } catch (e) {
-        console.error('quickStart failed:', e);
-      }
-    } else {
-      try {
-        const [userResp, asstResp] = await Promise.all([
-          chatApi.addMessage(conversationId, {
-            role: 'user', content: prompt, status: 'completed',
-          }),
-          chatApi.addMessage(conversationId, {
-            role: 'assistant', content: '', status: 'running',
-          }),
-        ]);
-        if (userResp?.data?.success && userResp.data.data) {
-          get().addMessage({
-            id: userResp.data.data.id,
-            role: 'user', content: prompt, status: 'completed',
-            timestamp: new Date(userResp.data.data.created_at).getTime(),
-          });
-        }
-        if (asstResp?.data?.success && asstResp.data.data) {
-          assistantMsgId = asstResp.data.data.id;
-          get().addMessage({
-            id: assistantMsgId,
-            role: 'assistant', content: '', status: 'running',
-            timestamp: new Date(asstResp.data.data.created_at).getTime(),
-          });
-        }
-        get().loadConversations().catch(() => {});
-      } catch (e) {
-        console.error('addMessage failed:', e);
-      }
+    // Add assistant placeholder locally for immediate UI feedback
+    if (!state.messages.find(m => m.role === 'assistant' && m.status === 'running')) {
+      get().addMessage({
+        id: temporaryId, role: 'assistant', content: '', status: 'running',
+        timestamp: Date.now(),
+      });
     }
 
-    // Archive previous generation before clearing for new run
+    // Archive previous generation
     const prevState = get();
     if (prevState.thinkingSteps.length > 0 || prevState.currentResult) {
       set((s) => ({
         previousGenerations: [...s.previousGenerations, {
-          id: crypto.randomUUID(),
-          prompt,
+          id: crypto.randomUUID(), prompt,
           result: prevState.currentResult,
-          events: [],
-          timestamp: Date.now(),
+          events: [], timestamp: Date.now(),
           plan: prevState.currentPlan || undefined,
         }],
       }));
     }
 
+    // ── Start streaming state ──
     set({ isRunning: true, error: null, thinkingSteps: [], currentResult: null, llmChunks: {}, reasoningChunks: {}, streamEvents: [] });
-
     const controller = new AbortController();
     set({ _abortController: controller });
+
+    // ── Create conversation messages in background (parallel with SSE) ──
+    const messagePromise = (async (): Promise<string> => {
+      let realAssistantId = temporaryId;
+      try {
+        if (!conversationId) {
+          const resp = await chatApi.quickStart({
+            role: 'user', content: prompt, status: 'completed',
+          });
+          if (resp.data.success && resp.data.data) {
+            conversationId = resp.data.data.conversation_id;
+            set({ conversationId });
+            const [asstResp] = await Promise.all([
+              chatApi.addMessage(conversationId, {
+                role: 'assistant', content: '', status: 'running',
+              }),
+              get().loadConversations().catch(() => {}),
+            ]);
+            if (asstResp?.data?.success && asstResp.data.data) {
+              realAssistantId = asstResp.data.data.id;
+            }
+          }
+        } else {
+          const [userResp, asstResp] = await Promise.all([
+            chatApi.addMessage(conversationId, {
+              role: 'user', content: prompt, status: 'completed',
+            }),
+            chatApi.addMessage(conversationId, {
+              role: 'assistant', content: '', status: 'running',
+            }),
+          ]);
+          if (asstResp?.data?.success && asstResp.data.data) {
+            realAssistantId = asstResp.data.data.id;
+          }
+          get().loadConversations().catch(() => {});
+        }
+      } catch (e) {
+        console.error('message creation failed:', e);
+      }
+      // Swap temporary ID to real ID if they differ
+      if (realAssistantId !== temporaryId) {
+        assistantMsgId = realAssistantId;
+        set((s) => ({
+          messages: s.messages.map(m =>
+            m.id === temporaryId ? { ...m, id: realAssistantId } : m
+          ),
+        }));
+      }
+      return realAssistantId;
+    })();
 
     const processor = new SSEProcessor();
 
@@ -753,27 +745,35 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       }));
     });
 
-    // Connect SSE stream
+    // Connect SSE stream (immediately — parallel with message creation)
     const appliedSkill = useAgentStore.getState().appliedSkill;
     const bodyPayload: Record<string, unknown> = { prompt };
     if (appliedSkill?.skill_id) bodyPayload.skill_id = appliedSkill.skill_id;
     if (platform) bodyPayload.platform = platform;
     set({ _streamingProcessor: processor });
 
-    let connectError: string | null = null;
-    await processor.connect(agentApi.streamUrl(), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify(bodyPayload),
-    }, {
-      onError(errorMsg) {
-        if (errorOccurred) return;
-        connectError = errorMsg;
-      },
-    }, controller.signal);
+    // Fire SSE and message creation in parallel
+    const [connectError] = await Promise.all([
+      (async (): Promise<string | null> => {
+        let err: string | null = null;
+        await processor.connect(agentApi.streamUrl(), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(bodyPayload),
+        }, {
+          onError(errorMsg) {
+            if (errorOccurred) return;
+            err = errorMsg;
+          },
+        }, controller.signal);
+        return err;
+      })(),
+      // Message creation runs in background, swaps assistantMsgId when done
+      messagePromise.then((realId) => { assistantMsgId = realId; }),
+    ]);
 
     if (connectError && !errorOccurred) {
       get().updateMessage(assistantMsgId, {

@@ -90,6 +90,11 @@ interface AgentState {
 
 const _CONV_STORAGE_KEY = 'autopublish-conversations';
 
+const _MAX_STREAM_EVENTS = 500;
+
+const _CHUNK_UPDATE_INTERVAL = 120;
+
+const _MSG_UPDATE_INTERVAL = 50;
 function _loadConvFromStorage(): Pick<AgentState, 'conversationId' | 'conversationList'> {
   try {
     const raw = localStorage.getItem(_CONV_STORAGE_KEY);
@@ -436,108 +441,98 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     }
   },
 
+  /** Push to streamEvents with a cap — older events are dropped. */
+  _pushStreamEvent: (events: StreamEvent[], event: StreamEvent): StreamEvent[] => {
+    const arr = [...events, event];
+    return arr.length > _MAX_STREAM_EVENTS ? arr.slice(-_MAX_STREAM_EVENTS) : arr;
+  },
+
   runStreaming: async (prompt: string, platform?: string | null) => {
     const token = useAuthStore.getState().accessToken;
     const state = get();
 
-    // 如果没有 conversationId，先创建对话并保存用户消息
+    // ── Conversation & message setup (parallelized to reduce startup latency) ──
     let conversationId: string | null = state.conversationId;
-    let userMsgId: string = crypto.randomUUID();
     let assistantMsgId: string = crypto.randomUUID();
 
     if (!conversationId) {
       try {
         const resp = await chatApi.quickStart({
-          role: 'user',
-          content: prompt,
-          status: 'completed',
+          role: 'user', content: prompt, status: 'completed',
         });
         if (resp.data.success && resp.data.data) {
           conversationId = resp.data.data.conversation_id;
-          userMsgId = resp.data.data.message.id;
-          set({ conversationId, messages: [{
-            id: userMsgId,
-            role: 'user' as const,
-            content: prompt,
-            timestamp: new Date(resp.data.data.message.created_at).getTime(),
-            status: 'completed' as const,
-          }] });
-          const assistantResp = await chatApi.addMessage(conversationId, {
-            role: 'assistant',
-            content: '',
-            status: 'running',
+          set({
+            conversationId,
+            messages: [{
+              id: resp.data.data.message.id,
+              role: 'user' as const,
+              content: prompt,
+              timestamp: new Date(resp.data.data.message.created_at).getTime(),
+              status: 'completed' as const,
+            }],
           });
-          if (assistantResp.data.success && assistantResp.data.data) {
-            assistantMsgId = assistantResp.data.data.id;
+          const [asstResp] = await Promise.all([
+            chatApi.addMessage(conversationId, {
+              role: 'assistant', content: '', status: 'running',
+            }),
+            get().loadConversations().catch(() => {}),
+          ]);
+          if (asstResp?.data?.success && asstResp.data.data) {
+            assistantMsgId = asstResp.data.data.id;
             get().addMessage({
-              id: assistantMsgId,
-              role: 'assistant',
-              content: '',
-              status: 'running',
-              timestamp: new Date(assistantResp.data.data.created_at).getTime(),
+              id: assistantMsgId, role: 'assistant', content: '', status: 'running',
+              timestamp: new Date(asstResp.data.data.created_at).getTime(),
             });
           }
-          get().loadConversations();
         }
       } catch (e) {
         console.error('quickStart failed:', e);
       }
     } else {
-      // 已有 conversation，添加用户消息
       try {
-        const resp = await chatApi.addMessage(conversationId, {
-          role: 'user',
-          content: prompt,
-          status: 'completed',
-        });
-        if (resp.data.success && resp.data.data) {
-          userMsgId = resp.data.data.id;
+        const [userResp, asstResp] = await Promise.all([
+          chatApi.addMessage(conversationId, {
+            role: 'user', content: prompt, status: 'completed',
+          }),
+          chatApi.addMessage(conversationId, {
+            role: 'assistant', content: '', status: 'running',
+          }),
+        ]);
+        if (userResp?.data?.success && userResp.data.data) {
           get().addMessage({
-            id: userMsgId,
-            role: 'user',
-            content: prompt,
-            timestamp: new Date(resp.data.data.created_at).getTime(),
-            status: 'completed',
+            id: userResp.data.data.id,
+            role: 'user', content: prompt, status: 'completed',
+            timestamp: new Date(userResp.data.data.created_at).getTime(),
           });
         }
-      } catch (e) {
-        console.error('addMessage failed:', e);
-      }
-      // 添加助手消息占位
-      try {
-        const assistantResp = await chatApi.addMessage(conversationId, {
-          role: 'assistant',
-          content: '',
-          status: 'running',
-        });
-        if (assistantResp.data.success && assistantResp.data.data) {
-          assistantMsgId = assistantResp.data.data.id;
+        if (asstResp?.data?.success && asstResp.data.data) {
+          assistantMsgId = asstResp.data.data.id;
           get().addMessage({
             id: assistantMsgId,
-            role: 'assistant',
-            content: '',
-            status: 'running',
-            timestamp: new Date(assistantResp.data.data.created_at).getTime(),
+            role: 'assistant', content: '', status: 'running',
+            timestamp: new Date(asstResp.data.data.created_at).getTime(),
           });
         }
-        get().loadConversations();
+        get().loadConversations().catch(() => {});
       } catch (e) {
-        console.error('add assistant message failed:', e);
+        console.error('addMessage failed:', e);
       }
     }
 
     // Archive previous generation before clearing for new run
     const prevState = get();
     if (prevState.thinkingSteps.length > 0 || prevState.currentResult) {
-      const gen: PreviousGeneration = {
-        id: crypto.randomUUID(),
-        prompt: prompt,
-        result: prevState.currentResult,
-        events: [],
-        timestamp: Date.now(),
-        plan: prevState.currentPlan || undefined,
-      };
-      set((s) => ({ previousGenerations: [...s.previousGenerations, gen] }));
+      set((s) => ({
+        previousGenerations: [...s.previousGenerations, {
+          id: crypto.randomUUID(),
+          prompt,
+          result: prevState.currentResult,
+          events: [],
+          timestamp: Date.now(),
+          plan: prevState.currentPlan || undefined,
+        }],
+      }));
     }
 
     set({ isRunning: true, error: null, thinkingSteps: [], currentResult: null, llmChunks: {}, reasoningChunks: {}, streamEvents: [] });
@@ -546,30 +541,61 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     set({ _abortController: controller });
 
     const processor = new SSEProcessor();
+
+    // ── Throttled update helpers ──
+    const { _pushStreamEvent } = useAgentStore.getState();
     let lastStep: ThinkingStep | null = null;
     let errorOccurred = false;
     let accumulated = '';
-    let lastUpdate = 0;
-    const THROTTLE_MS = 50;
+    let lastMsgUpdate = 0;
 
     const updateMsg = (content: string) => {
       const now = Date.now();
-      if (now - lastUpdate >= THROTTLE_MS) {
-        lastUpdate = now;
+      if (now - lastMsgUpdate >= _MSG_UPDATE_INTERVAL) {
+        lastMsgUpdate = now;
         get().updateMessage(assistantMsgId, { content });
       }
+    };
+
+    // ── Chunk batching (avoids per-chunk set()) ──
+    let chunkBatchTimer: ReturnType<typeof setTimeout> | null = null;
+    let pendingChunks: Array<{ agent: string; content: string }> = [];
+
+    const flushChunks = () => {
+      const batch = pendingChunks;
+      pendingChunks = [];
+      if (batch.length === 0) return;
+      set((s) => {
+        const newChunks = { ...s.llmChunks };
+        for (const { agent, content } of batch) {
+          const existing = newChunks[agent] || [];
+          newChunks[agent] = [...existing, { agent, content, timestamp: Date.now() }];
+        }
+        const lastEvent = batch[batch.length - 1];
+        return {
+          llmChunks: newChunks,
+          streamEvents: _pushStreamEvent(s.streamEvents, {
+            id: `llm-${Date.now()}-${lastEvent.agent}`,
+            type: 'llm_chunk',
+            timestamp: Date.now(),
+            data: { agent: lastEvent.agent, content: lastEvent.content },
+            agent: lastEvent.agent,
+            content: lastEvent.content,
+          }),
+        };
+      });
     };
 
     // Register SSE handlers
     processor.on('plan', (event) => {
       set((s) => ({
         currentPlan: event.data as unknown as ExecutionPlan,
-        streamEvents: [...s.streamEvents, {
+        streamEvents: _pushStreamEvent(s.streamEvents, {
           id: `plan-${Date.now()}`,
           type: 'plan',
           timestamp: Date.now(),
           data: event.data,
-        }],
+        }),
       }));
     });
 
@@ -578,61 +604,58 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     });
 
     processor.on('thinking_step', (event) => {
+      flushChunks();
       lastStep = event.data as unknown as ThinkingStep;
-      const streamEvent: StreamEvent = {
-        id: `thinking-${Date.now()}-${(event.data.step_number as number) || 0}`,
-        type: 'thinking_step',
-        timestamp: Date.now(),
-        data: event.data,
-        agent: event.data.agent as string,
-        action: event.data.action as string,
-        reasoning: event.data.reasoning as string,
-        status: event.data.status as string,
-        output_summary: event.data.output_summary as string,
-      };
       set((s) => ({
         thinkingSteps: s.thinkingSteps.length >= 200
           ? [...s.thinkingSteps.slice(1), lastStep!]
           : [...s.thinkingSteps, lastStep!],
-        streamEvents: [...s.streamEvents, streamEvent],
+        streamEvents: _pushStreamEvent(s.streamEvents, {
+          id: `thinking-${Date.now()}-${(event.data.step_number as number) || 0}`,
+          type: 'thinking_step',
+          timestamp: Date.now(),
+          data: event.data,
+          agent: event.data.agent as string,
+          action: event.data.action as string,
+          reasoning: event.data.reasoning as string,
+          status: event.data.status as string,
+          output_summary: event.data.output_summary as string,
+        }),
       }));
     });
 
     processor.on('progress', (event) => {
-      const existingTask = useAgentStore.getState().currentTask;
       set((s) => ({
         currentTask: {
-          ...existingTask,
-          id: (event.data.task_id as string) || existingTask?.id || '',
-          user_id: existingTask?.user_id || '',
-          prompt: existingTask?.prompt || prompt,
+          ...(s.currentTask || {}),
+          id: (event.data.task_id as string) || s.currentTask?.id || '',
+          user_id: s.currentTask?.user_id || '',
+          prompt: s.currentTask?.prompt || prompt,
           state: 'running',
           progress: (event.data.progress as number) || 0,
           progress_message: (event.data.progress_message as string) || '',
           current_step: (event.data.current_step as string) || '',
           completed_steps: (event.data.completed_steps as number) || 0,
           total_steps: (event.data.total_steps as number) || 0,
-          created_at: existingTask?.created_at || new Date().toISOString(),
+          created_at: s.currentTask?.created_at || new Date().toISOString(),
         } as AsyncTask,
-        streamEvents: [...s.streamEvents, {
+        streamEvents: _pushStreamEvent(s.streamEvents, {
           id: `progress-${Date.now()}`,
           type: 'progress',
           timestamp: Date.now(),
           data: event.data,
-        }],
+        }),
       }));
     });
 
     processor.on('result', (event) => {
+      flushChunks();
       const result = event.data as unknown as AgentResult;
       const timelineEvents = resultToTimelineEvents(result);
       const fullText = (result.output as any)?.full_text || (result.output as any)?.content || accumulated;
       const eventSteps = getResultThinkingSteps(result);
-      // Flush & mark completed
       get().updateMessage(assistantMsgId, {
-        status: 'completed',
-        content: fullText,
-        result,
+        status: 'completed', content: fullText, result,
       });
       set((s) => ({
         currentResult: result,
@@ -642,17 +665,16 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
         streamEvents: timelineEvents.length > 0 ? timelineEvents : s.streamEvents,
       }));
       get().loadTaskHistory();
-      // 同步助手消息到数据库
       if (conversationId) {
         chatApi.updateMessage(assistantMsgId, {
-          status: 'completed',
-          content: fullText,
+          status: 'completed', content: fullText,
           result: result as unknown as Record<string, unknown>,
         }).catch(console.error);
       }
     });
 
     processor.on('error', (event) => {
+      flushChunks();
       errorOccurred = true;
       get().updateMessage(assistantMsgId, {
         status: 'failed',
@@ -662,16 +684,15 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
         error: (event.data.message as string) || '执行出错',
         isRunning: false,
         currentTaskId: null,
-        streamEvents: [...s.streamEvents, {
+        streamEvents: _pushStreamEvent(s.streamEvents, {
           id: `error-${Date.now()}`,
           type: 'error',
           timestamp: Date.now(),
           data: event.data,
           content: (event.data.message as string) || '执行出错',
           status: 'failed',
-        }],
+        }),
       }));
-      // 同步失败状态到数据库
       if (conversationId) {
         chatApi.updateMessage(assistantMsgId, {
           status: 'failed',
@@ -687,14 +708,14 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
         const existing = s.reasoningChunks[agent] || [];
         return {
           reasoningChunks: { ...s.reasoningChunks, [agent]: [...existing, { agent, content, timestamp: Date.now() }] },
-          streamEvents: [...s.streamEvents, {
+          streamEvents: _pushStreamEvent(s.streamEvents, {
             id: `reasoning-${Date.now()}-${agent}`,
             type: 'reasoning',
             timestamp: Date.now(),
             data: event.data,
             agent,
             content,
-          }],
+          }),
         };
       });
     });
@@ -704,23 +725,17 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       const content = (event.data as any).content as string;
       accumulated += content;
       updateMsg(accumulated);
-      set((s) => {
-        const existing = s.llmChunks[agent] || [];
-        return {
-          llmChunks: { ...s.llmChunks, [agent]: [...existing, { agent, content, timestamp: Date.now() }] },
-          streamEvents: [...s.streamEvents, {
-            id: `llm-${Date.now()}-${agent}`,
-            type: 'llm_chunk',
-            timestamp: Date.now(),
-            data: event.data,
-            agent,
-            content,
-          }],
-        };
-      });
+      pendingChunks.push({ agent, content });
+      if (!chunkBatchTimer) {
+        chunkBatchTimer = setTimeout(() => {
+          chunkBatchTimer = null;
+          flushChunks();
+        }, _CHUNK_UPDATE_INTERVAL);
+      }
     });
 
     processor.on('done', () => {
+      flushChunks();
       if (accumulated) {
         get().updateMessage(assistantMsgId, { content: accumulated });
       }
@@ -729,24 +744,20 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
         currentTaskId: null,
         _abortController: null,
         _streamingProcessor: null,
-        streamEvents: [...s.streamEvents, {
+        streamEvents: _pushStreamEvent(s.streamEvents, {
           id: `done-${Date.now()}`,
           type: 'done',
           timestamp: Date.now(),
           data: {},
-        }],
+        }),
       }));
     });
 
-    // Connect and process stream — wire external signal so cancelTask aborts the fetch
+    // Connect SSE stream
     const appliedSkill = useAgentStore.getState().appliedSkill;
     const bodyPayload: Record<string, unknown> = { prompt };
-    if (appliedSkill?.skill_id) {
-      bodyPayload.skill_id = appliedSkill.skill_id;
-    }
-    if (platform) {
-      bodyPayload.platform = platform;
-    }
+    if (appliedSkill?.skill_id) bodyPayload.skill_id = appliedSkill.skill_id;
+    if (platform) bodyPayload.platform = platform;
     set({ _streamingProcessor: processor });
 
     let connectError: string | null = null;
@@ -759,16 +770,12 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       body: JSON.stringify(bodyPayload),
     }, {
       onError(errorMsg) {
-        if (errorOccurred) return; // already handled by error event
+        if (errorOccurred) return;
         connectError = errorMsg;
       },
     }, controller.signal);
 
-    // Only clear if the stream ended without an error being already handled
-    if (!errorOccurred && !connectError) {
-      // processor done event already set isRunning: false
-    } else if (connectError && !errorOccurred) {
-      // fetch-level error (non-abort)
+    if (connectError && !errorOccurred) {
       get().updateMessage(assistantMsgId, {
         status: 'failed',
         content: connectError,

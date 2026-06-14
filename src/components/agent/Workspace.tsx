@@ -8,6 +8,7 @@ import { useExecutionEngine } from '../../hooks/useExecutionEngine';
 import { useNavigate } from 'react-router-dom';
 import { contentsApi, aiEditApi } from '../../services/api';
 import { useUIStore } from '../../stores/useUIStore';
+import { useAgentStore } from '../../stores/useAgentStore';
 import {
   Send, Square, Bot, Sparkles, Copy, Check, X,
   Cpu, SlidersHorizontal, Upload, Globe, Save,
@@ -67,6 +68,7 @@ export function Workspace() {
   const [selectedPlatform, setSelectedPlatform] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const createConversation = useAgentStore((s) => s.createConversation);
 
   // ── Params dialog ──
   const [paramsOpen, setParamsOpen] = useState(false);
@@ -83,10 +85,15 @@ export function Workspace() {
 
   const handleSubmit = useCallback(async () => {
     if (!prompt.trim() || isRunning) return;
-    // 传入选中的平台 — 后端使用 platform_profile 中的写作 DNA
-    await engine.handleExecute(prompt.trim(), selectedPlatform);
+    // 传入选中的平台和生成参数
+    await engine.handleExecute(prompt.trim(), selectedPlatform, {
+      creativity,
+      content_length: contentLength,
+      tone,
+      audience,
+    });
     setPrompt('');
-  }, [prompt, isRunning, engine, setPrompt, selectedPlatform]);
+  }, [prompt, isRunning, engine, setPrompt, selectedPlatform, creativity, contentLength, tone, audience]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
@@ -213,7 +220,12 @@ export function Workspace() {
           )}
           {hasEvents && !isRunning && (
             <button
-              onClick={() => { setPrompt(''); engine.handleClearCurrent(); }}
+              onClick={async () => {
+                setPrompt('');
+                engine.handleClearCurrent();
+                // 真正创建新对话，而不是只清 UI
+                await createConversation();
+              }}
               className="ml-auto text-[10px] text-app-text-tertiary hover:text-app-text-secondary transition-colors"
             >
               新对话
@@ -445,9 +457,26 @@ function MessageBubble({
   runningTime?: number;
 }) {
   const [showThinking, setShowThinking] = useState(false);
+  const [showReview, setShowReview] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [fixing, setFixing] = useState(false);
   const navigate = useNavigate();
   const { showToast } = useUIStore();
+  const runStreaming = useAgentStore((s) => s.runStreaming);
+
+  const handleAutoFix = useCallback(async () => {
+    if (!message.content || !message.result?._reviewContent || fixing) return;
+    setFixing(true);
+    try {
+      const reviewText = message.result._reviewContent as string;
+      const fixPrompt = `请根据以下审核意见修改完善原文，输出修改后的完整内容。\n\n原文：\n${message.content}\n\n审核意见：\n${reviewText}\n\n要求：严格按照每一条审核意见修改，保持原文风格和结构，直接输出修改后的完整版本。`;
+      await runStreaming(fixPrompt);
+    } catch (e) {
+      console.error('auto-fix failed:', e);
+    } finally {
+      setFixing(false);
+    }
+  }, [message.content, message.result, fixing, runStreaming]);
 
   const handleSaveToContent = useCallback(async () => {
     if (!message.content) return;
@@ -576,6 +605,35 @@ function MessageBubble({
                       </div>
                     </div>
                   ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Review content (from ReviewAgent etc.) — collapsible */}
+          {!isRunning && message.result?._reviewContent && (
+            <>
+              <button
+                onClick={() => setShowReview(!showReview)}
+                className="mt-2 flex items-center gap-1 text-[10px] text-amber-500/70 hover:text-amber-400 transition-colors"
+              >
+                <span className={cn('transition-transform text-[8px]', showReview && 'rotate-90')}>▸</span>
+                {showReview ? '隐藏' : '查看'}审核意见
+              </button>
+              {showReview && (
+                <div className="mt-2 p-3 rounded-lg border border-amber-500/20 bg-amber-500/5">
+                  <div className="prose prose-invert prose-xs max-w-none text-[11px] leading-relaxed text-app-text-secondary">
+                    <Markdown components={markdownComponents}>{message.result._reviewContent as string}</Markdown>
+                  </div>
+                  <Button
+                    onClick={handleAutoFix}
+                    disabled={fixing}
+                    variant="outline"
+                    size="xs"
+                    className="mt-3 text-[10px] text-amber-400 border-amber-500/30 hover:bg-amber-500/10"
+                  >
+                    {fixing ? '修复中...' : '✨ 自动修复'}
+                  </Button>
                 </div>
               )}
             </>

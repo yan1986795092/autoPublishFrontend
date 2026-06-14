@@ -5,7 +5,6 @@ import { Search, Plus, MessageSquare } from 'lucide-react';
 import type { ChatConversationSummary } from '../../services/api';
 
 interface ConversationHistoryProps {
-  activeSessionId: string | null;
   onSelectSession: (id: string) => void;
   onNewSession: () => void;
 }
@@ -43,7 +42,6 @@ function groupByDate(conversations: ChatConversationSummary[]) {
 }
 
 export function ConversationHistory({
-  activeSessionId,
   onSelectSession,
   onNewSession,
 }: ConversationHistoryProps) {
@@ -52,8 +50,6 @@ export function ConversationHistory({
   const conversationId = useAgentStore((s) => s.conversationId);
   const loadConversations = useAgentStore((s) => s.loadConversations);
   const switchConversation = useAgentStore((s) => s.switchConversation);
-  const createConversation = useAgentStore((s) => s.createConversation);
-
   // Load conversations from backend on mount (localStorage cache shown immediately)
   useEffect(() => {
     loadConversations();
@@ -67,17 +63,14 @@ export function ConversationHistory({
 
   const groups = useMemo(() => groupByDate(filtered), [filtered]);
 
-  const handleSelect = async (id: string) => {
+  const handleSelect = (id: string) => {
     onSelectSession(id);
-    await switchConversation(id);
+    switchConversation(id).catch(() => {});
   };
 
-  const handleNewConversation = async () => {
-    const newId = await createConversation();
-    if (newId) {
-      onNewSession();
-      await switchConversation(newId);
-    }
+  const handleNewConversation = () => {
+    // 委托给父组件 HomePage 处理创建和切换，避免重复调用 createConversation
+    onNewSession();
   };
 
   return (

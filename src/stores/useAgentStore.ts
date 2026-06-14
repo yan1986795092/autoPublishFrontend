@@ -178,20 +178,32 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       const response = await chatApi.listConversations({ limit: 50 });
       console.log('[loadConversations] response:', response.data);
       if (response.data.success && response.data.data) {
-        const conversations = response.data.data.conversations;
-        const validId = savedId && conversations.some((c) => c.id === savedId)
-          ? savedId
-          : (conversations[0]?.id ?? null);
-        console.log('[loadConversations] conversations count:', conversations.length, 'validId:', validId);
-        if (validId !== savedId) {
-          if (validId) localStorage.setItem('currentConversationId', validId);
-          else localStorage.removeItem('currentConversationId');
-        }
-        set({ conversationList: conversations, conversationId: validId });
+        const serverConversations = response.data.data.conversations;
+        // 合并服务端列表与本地状态，避免条件竞争导致新创建的对话被覆盖
+        set((state) => {
+          const serverIds = new Set(serverConversations.map(c => c.id));
+          const localOnly = state.conversationList.filter(c => !serverIds.has(c.id));
+          const merged = localOnly.length > 0
+            ? [...localOnly, ...serverConversations]
+            : serverConversations;
+
+          // 从合并后的列表中找当前对话ID
+          const validId = savedId && merged.some((c) => c.id === savedId)
+            ? savedId
+            : (merged[0]?.id ?? null);
+
+          console.log('[loadConversations] merged count:', merged.length, 'validId:', validId);
+          if (validId !== savedId) {
+            if (validId) localStorage.setItem('currentConversationId', validId);
+            else localStorage.removeItem('currentConversationId');
+          }
+          return { conversationList: merged, conversationId: validId };
+        });
         _saveConvToStorage(get());
-        if (validId) {
-          console.log('[loadConversations] loading messages for:', validId);
-          await get().loadConversationMessages(validId);
+        const currentId = get().conversationId;
+        if (currentId) {
+          console.log('[loadConversations] loading messages for:', currentId);
+          await get().loadConversationMessages(currentId);
         }
       }
     } catch (e) {
@@ -447,7 +459,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     return arr.length > _MAX_STREAM_EVENTS ? arr.slice(-_MAX_STREAM_EVENTS) : arr;
   },
 
-  runStreaming: async (prompt: string, platform?: string | null) => {
+  runStreaming: async (prompt: string, platform?: string | null, parameters?: Record<string, unknown>) => {
     const token = useAuthStore.getState().accessToken;
     const state = get();
 
@@ -539,7 +551,14 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     let lastStep: ThinkingStep | null = null;
     let errorOccurred = false;
     let accumulated = '';
+    let reviewContent = '';
     let lastMsgUpdate = 0;
+
+    // Agent 名称中如果包含这些关键词，其输出不进入主正文
+    const REVIEW_AGENT_PATTERNS = [/Review/i, /Judge/i, /Critic/i, /Analyze/i, /审核/i, /检查/i];
+
+    const isReviewAgent = (name: string): boolean =>
+      REVIEW_AGENT_PATTERNS.some(p => p.test(name));
 
     const updateMsg = (content: string) => {
       const now = Date.now();
@@ -644,13 +663,21 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       flushChunks();
       const result = event.data as unknown as AgentResult;
       const timelineEvents = resultToTimelineEvents(result);
+      // 后端 result.output.full_text 已是纯正文，review_content 独立字段
       const fullText = (result.output as any)?.full_text || (result.output as any)?.content || accumulated;
+      // 优先使用后端的 review_content，其次用前端流式收集的 reviewContent
+      const backendReview = (result.output as any)?.review_content as string | undefined;
+      const finalReview = backendReview || reviewContent;
       const eventSteps = getResultThinkingSteps(result);
+      // 将审核内容附加到 result 以便 MessageBubble 展示
+      const resultWithReview = finalReview
+        ? { ...result, _reviewContent: finalReview }
+        : result;
       get().updateMessage(assistantMsgId, {
-        status: 'completed', content: fullText, result,
+        status: 'completed', content: fullText, result: resultWithReview,
       });
       set((s) => ({
-        currentResult: result,
+        currentResult: resultWithReview,
         isRunning: false,
         currentTaskId: null,
         thinkingSteps: eventSteps.length > 0 ? eventSteps : s.thinkingSteps,
@@ -660,7 +687,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       if (conversationId) {
         chatApi.updateMessage(assistantMsgId, {
           status: 'completed', content: fullText,
-          result: result as unknown as Record<string, unknown>,
+          result: resultWithReview as unknown as Record<string, unknown>,
         }).catch(console.error);
       }
     });
@@ -715,6 +742,24 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     processor.on('llm_chunk', (event) => {
       const agent = (event.data as any).agent as string;
       const content = (event.data as any).content as string;
+
+      // 审核/分析类 agent 的输出不进入主正文，单独收集用于审核展示
+      if (agent && isReviewAgent(agent)) {
+        reviewContent += content;
+        // 审核内容也作为 reasoningChunks 记录，让 UI 可展示
+        set((s) => {
+          const existing = s.reasoningChunks[agent] || [];
+          return {
+            reasoningChunks: { ...s.reasoningChunks, [agent]: [...existing, { agent, content, timestamp: Date.now() }] },
+            streamEvents: _pushStreamEvent(s.streamEvents, {
+              id: `review-${Date.now()}-${agent}`, type: 'reasoning', timestamp: Date.now(),
+              data: event.data, agent, content,
+            }),
+          };
+        });
+        return;
+      }
+
       accumulated += content;
       updateMsg(accumulated);
       pendingChunks.push({ agent, content });
@@ -750,6 +795,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     const bodyPayload: Record<string, unknown> = { prompt };
     if (appliedSkill?.skill_id) bodyPayload.skill_id = appliedSkill.skill_id;
     if (platform) bodyPayload.platform = platform;
+    if (parameters) bodyPayload.parameters = parameters;
     set({ _streamingProcessor: processor });
 
     // Fire SSE and message creation in parallel

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useCallback } from 'react';
 import { useAgentStore } from '../stores/useAgentStore';
 import { ConversationHistory } from '../components/layout/ConversationHistory';
 import { Workspace } from '../components/agent/Workspace';
@@ -9,10 +9,7 @@ export function HomePage() {
   const createConversation = useAgentStore((s) => s.createConversation);
   const clearCurrent = useAgentStore((s) => s.clearCurrent);
 
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-
   const handleSelectSession = useCallback(async (id: string) => {
-    setActiveSessionId(id);
     if (id !== conversationId) {
       await switchConversation(id);
     }
@@ -21,11 +18,10 @@ export function HomePage() {
   const handleNewSession = useCallback(async () => {
     const newId = await createConversation();
     if (newId) {
-      setActiveSessionId(newId);
+      // switchConversation 确保消息状态被正确加载（冗余但安全）
       await switchConversation(newId);
     } else {
       clearCurrent();
-      setActiveSessionId(null);
     }
   }, [createConversation, switchConversation, clearCurrent]);
 
@@ -34,7 +30,6 @@ export function HomePage() {
       {/* Left: Conversation History */}
       <div className="w-[260px] flex-shrink-0 hidden md:flex relative z-10">
         <ConversationHistory
-          activeSessionId={activeSessionId}
           onSelectSession={handleSelectSession}
           onNewSession={handleNewSession}
         />

@@ -45,6 +45,40 @@ export function ContentEditPage() {
   const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [platform, setPlatform] = useState('xiaohongshu');
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Version diff state
+  const [diffMode, setDiffMode] = useState(false);
+  const [diffBase, setDiffBase] = useState<string | null>(null);
+  const [diffLines, setDiffLines] = useState<Array<{ type: string; text: string }> | null>(null);
+  const [diffLoading, setDiffLoading] = useState(false);
+
+  // Load diff from backend when diffBase changes
+  useEffect(() => {
+    if (!diffMode || !diffBase || !content) {
+      setDiffLines(null);
+      return;
+    }
+    const target = versions.find(v => v.id !== diffBase);
+    if (!target) return;
+    let cancelled = false;
+    setDiffLoading(true);
+    (async () => {
+      try {
+        const res = await contentsApi.diffVersions(content.id, diffBase, target.id);
+        if (!cancelled && res.data.success && res.data.data) {
+          setDiffLines(res.data.data.changes);
+        }
+      } catch { /* ignore */ } finally {
+        if (!cancelled) setDiffLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [content, diffMode, diffBase, versions]);
+
+  // Reset diff state when closing dialog
+  const handleHistoryOpenChange = useCallback((v: boolean) => {
+    setHistoryOpen(v);
+    if (!v) { setDiffMode(false); setDiffBase(null); setDiffLines(null); }
+  }, []);
 
   // Autosave: debounce 10s after content changes
   useEffect(() => {
@@ -181,8 +215,6 @@ export function ContentEditPage() {
   const [previewOpen, setPreviewOpen] = useState(false);
   // History dialog
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [diffMode, setDiffMode] = useState(false);
-  const [diffBase, setDiffBase] = useState<string | null>(null);
 
   // Publish history
   const [publishHistoryOpen, setPublishHistoryOpen] = useState(false);
@@ -603,7 +635,7 @@ export function ContentEditPage() {
       </Dialog>
 
       {/* History Dialog */}
-      <Dialog open={historyOpen} onOpenChange={(v) => { setHistoryOpen(v); if (!v) { setDiffMode(false); setDiffBase(null); } }}>
+      <Dialog open={historyOpen} onOpenChange={handleHistoryOpenChange}>
         <DialogContent className="max-w-2xl max-h-[70vh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center justify-between text-sm">
@@ -627,35 +659,30 @@ export function ContentEditPage() {
           {versions.length > 0 ? (
             <div className="flex-1 overflow-auto space-y-2 pr-1">
               {diffMode && diffBase && (() => {
-                const base = versions.find(v => v.id === diffBase);
                 const target = versions.find(v => v.id !== diffBase);
-                if (base && target) {
-                  const baseLines = (base.content_md || '').split('\n');
-                  const targetLines = (target.content_md || '').split('\n');
-                  const maxLen = Math.max(baseLines.length, targetLines.length);
-                  return (
-                    <div className="rounded-lg border border-app-border bg-app-surface p-3 mb-2 text-[10px] font-mono">
-                      <p className="text-app-text-tertiary mb-1">
-                        对比 v{base.version_number} → v{target.version_number}
-                      </p>
-                      {Array.from({ length: maxLen }).map((_, i) => {
-                        const a = baseLines[i] || '';
-                        const b = targetLines[i] || '';
-                        if (a === b) return null;
-                        return (
-                          <div key={i} className={cn(
-                            'flex gap-2 py-0.5',
-                            a && !b ? 'bg-red-500/10 text-red-400' : 'bg-green-500/10 text-green-400'
-                          )}>
-                            <span className="text-app-text-tertiary w-6 text-right shrink-0">{i + 1}</span>
-                            <span className="truncate">{b || `<missing>`}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                }
-                return null;
+                if (!target) return null;
+                if (diffLoading) return <p className="text-xs text-app-text-tertiary p-3">加载差异中...</p>;
+                if (!diffLines) return null;
+                const baseVer = versions.find(v => v.id === diffBase)?.version_number;
+                return (
+                  <div className="rounded-lg border border-app-border bg-app-surface p-3 mb-2 text-[10px] font-mono max-h-48 overflow-auto">
+                    <p className="text-app-text-tertiary mb-1 sticky top-0 bg-app-surface pb-1">
+                      对比 v{baseVer} → v{target.version_number}
+                    </p>
+                    {diffLines.map((change, i) => {
+                      if (change.type === 'equal') return null;
+                      return (
+                        <div key={i} className={cn(
+                          'flex gap-2 py-0.5',
+                          change.type === 'delete' ? 'bg-red-500/10 text-red-400' : 'bg-green-500/10 text-green-400'
+                        )}>
+                          <span className="text-app-text-tertiary w-6 text-right shrink-0">{change.type === 'delete' ? '-' : '+'}</span>
+                          <span className="truncate">{change.text}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
               })()}
               {versions.map((version, idx) => {
                 return (

@@ -127,6 +127,18 @@ export const contentsApi = {
 
   delete: (id: string) =>
     apiClient.delete<ApiResponse<null>>(`/api/v1/contents/${id}`),
+
+  /** 批量删除 */
+  batchDelete: (ids: string[]) =>
+    apiClient.post<ApiResponse<{ deleted: string[]; not_found: string[] }>>('/api/v1/contents/batch-delete', { ids }),
+
+  /** 批量归档 */
+  batchArchive: (ids: string[]) =>
+    apiClient.post<ApiResponse<{ archived: string[]; not_found: string[] }>>('/api/v1/contents/batch-archive', { ids }),
+
+  /** 直接创建内容（非 AI 生成） */
+  create: (data: { title: string; content_md: string; platform_code?: string; tags?: string[] }) =>
+    apiClient.post<ApiResponse<{ id: string; title: string; created_at: string }>>('/api/v1/contents', data),
 };
 
 export const publishApi = {

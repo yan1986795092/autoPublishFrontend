@@ -256,8 +256,11 @@ export interface AgentMetrics {
     enable_message_bus: boolean;
     enable_hitl: boolean;
     worker_max_retries: number;
+    mcp_enabled: boolean;
+    llm_gateway_url?: string;
+    providers?: Record<string, boolean>;
   };
-  /** Agent 运行统计 */
+  /** Agent 运行统计（当前进程实时） */
   agent_runs: {
     total: number;
     success: number;
@@ -266,7 +269,7 @@ export interface AgentMetrics {
     success_rate: number;
     p95_duration_ms: number;
   };
-  /** LLM 调用统计 */
+  /** LLM 调用统计（当前进程实时 + 模型/供应商细分） */
   llm_calls: {
     total: number;
     errors: number;
@@ -274,10 +277,37 @@ export interface AgentMetrics {
     completion_tokens: number;
     total_tokens: number;
     p95_duration_ms: number;
+    /** 按模型细分 */
+    by_model?: Record<string, {
+      calls: number;
+      errors: number;
+      prompt_tokens: number;
+      completion_tokens: number;
+    }>;
+    /** 按供应商细分 */
+    by_provider?: Record<string, {
+      calls: number;
+      errors: number;
+      tokens: number;
+    }>;
   };
   /** 工具调用统计 */
   tool_calls: Record<string, {
     total: number;
     errors: number;
   }>;
+  /** DB 持久化历史累计 */
+  history?: {
+    agent_runs_total: number;
+    llm_tokens_total: number;
+    llm_cost_total: number;
+    by_model?: Array<{ name: string; calls: number; tokens: number }>;
+    by_provider?: Array<{ name: string; calls: number; tokens: number }>;
+    agents: Array<{
+      name: string;
+      calls: number;
+      tokens: number;
+      avg_time_s: number;
+    }>;
+  };
 }

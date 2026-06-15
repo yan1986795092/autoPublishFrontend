@@ -136,6 +136,12 @@ export interface PaginatedResponse<T> {
     total: number;
     total_pages: number;
   };
+  stats?: {
+    total: number;
+    draft: number;
+    published: number;
+    archived: number;
+  };
 }
 
 export interface SEOScore {

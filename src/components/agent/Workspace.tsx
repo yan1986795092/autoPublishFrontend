@@ -482,13 +482,14 @@ function MessageBubble({
     if (!message.content) return;
     setSaving(true);
     try {
-      // Use the generate endpoint to create a content record, or just save content text
-      const res = await contentsApi.generate({
-        topic: message.content.slice(0, 80),
+      // 直接创建 Content 记录，不再触发 AI 重新生成
+      const title = message.content.split('\n')[0].replace(/^#+\s*/, '').slice(0, 80) || '生成内容';
+      const res = await contentsApi.create({
+        title,
+        content_md: message.content,
         platform_code: 'xiaohongshu',
       });
-      // Check if result has content_id
-      const contentId = (res.data.data as any)?.content_id;
+      const contentId = res.data.data?.id;
       if (contentId) {
         showToast('已保存到内容管理', 'success', { label: '查看', onClick: () => navigate(`/content/${contentId}`) });
       } else {

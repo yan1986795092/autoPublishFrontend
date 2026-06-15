@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type { AsyncTask, AgentResult, ExecutionPlan, ChatMessage, ThinkingStep, StreamEvent, LLMChunk, ReasoningChunk, PreviousGeneration } from '../types';
 import { getResultThinkingSteps } from '../utils/agentEvents';
 import { resultToTimelineEvents } from '../utils/agentEventTimeline';
-import { agentApi, chatApi, type ChatConversationSummary } from '../services/api';
+import { agentApi, chatApi, contentsApi, type ChatConversationSummary } from '../services/api';
 import { SSEProcessor } from '../services/sse-processor';
 import { useAuthStore } from './useAuthStore';
 
@@ -113,6 +113,30 @@ function _saveConvToStorage(state: Pick<AgentState, 'conversationId' | 'conversa
 }
 
 const _initFromStorage = _loadConvFromStorage();
+
+/**
+ * 从生成内容中智能提取标题：
+ * 1. 跳过 Separator 行（---, ===, ___）
+ * 2. 跳过 Agent 标记行（--- WritingAgent --- 等）
+ * 3. 取第一个 # 标题行或第一个有效句子
+ */
+function extractTitleFromContent(content: string): string {
+  const lines = content.split('\n');
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    // 跳过分隔线
+    if (/^[-=_*]{3,}$/.test(trimmed)) continue;
+    // 跳过 Agent 标记行（--- NameAgent ---）
+    if (/^---\s+\w+Agent\s+---$/i.test(trimmed)) continue;
+    // 取 # 标题行
+    const headingMatch = trimmed.match(/^#+\s+(.+)/);
+    if (headingMatch) return headingMatch[1].slice(0, 80);
+    // 取第一个有效句子（至少 4 个字符，不是纯标点）
+    if (/^[一-鿿\w]{4,}/.test(trimmed)) return trimmed.slice(0, 80);
+  }
+  return '';
+}
 
 export const useAgentStore = create<AgentState>()((set, get) => ({
   currentTaskId: null,
@@ -689,6 +713,26 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
           status: 'completed', content: fullText,
           result: resultWithReview as unknown as Record<string, unknown>,
         }).catch(console.error);
+      }
+
+      // ── 自动保存到内容管理（不阻塞 UI） ──
+      if (fullText) {
+        // 清理内容：移除 Agent 标记行（--- WritingAgent ---）和 Separator 行
+        const cleanMd = fullText.split('\n').filter((line: string) => {
+          const t = line.trim();
+          return !/^---\s+\w+Agent\s+---$/i.test(t) && !/^[-=_*]{3,}$/.test(t);
+        }).join('\n').trim();
+        // 智能提取标题
+        const title = (result.output as any)?.title
+          || extractTitleFromContent(cleanMd)
+          || '生成内容';
+        contentsApi.create({
+          title,
+          content_md: cleanMd,
+          platform_code: platform || 'xiaohongshu',
+        }).catch((err: unknown) => {
+          console.error('auto-save content failed:', err);
+        });
       }
     });
 

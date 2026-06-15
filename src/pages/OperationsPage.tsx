@@ -42,9 +42,9 @@ export function OperationsPage() {
   }, []);
 
   return (
-    <div className="max-w-5xl mx-auto p-6 space-y-6">
+    <div className="max-w-5xl mx-auto p-6 h-full flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
             <BarChart3 className="w-4 h-4 text-white" />
@@ -61,8 +61,8 @@ export function OperationsPage() {
       </div>
 
       {/* Tabs */}
-      <Tabs.Root value={activeTab} onValueChange={handleTabChange}>
-        <Tabs.List className="flex gap-1 border-b border-app-border/50 mb-6">
+      <Tabs.Root value={activeTab} onValueChange={handleTabChange} className="flex-1 flex flex-col overflow-hidden mt-6">
+        <Tabs.List className="flex gap-1 border-b border-app-border/50 shrink-0">
           {TAB_ITEMS.map((tab) => (
             <Tabs.Trigger
               key={tab.value}
@@ -80,16 +80,16 @@ export function OperationsPage() {
           ))}
         </Tabs.List>
 
-        <Tabs.Content value="production">
+        <Tabs.Content value="production" className="flex-1 overflow-y-auto pt-6">
           <ProductionTab key={`prod-${refreshKey}`} />
         </Tabs.Content>
-        <Tabs.Content value="publishing">
+        <Tabs.Content value="publishing" className="flex-1 overflow-y-auto pt-6">
           <PublishingTab key={`pub-${refreshKey}`} />
         </Tabs.Content>
-        <Tabs.Content value="cost">
+        <Tabs.Content value="cost" className="flex-1 overflow-y-auto pt-6">
           <CostTab key={`cost-${refreshKey}`} />
         </Tabs.Content>
-        <Tabs.Content value="system">
+        <Tabs.Content value="system" className="flex-1 overflow-y-auto pt-6">
           <SystemTab key={`sys-${refreshKey}`} />
         </Tabs.Content>
       </Tabs.Root>

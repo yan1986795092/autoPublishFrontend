@@ -104,6 +104,13 @@ export function ContentManagementPage() {
     onConfirm: () => void;
   }>({ open: false, title: '', description: '', onConfirm: () => {} });
 
+  // ── Stats (from backend) ──
+  const [stats, setStats] = useState<{ total: number; draft: number; published: number; archived: number } | null>(null);
+  const allTags = useMemo(
+    () => [...new Set(contents.flatMap((c) => c.tags || []))],
+    [contents],
+  );
+
   // ── Data loading ──
 
   const loadContents = useCallback(
@@ -122,6 +129,7 @@ export function ContentManagementPage() {
         if (res.data.success && res.data.data) {
           setContents(res.data.data.items || []);
           setTotalItems(res.data.data.pagination?.total || 0);
+          if (res.data.data.stats) setStats(res.data.data.stats);
         }
       } catch {
         setError('加载失败，请检查网络连接后重试');
@@ -149,13 +157,6 @@ export function ContentManagementPage() {
       setPage(1);
     },
     [debouncedSearch],
-  );
-
-  // ── Tags ──
-
-  const allTags = useMemo(
-    () => [...new Set(contents.flatMap((c) => c.tags || []))],
-    [contents],
   );
 
   // ── Processed data ──
@@ -235,31 +236,25 @@ export function ContentManagementPage() {
         </div>
       </div>
 
-      {/* ── Stats Bar ── */}
-      {contents.length > 0 && (() => {
-        const draftCount = contents.filter(c => c.status === 'draft').length;
-        const publishedCount = contents.filter(c => c.status === 'published').length;
-        const archiveCount = contents.filter(c => c.status === 'archived').length;
-        const totalTags = [...new Set(contents.flatMap(c => c.tags || []))].length;
-        return (
-          <div className="grid grid-cols-4 gap-3">
-            {[
-              { icon: FileText, label: '总数', value: totalItems, color: 'text-blue-400' },
-              { icon: FileEdit, label: '草稿', value: draftCount, color: 'text-yellow-400' },
-              { icon: Globe, label: '已发布', value: publishedCount, color: 'text-green-400' },
-              { icon: Archive, label: '标签', value: totalTags, color: 'text-purple-400' },
-            ].map(({ icon: Icon, label, value, color }) => (
-              <div key={label} className="rounded-lg border border-app-border/50 bg-app-elevated p-3 flex items-center gap-3">
-                <Icon className={`w-4 h-4 ${color}`} />
-                <div>
-                  <p className="text-lg font-bold text-app-text">{value}</p>
-                  <p className="text-[10px] text-app-text-tertiary">{label}</p>
-                </div>
+      {/* ── Stats Bar（来自后端全量统计） ── */}
+      {stats && (
+        <div className="grid grid-cols-4 gap-3">
+          {[
+            { icon: FileText, label: '总数', value: stats.total, color: 'text-blue-400' },
+            { icon: FileEdit, label: '草稿', value: stats.draft, color: 'text-yellow-400' },
+            { icon: Globe, label: '已发布', value: stats.published, color: 'text-green-400' },
+            { icon: Archive, label: '标签', value: allTags.length, color: 'text-purple-400' },
+          ].map(({ icon: Icon, label, value, color }) => (
+            <div key={label} className="rounded-lg border border-app-border/50 bg-app-elevated p-3 flex items-center gap-3">
+              <Icon className={`w-4 h-4 ${color}`} />
+              <div>
+                <p className="text-lg font-bold text-app-text">{value}</p>
+                <p className="text-[10px] text-app-text-tertiary">{label}</p>
               </div>
-            ))}
-          </div>
-        );
-      })()}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* ── Header: Search + View Toggle + New Button ── */}
       <div className="flex items-center justify-between gap-3">
@@ -378,8 +373,9 @@ export function ContentManagementPage() {
           onBulkDelete={async () => {
             setBulkLoading(true);
             try {
-              await Promise.all(Array.from(selectedIds).map(id => contentsApi.delete(id)));
-              showToast(`已删除 ${selectedIds.size} 条内容`, 'success');
+              const res = await contentsApi.batchDelete(Array.from(selectedIds));
+              const deleted = res.data.data?.deleted?.length ?? 0;
+              showToast(`已删除 ${deleted} 条内容`, 'success');
               setSelectedIds(new Set());
               loadContents(page);
             } catch {
@@ -391,8 +387,9 @@ export function ContentManagementPage() {
           onBulkArchive={async () => {
             setBulkLoading(true);
             try {
-              await Promise.all(Array.from(selectedIds).map(id => contentsApi.update(id, { status: 'archived' })));
-              showToast(`已归档 ${selectedIds.size} 条内容`, 'success');
+              const res = await contentsApi.batchArchive(Array.from(selectedIds));
+              const archived = res.data.data?.archived?.length ?? 0;
+              showToast(`已归档 ${archived} 条内容`, 'success');
               setSelectedIds(new Set());
               loadContents(page);
             } catch {

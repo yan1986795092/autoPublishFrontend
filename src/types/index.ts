@@ -205,7 +205,11 @@ export type {
   ErrorEventData,
   LLMToolEventData,
   AgentMetrics,
+  StageInfo,
+  IntentConflict,
 } from './agent';
+
+export { AGENT_STAGE_MAP } from './agent';
 
 export type {
   Skill,

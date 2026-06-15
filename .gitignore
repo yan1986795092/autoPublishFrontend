@@ -44,3 +44,4 @@ Desktop.ini
 
 # Vite
 vite.config.ts.timestamp-*
+__pycache__/

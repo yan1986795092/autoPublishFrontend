@@ -1,5 +1,10 @@
 import { create } from 'zustand';
-import type { AsyncTask, AgentResult, ExecutionPlan, ChatMessage, ThinkingStep, StreamEvent, LLMChunk, ReasoningChunk, PreviousGeneration } from '../types';
+import type {
+  AsyncTask, AgentResult, ExecutionPlan, ChatMessage,
+  ThinkingStep, StreamEvent, LLMChunk, ReasoningChunk,
+  PreviousGeneration, StageInfo, IntentConflict,
+} from '../types';
+import { AGENT_STAGE_MAP } from '../types';
 import { getResultThinkingSteps } from '../utils/agentEvents';
 import { resultToTimelineEvents } from '../utils/agentEventTimeline';
 import { agentApi, chatApi, contentsApi, type ChatConversationSummary } from '../services/api';
@@ -24,6 +29,11 @@ interface AgentState {
   // === 新增: LLM token 流（打字机效果） ===
   llmChunks: Record<string, LLMChunk[]>;  // agent -> chunks[]
   reasoningChunks: Record<string, ReasoningChunk[]>;  // agent -> reasoning[]
+
+  // === 新增: 动态阶段列表（用于 StageTimeline） ===
+  stages: StageInfo[];
+  currentStage: string | null;
+  intentConflicts: IntentConflict[];
 
   // WebSocket 状态
   wsConnectionState: 'connecting' | 'connected' | 'disconnected';
@@ -149,6 +159,9 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
   streamEvents: [],
   llmChunks: {},
   reasoningChunks: {},
+  stages: [],
+  currentStage: null,
+  intentConflicts: [],
   wsConnectionState: 'disconnected',
   _ws: null,
   _reconnectTimer: null,
@@ -188,6 +201,9 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       thinkingSteps: [],
       llmChunks: {},
       reasoningChunks: {},
+      stages: [],
+      currentStage: null,
+      intentConflicts: [],
       streamEvents: [],
       _streamingProcessor: null,
       _abortController: null,
@@ -514,7 +530,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     }
 
     // ── Start streaming state ──
-    set({ isRunning: true, error: null, thinkingSteps: [], currentResult: null, llmChunks: {}, reasoningChunks: {}, streamEvents: [] });
+    set({ isRunning: true, error: null, thinkingSteps: [], currentResult: null, llmChunks: {}, reasoningChunks: {}, stages: [], currentStage: null, intentConflicts: [], streamEvents: [] });
     const controller = new AbortController();
     set({ _abortController: controller });
 
@@ -645,6 +661,12 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
         thinkingSteps: s.thinkingSteps.length >= 200
           ? [...s.thinkingSteps.slice(1), lastStep!]
           : [...s.thinkingSteps, lastStep!],
+        // Push substep to matching stage
+        stages: s.stages.map(st =>
+          st.agent === (event.data.agent as string)
+            ? { ...st, substeps: [...(st.substeps || []), event.data as any] }
+            : st
+        ),
         streamEvents: _pushStreamEvent(s.streamEvents, {
           id: `thinking-${Date.now()}-${(event.data.step_number as number) || 0}`,
           type: 'thinking_step',
@@ -681,6 +703,50 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
           data: event.data,
         }),
       }));
+    });
+
+    processor.on('stage', (event) => {
+      const data = event.data as any;
+      const agent = data.agent as string;
+      const status = data.status as string;
+
+      set((state) => {
+        if (status === 'started') {
+          const existing = state.stages.find(s => s.agent === agent);
+          if (!existing) {
+            const mapEntry = AGENT_STAGE_MAP[agent] || { label: '处理中', icon: '⚙️' };
+            return {
+              stages: [...state.stages, {
+                agent,
+                label: mapEntry.label,
+                icon: mapEntry.icon,
+                status: 'running' as const,
+                substeps: [],
+                conflicts: data.conflicts as IntentConflict[] | undefined,
+              }],
+              currentStage: agent,
+              intentConflicts: (data.conflicts as IntentConflict[]) || state.intentConflicts,
+            };
+          }
+          return {
+            stages: state.stages.map(s =>
+              s.agent === agent ? { ...s, status: 'running' as const } : s
+            ),
+            currentStage: agent,
+          };
+        }
+
+        if (status === 'completed') {
+          return {
+            stages: state.stages.map(s =>
+              s.agent === agent ? { ...s, status: 'completed' as const, duration: data.duration as number } : s
+            ),
+            currentStage: state.currentStage === agent ? null : state.currentStage,
+          };
+        }
+
+        return state;
+      });
     });
 
     processor.on('result', (event) => {
@@ -771,6 +837,10 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
         const existing = s.reasoningChunks[agent] || [];
         return {
           reasoningChunks: { ...s.reasoningChunks, [agent]: [...existing, { agent, content, timestamp: Date.now() }] },
+          // Also append reasoning to the corresponding stage
+          stages: s.stages.map(st =>
+            st.agent === agent ? { ...st, reasoning: (st.reasoning || '') + content } : st
+          ),
           streamEvents: _pushStreamEvent(s.streamEvents, {
             id: `reasoning-${Date.now()}-${agent}`,
             type: 'reasoning',
@@ -965,6 +1035,9 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       thinkingSteps: [],
       llmChunks: {},
       reasoningChunks: {},
+      stages: [],
+      currentStage: null,
+      intentConflicts: [],
       streamEvents: [],
       // 保留 conversationId，只清除当前界面的 messages
       messages: [],

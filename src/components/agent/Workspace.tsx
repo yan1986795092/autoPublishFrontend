@@ -6,15 +6,18 @@ import { Separator } from '../ui/separator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { useExecutionEngine } from '../../hooks/useExecutionEngine';
 import { useNavigate } from 'react-router-dom';
-import { contentsApi, aiEditApi } from '../../services/api';
+import { contentsApi } from '../../services/api';
 import { useUIStore } from '../../stores/useUIStore';
 import { useAgentStore } from '../../stores/useAgentStore';
+import type { StageInfo } from '../../types';
 import {
-  Send, Square, Bot, Sparkles, Copy, Check, X,
-  Cpu, SlidersHorizontal, Upload, Globe, Save,
+  Send, Square, Bot, Sparkles, Copy, Check,
+  SlidersHorizontal, Save,
 } from 'lucide-react';
 import { AdvancedPanel } from './AdvancedPanel';
-import { PlatformSelector, PLATFORM_MAP } from './PlatformSelector';
+import { StageTimeline } from './StageTimeline';
+import { PlatformTags } from './PlatformTags';
+import { PLATFORM_MAP } from './PlatformSelector';
 import Markdown from 'react-markdown';
 
 // ── Format helpers ──
@@ -62,6 +65,7 @@ export function Workspace() {
   const {
     prompt, setPrompt, isRunning, runningTime,
     messages, currentResult, thinkingSteps, llmChunks,
+    stages, currentStage,
     handleExecute, handleStop,
   } = engine;
 
@@ -77,11 +81,7 @@ export function Workspace() {
   const [tone, setTone] = useState<string>('friendly');
   const [audience, setAudience] = useState<string>('intermediate');
 
-  // ── Adapt loading ──
-  const [adapting, setAdapting] = useState(false);
-
   const platform = selectedPlatform ? PLATFORM_MAP.get(selectedPlatform) : null;
-  const canPublish = platform?.category === 'publishable';
 
   const handleSubmit = useCallback(async () => {
     if (!prompt.trim() || isRunning) return;
@@ -114,40 +114,25 @@ export function Workspace() {
   return (
     <div className="flex h-full">
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Platform selector area — prominent when idle, compact when active */}
-        <div className={cn(
-          'flex-shrink-0 border-b border-app-border/30',
-          isIdle ? 'bg-app-surface' : 'bg-app-surface/50'
-        )}>
-          {isIdle || !selectedPlatform ? (
-            <div className="px-6 py-4">
-              <PlatformSelector
-                selected={selectedPlatform}
-                onSelect={setSelectedPlatform}
-              />
-            </div>
-          ) : (
-            /* Compact: show selected platform + change button */
-            <div className="flex items-center gap-2 px-6 py-2">
-              <Globe className="w-3.5 h-3.5 text-primary-400" />
-              <span className="text-xs font-medium text-app-text">
-                {platform?.icon} {platform?.label}
+        {/* Platform indicator (compact, shown when selected) */}
+        {selectedPlatform && (
+          <div className="flex-shrink-0 border-b border-app-border/30 bg-app-surface/50">
+            <div className="flex items-center gap-2 px-6 py-1.5">
+              <span className="text-[11px] text-app-text-secondary">
+                {PLATFORM_MAP.get(selectedPlatform)?.icon} {PLATFORM_MAP.get(selectedPlatform)?.label}
               </span>
-              {canPublish && (
-                <span className="text-[9px] text-green-400 bg-green-500/10 px-1.5 py-0.5 rounded-full font-medium">
-                  可发布
-                </span>
+              {PLATFORM_MAP.get(selectedPlatform)?.category === 'publishable' && (
+                <span className="text-[9px] text-green-400 bg-green-500/10 px-1.5 py-0.5 rounded-full font-medium">发布</span>
               )}
               <button
                 onClick={() => setSelectedPlatform(null)}
-                className="ml-auto text-[10px] text-app-text-tertiary hover:text-app-text-secondary transition-colors flex items-center gap-1"
+                className="ml-auto text-[10px] text-app-text-tertiary hover:text-app-text-secondary transition-colors"
               >
-                <X className="w-3 h-3" />
-                更换
+                清除
               </button>
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* Messages area */}
         <ScrollArea className="flex-1 min-w-0 px-6 py-4">
@@ -166,12 +151,14 @@ export function Workspace() {
                   onCopy={handleCopy}
                   thinkingSteps={thinkingSteps}
                   runningTime={runningTime}
+                  stages={stages}
+                  currentStage={currentStage}
                 />
               ))
             )}
 
-            {/* Running indicator (shown when assistant message exists) */}
-            {isRunning && messages[messages.length - 1]?.status === 'running' && !messages[messages.length - 1]?.content && (
+            {/* Running indicator — only show if no stages yet (pre-stage bootstrap) */}
+            {isRunning && stages.length === 0 && messages[messages.length - 1]?.status === 'running' && (
               <div className="flex items-center gap-2 text-xs text-app-text-tertiary px-1">
                 <Bot className="w-4 h-4 text-blue-400 animate-pulse" />
                 <span>思考中</span>
@@ -195,35 +182,11 @@ export function Workspace() {
             <SlidersHorizontal className="w-3 h-3" />
             参数
           </button>
-          {selectedPlatform && (
-            <button
-              onClick={async () => {
-                if (!messages.length || !selectedPlatform) return;
-                setAdapting(true);
-                try {
-                  const lastMsg = [...messages].reverse().find(m => m.role === 'assistant' && m.content);
-                  if (lastMsg) {
-                    const res = await aiEditApi.adaptContent(lastMsg.content, 'auto', selectedPlatform);
-                    if (res.data.success) {
-                      const adapted = (res.data.data as { result: string }).result;
-                      setPrompt(adapted || lastMsg.content);
-                    }
-                  }
-                } catch { /* silent */ } finally { setAdapting(false); }
-              }}
-              disabled={adapting || messages.length === 0}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-app-border/50 text-[10px] text-app-text-secondary hover:text-app-text hover:border-primary-500/30 transition-colors disabled:opacity-40"
-            >
-              <Cpu className={`w-3 h-3 ${adapting ? 'animate-spin' : ''}`} />
-              适配 {platform?.label}
-            </button>
-          )}
           {hasEvents && !isRunning && (
             <button
               onClick={async () => {
                 setPrompt('');
                 engine.handleClearCurrent();
-                // 真正创建新对话，而不是只清 UI
                 await createConversation();
               }}
               className="ml-auto text-[10px] text-app-text-tertiary hover:text-app-text-secondary transition-colors"
@@ -242,28 +205,13 @@ export function Workspace() {
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder={
-                  platform
-                    ? `为${platform.label}写一篇${platform.label === '小红书' ? '种草笔记' : platform.label === '公众号' ? '深度文章' : '内容'}...`
-                    : '选择上面的平台，或直接输入需求...'
-                }
+                placeholder="输入你的需求... (支持小红书笔记、公众号文章、代码、脚本等)"
                 className="flex-1 min-h-[44px] max-h-[120px] resize-none bg-transparent text-sm text-app-text placeholder:text-app-text-tertiary outline-none leading-relaxed"
                 rows={1}
               />
               {isRunning ? (
                 <Button onClick={handleStop} className="h-9 px-3 flex-shrink-0" variant="destructive" size="sm">
                   <Square className="w-3.5 h-3.5" />
-                </Button>
-              ) : canPublish ? (
-                <Button
-                  onClick={handleSubmit}
-                  disabled={!prompt.trim()}
-                  className="h-9 px-4 flex-shrink-0 gap-1.5"
-                  variant="gradient"
-                  size="sm"
-                >
-                  <Upload className="w-3.5 h-3.5" />
-                  生成并发布
                 </Button>
               ) : (
                 <Button
@@ -277,14 +225,11 @@ export function Workspace() {
                 </Button>
               )}
             </div>
-            <p className="mt-1 text-center text-[10px] text-app-text-tertiary/50">
-              {isRunning
-                ? `执行中 ${formatDuration(runningTime)}`
-                : canPublish
-                  ? '内容将根据平台风格自动适配 · Ctrl+Enter 发送'
-                  : 'Ctrl+Enter 发送'
-              }
-            </p>
+            {/* Platform tags below input */}
+            <div className="mt-1.5 flex items-center justify-between">
+              <PlatformTags selected={selectedPlatform} onSelect={setSelectedPlatform} />
+              <span className="text-[10px] text-app-text-tertiary/50">Ctrl+Enter 发送</span>
+            </div>
           </div>
         </div>
       </div>
@@ -449,14 +394,16 @@ function EmptyWorkspace({ platform, onSelect }: { platform: { icon: string; labe
 function MessageBubble({
   message, copiedId, onCopy,
   thinkingSteps, runningTime,
+  stages, currentStage,
 }: {
   message: { id: string; role: string; content: string; timestamp: number; status?: string; result?: any };
   copiedId: string | null;
   onCopy: (id: string, text: string) => void;
   thinkingSteps?: any[];
   runningTime?: number;
+  stages?: StageInfo[];
+  currentStage?: string | null;
 }) {
-  const [showThinking, setShowThinking] = useState(false);
   const [showReview, setShowReview] = useState(false);
   const [saving, setSaving] = useState(false);
   const [fixing, setFixing] = useState(false);
@@ -517,7 +464,6 @@ function MessageBubble({
     const isRunning = message.status === 'running';
     const isFailed = message.status === 'failed';
     const displayContent = message.content || '';
-    const hasThinking = thinkingSteps && thinkingSteps.length > 0;
 
     return (
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex justify-start">
@@ -578,37 +524,13 @@ function MessageBubble({
             <div className="text-sm text-red-400 py-1">{displayContent || '请求失败，请重试'}</div>
           )}
 
-          {/* Collapsible thinking steps (DeepSeek style) */}
-          {hasThinking && (
-            <>
-              <button
-                onClick={() => setShowThinking(!showThinking)}
-                className="mt-3 flex items-center gap-1 text-[10px] text-app-text-tertiary hover:text-app-text-secondary transition-colors"
-              >
-                <span className={cn('transition-transform text-[8px]', showThinking && 'rotate-90')}>▸</span>
-                {showThinking ? '隐藏' : '显示'}思考过程（{thinkingSteps!.length} 步）
-              </button>
-              {showThinking && (
-                <div className="mt-2 space-y-1.5 pl-3 border-l-2 border-app-border/30">
-                  {thinkingSteps!.map((step, i) => (
-                    <div key={i} className="text-[10px] text-app-text-tertiary flex items-start gap-1.5">
-                      <span className={cn(
-                        'inline-block mt-0.5 h-1.5 w-1.5 rounded-full flex-shrink-0',
-                        step.status === 'running' ? 'bg-blue-400 animate-pulse' :
-                        step.status === 'failed' ? 'bg-red-400' : 'bg-green-400'
-                      )} />
-                      <div className="min-w-0">
-                        <span className="font-medium text-app-text-secondary">{step.agent}</span>
-                        <span className="ml-1">{step.action}</span>
-                        {step.output_summary && (
-                          <p className="truncate text-[9px] text-app-text-tertiary mt-0.5">{step.output_summary}</p>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
+          {/* Stage-based timeline (replaces old thinking steps) */}
+          {stages && stages.length > 0 && (
+            <StageTimeline
+              stages={stages}
+              currentStage={currentStage || null}
+              isRunning={isRunning}
+            />
           )}
 
           {/* Review content (from ReviewAgent etc.) — collapsible */}

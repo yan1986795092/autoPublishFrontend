@@ -161,7 +161,8 @@ export interface StreamToolUse {
 // === Stream Event (for real-time agent thinking display) ===
 export interface StreamEvent {
   id: string;
-  type: 'user_message' | 'plan' | 'thinking_step' | 'progress' | 'result' | 'error' | 'done' | 'llm_chunk' | 'reasoning' | 'tool_use' | 'tool_result';
+  type: 'user_message' | 'plan' | 'thinking_step' | 'progress' | 'result' | 'error' | 'done'
+    | 'llm_chunk' | 'reasoning' | 'tool_use' | 'tool_result' | 'stage';
   timestamp: number;
   /** Event payload — always a flat Record. Use typed accessors below. */
   data: Record<string, unknown>;
@@ -209,6 +210,38 @@ export interface ReasoningChunk {
   content: string;
   timestamp: number;
 }
+
+// === Stage event types (dynamic, from backend agent dispatch) ===
+
+export interface StageInfo {
+  agent: string;         // "WritingAgent"
+  label: string;         // "创作初稿中"
+  icon: string;          // "✍️"
+  status: 'running' | 'completed' | 'failed';
+  duration?: number;
+  reasoning?: string;    // accumulated reasoning content for this stage
+  substeps?: ThinkingStepEventData[];
+  conflicts?: IntentConflict[];
+}
+
+export interface IntentConflict {
+  type: string;
+  message: string;
+  suggestion: string;
+}
+
+// Agent → Stage mapping (frontend side, synced with backend STAGE_MAP)
+export const AGENT_STAGE_MAP: Record<string, { label: string; icon: string }> = {
+  ManagerAgent:  { label: '思考分析中', icon: '🧠' },
+  WebSearch:     { label: '搜索资料中', icon: '🔍' },
+  URLCrawler:    { label: '搜索资料中', icon: '🔍' },
+  WritingAgent:  { label: '创作初稿中', icon: '✍️' },
+  ReviewAgent:   { label: '评审优化中', icon: '📋' },
+  FixAgent:      { label: '质量检查中', icon: '✅' },
+  CodeAgent:     { label: '代码生成中', icon: '💻' },
+  SEOAgent:      { label: 'SEO 优化中', icon: '🚀' },
+  DiagramAgent:  { label: '图表生成中', icon: '📊' },
+};
 
 /** 一次完整的生成会话记录 */
 export interface PreviousGeneration {

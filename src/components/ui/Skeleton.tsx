@@ -32,7 +32,7 @@ export function SkeletonTable({ rows = 5 }: { rows?: number }) {
   return (
     <div className="space-y-2">
       {Array.from({ length: rows }).map((_, i) => (
-        <SkeletonRow key={i} />
+        <SkeletonRow key={`skeleton-row-${i}`} />
       ))}
     </div>
   );
@@ -42,7 +42,7 @@ export function SkeletonCardGrid({ count = 4 }: { count?: number }) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
       {Array.from({ length: count }).map((_, i) => (
-        <div key={i} className="surface-card p-4 space-y-3">
+        <div key={`skeleton-card-${i}`} className="surface-card p-4 space-y-3">
           <div className="flex items-center gap-3">
             <Skeleton variant="avatar" className="h-8 w-8" />
             <div className="space-y-1.5 flex-1">
@@ -78,7 +78,7 @@ export function SkeletonList({ count = 3 }: { count?: number }) {
   return (
     <div className="space-y-3">
       {Array.from({ length: count }).map((_, i) => (
-        <SkeletonCard key={i} />
+        <SkeletonCard key={`skeleton-list-${i}`} />
       ))}
     </div>
   );
@@ -89,7 +89,7 @@ export function SkeletonText({ lines = 3 }: { lines?: number }) {
     <div className="space-y-2">
       {Array.from({ length: lines }).map((_, i) => (
         <Skeleton
-          key={i}
+          key={`skeleton-line-${i}`}
           className={cn(
             'h-3',
             i === lines - 1 ? 'w-3/4' : 'w-full'

@@ -203,8 +203,8 @@ export function CostTab() {
                 </tr>
               </thead>
               <tbody>
-                {displayDetails.map((d, i) => (
-                  <tr key={i} className="border-b border-app-border/10 hover:bg-app-elevated/20 transition-colors">
+                {displayDetails.map((d) => (
+                  <tr key={d.date} className="border-b border-app-border/10 hover:bg-app-elevated/20 transition-colors">
                     <td className="py-1.5 pr-2 text-app-text">{d.date.slice(5)}</td>
                     <td className="text-right py-1.5 px-2 text-app-text-secondary">{d.call_count}</td>
                     <td className="text-right py-1.5 px-2 text-app-text-secondary">

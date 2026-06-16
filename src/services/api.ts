@@ -20,6 +20,7 @@ import type {
   HotTopic,
 } from '../types';
 import { useAuthStore } from '../stores/useAuthStore';
+import { handleUnauthorizedRetry } from './auth-refresh';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
@@ -47,29 +48,7 @@ apiClient.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
     if (error.response?.status === 401 && !originalRequest._retry) {
-      originalRequest._retry = true;
-      const refreshToken = useAuthStore.getState().refreshToken;
-      if (refreshToken) {
-        try {
-          const response = await axios.post<ApiResponse<{ access_token: string }>>(
-            `${API_BASE_URL}/api/v1/auth/refresh`,
-            { refresh_token: refreshToken }
-          );
-          if (response.data.success && response.data.data) {
-            useAuthStore.getState().setTokens(
-              response.data.data.access_token,
-              refreshToken
-            );
-            if (originalRequest.headers) {
-              originalRequest.headers.Authorization = `Bearer ${response.data.data.access_token}`;
-            }
-            return apiClient(originalRequest);
-          }
-        } catch {
-          useAuthStore.getState().logout();
-          window.location.href = '/login';
-        }
-      }
+      return handleUnauthorizedRetry(apiClient, originalRequest);
     }
     return Promise.reject(error);
   }
@@ -176,7 +155,17 @@ export const aiEditApi = {
     apiClient.post<ApiResponse<{ result: string }>>('/api/v1/contents/ai-edit/adapt-content', { text, source_platform: sourcePlatform, target_platform: targetPlatform }),
 
   analyzeViral: (text: string) =>
-    apiClient.post<ApiResponse<unknown>>('/api/v1/contents/ai-edit/analyze-viral', { text }),
+    apiClient.post<ApiResponse<{
+      overall: number;
+      topic_heat: number;
+      headline_appeal: number;
+      content_quality: number;
+      engagement_potential: number;
+      share_potential: number;
+      strengths: string[];
+      weaknesses: string[];
+      tips: string[];
+    }>>('/api/v1/contents/ai-edit/analyze-viral', { text }),
 
   expandKeywords: (keywords: string) =>
     apiClient.post<ApiResponse<{ keywords: string[] }>>('/api/v1/contents/ai-edit/expand-keywords', { keywords }),
@@ -258,29 +247,7 @@ agentApiClient.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
     if (error.response?.status === 401 && !originalRequest._retry) {
-      originalRequest._retry = true;
-      const refreshToken = useAuthStore.getState().refreshToken;
-      if (refreshToken) {
-        try {
-          const response = await axios.post<ApiResponse<{ access_token: string }>>(
-            `${API_BASE_URL}/api/v1/auth/refresh`,
-            { refresh_token: refreshToken }
-          );
-          if (response.data.success && response.data.data) {
-            useAuthStore.getState().setTokens(
-              response.data.data.access_token,
-              refreshToken
-            );
-            if (originalRequest.headers) {
-              originalRequest.headers.Authorization = `Bearer ${response.data.data.access_token}`;
-            }
-            return agentApiClient(originalRequest);
-          }
-        } catch {
-          useAuthStore.getState().logout();
-          window.location.href = '/login';
-        }
-      }
+      return handleUnauthorizedRetry(agentApiClient, originalRequest);
     }
     return Promise.reject(error);
   }
@@ -293,7 +260,7 @@ export const agentApi = {
   plan: (data: { prompt: string; skill_id?: string }) =>
     agentApiClient.post<ApiResponse<ExecutionPlan>>('/api/v1/agent/plan', data),
 
-  submitAsync: (data: { prompt: string; skill_id?: string }) =>
+  submitAsync: (data: { prompt: string; skill_id?: string; platform?: string }) =>
     agentApiClient.post<{ success: boolean; data: { task_id: string } }>('/api/v1/agent/async/submit', data),
 
   getAsyncStatus: (taskId: string) =>
@@ -686,9 +653,21 @@ export const observabilityApi = {
     time?: string;
     page?: number;
     page_size?: number;
-  }): Promise<{ total: number; page: number; page_size: number; hits: unknown[] }> {
+  }): Promise<{
+    total: number;
+    page: number;
+    page_size: number;
+    hits: Array<Record<string, unknown>>;
+    error?: string;
+  }> {
     return obsClient
-      .get('/api/v1/observability/logs', { params })
+      .get<{
+        total: number;
+        page: number;
+        page_size: number;
+        hits: Array<Record<string, unknown>>;
+        error?: string;
+      }>('/api/v1/observability/logs', { params })
       .then((r) => r.data);
   },
 

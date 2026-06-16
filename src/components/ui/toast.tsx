@@ -1,5 +1,4 @@
 import * as RadixToast from '@radix-ui/react-toast';
-import { useEffect } from 'react';
 import { useUIStore } from '../../stores/useUIStore';
 import { X, CheckCircle, AlertCircle, Info } from 'lucide-react';
 
@@ -12,18 +11,12 @@ const icons = {
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const { toastMessage, toastType, toastAction, toastDuration, clearToast } = useUIStore();
 
-  useEffect(() => {
-    if (toastMessage && toastType) {
-      const timer = setTimeout(() => clearToast(), toastDuration);
-      return () => clearTimeout(timer);
-    }
-  }, [toastMessage, toastType, toastDuration, clearToast]);
-
   return (
     <RadixToast.Provider swipeDirection="right">
       {children}
       <RadixToast.Root
         open={!!toastMessage}
+        duration={toastDuration || undefined}
         onOpenChange={(open) => { if (!open) clearToast(); }}
         className={`
           fixed bottom-6 right-6 z-[80] flex items-center gap-3

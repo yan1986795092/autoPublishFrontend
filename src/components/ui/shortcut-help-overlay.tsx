@@ -63,8 +63,8 @@ export function ShortcutHelpOverlay() {
               </button>
             </div>
             <div className="p-4 space-y-2">
-              {shortcuts.map((s, i) => (
-                <div key={i} className="flex items-center justify-between">
+              {shortcuts.map((s) => (
+                <div key={`${s.label}|${s.keys.join('+')}`} className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     {s.scope && (
                       <span className="text-[9px] px-1.5 py-0.5 rounded bg-app-surface text-app-text-tertiary border border-app-border">
@@ -74,9 +74,9 @@ export function ShortcutHelpOverlay() {
                     <span className="text-xs text-app-text-secondary">{s.label}</span>
                   </div>
                   <div className="flex items-center gap-1">
-                    {s.keys.map((key, j) => (
+                    {s.keys.map((key) => (
                       <kbd
-                        key={j}
+                        key={key}
                         className="px-1.5 py-0.5 rounded border border-app-border bg-app-surface text-[10px] font-mono text-app-text-secondary shadow-sm"
                       >
                         {key}

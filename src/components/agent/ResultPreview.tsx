@@ -1,7 +1,10 @@
 import { Eye } from 'lucide-react';
+import { useMemo } from 'react';
 import type { AgentResult } from '../../types';
 import { PLATFORM_MAP } from './PlatformSelector';
 import { getPreviewComponent } from '../preview/index';
+import type { PlatformPreviewProps } from '../preview/index';
+import type { ComponentType } from 'react';
 
 interface ResultPreviewProps {
   result: AgentResult | null;
@@ -9,6 +12,16 @@ interface ResultPreviewProps {
 }
 
 export function ResultPreview({ result, selectedPlatform }: ResultPreviewProps) {
+  // 所有 hooks 必须放在 early return 之前（React Hooks 规则）
+  const platform = selectedPlatform ? PLATFORM_MAP.get(selectedPlatform) : null;
+
+  // 用 useMemo 缓存组件引用，避免渲染期间调用函数创建组件（React 19 规则）
+  // 放在 early return 之前，确保 hook 调用顺序稳定
+  const PreviewComponent: ComponentType<PlatformPreviewProps> = useMemo(
+    () => getPreviewComponent(selectedPlatform),
+    [selectedPlatform]
+  );
+
   if (!result) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -22,11 +35,6 @@ export function ResultPreview({ result, selectedPlatform }: ResultPreviewProps) 
     (result.output?.full_text as string) ||
     (result.output?.content as string) ||
     JSON.stringify(result.output, null, 2);
-
-  const platform = selectedPlatform ? PLATFORM_MAP.get(selectedPlatform) : null;
-
-  // 使用平台专属预览组件
-  const PreviewComponent = getPreviewComponent(selectedPlatform);
 
   return (
     <div className="space-y-3">
@@ -43,6 +51,7 @@ export function ResultPreview({ result, selectedPlatform }: ResultPreviewProps) 
 
       <div className="rounded-lg border border-app-border overflow-hidden">
         <div className="p-4 text-xs text-app-text-secondary leading-relaxed max-h-[600px] overflow-auto">
+          {/* eslint-disable-next-line react-hooks/static-components -- getPreviewComponent 只返回组件类型引用，非实例化 */}
           <PreviewComponent content={content} />
         </div>
       </div>

@@ -49,12 +49,12 @@ export function FailureList({ failures }: FailureListProps) {
             </tr>
           </thead>
           <tbody>
-            {failures.map((f, i) => (
+            {failures.map((f) => (
               <motion.tr
-                key={i}
+                key={`${f.time}|${f.platform_code}|${f.content_title}`}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                transition={{ delay: i * 0.03 }}
+                transition={{ delay: 0.03 }}
                 className="border-b border-app-border/20 hover:bg-app-elevated/30 transition-colors"
               >
                 <td className="py-2 px-3 text-app-text-secondary whitespace-nowrap">{formatTime(f.time)}</td>

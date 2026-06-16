@@ -3,6 +3,12 @@
 import type { PlatformPreviewProps } from './index';
 
 export function XiaohongshuPreview({ content }: PlatformPreviewProps) {
+  // 内容长度作确定性种子，避免每次渲染随机数跳动
+  const seed = content.length;
+  const rand = (n: number) => Math.floor(((seed * 9301 + 49297) % 233280) / 233280 * n);
+  const likes = Math.floor(rand(900) + 100);
+  const comments = Math.floor(rand(90) + 10);
+
   const lines = content.split('\n').filter(Boolean);
   const title = lines[0] || '';
   const body = lines.slice(1).join('\n\n');
@@ -33,8 +39,8 @@ export function XiaohongshuPreview({ content }: PlatformPreviewProps) {
 
       {/* 互动栏 */}
       <div className="flex items-center justify-around border-t border-app-border/20 px-4 py-2.5 text-app-text-tertiary text-xs">
-        <span>♥️ {Math.floor(Math.random() * 1000 + 100)}</span>
-        <span>💬 {Math.floor(Math.random() * 100 + 10)}</span>
+        <span>♥️ {likes}</span>
+        <span>💬 {comments}</span>
         <span>⭐ 收藏</span>
       </div>
     </div>

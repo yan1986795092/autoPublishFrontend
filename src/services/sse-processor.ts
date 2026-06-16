@@ -57,6 +57,7 @@ export class SSEProcessor {
       onError?: (error: string) => void;
     },
     externalSignal?: AbortSignal,
+    connectTimeoutMs: number = 15_000,
   ): Promise<void> {
     const controller = new AbortController();
 
@@ -67,11 +68,20 @@ export class SSEProcessor {
       if (externalSignal.aborted) controller.abort();
     }
 
+    // Connection timeout: abort if fetch doesn't get a response within the timeout
+    const connectTimer = setTimeout(() => {
+      if (!controller.signal.aborted) {
+        controller.abort();
+        callbacks?.onError?.(`连接超时（超过 ${connectTimeoutMs / 1000}s 未收到响应）`);
+      }
+    }, connectTimeoutMs);
+
     try {
       const response = await fetch(url, {
         ...options,
         signal: controller.signal,
       });
+      clearTimeout(connectTimer);
 
       if (!response.ok) {
         let errorMsg = `请求失败 (${response.status})`;
@@ -111,12 +121,18 @@ export class SSEProcessor {
         lastDataTime = Date.now();
         callbacks?.onHeartbeat?.();
 
-        // Split buffer into complete events (by double newline), keep remainder
-        const parts = buffer.replace(/\r\n/g, '\n').split('\n\n');
+        // 按 SSE 规范切分事件块：事件由空行（连续换行）分隔。
+        // 块内首字符必须是合法的 SSE 字段（event:/data:/id:/retry:），否则丢弃。
+        // 保留 buffer 末尾未结束的部分。
+        const normalized = buffer.replace(/\r\n/g, '\n');
+        const parts = normalized.split('\n\n');
         buffer = parts.pop() || '';
 
         for (const part of parts) {
-          if (!part.trim()) continue;
+          const trimmed = part.trim();
+          if (!trimmed) continue;
+          // 仅当块以合法 SSE 字段开头时才解析，避免误把内嵌 \n\n 字符串当作事件边界
+          if (!/^(event|data|id|retry):/m.test(trimmed)) continue;
           const events = this.parseSSE(part);
           for (const event of events) {
             this.dispatch(event);
@@ -130,6 +146,7 @@ export class SSEProcessor {
         callbacks?.onError?.(String(e));
       }
     } finally {
+      clearTimeout(connectTimer);
       this.cleanup();
     }
   }

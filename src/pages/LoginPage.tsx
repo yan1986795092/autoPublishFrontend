@@ -17,7 +17,7 @@ export function LoginPage() {
   const [nickname, setNickname] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
   const navigate = useNavigate();
-  const { setUser, setTokens } = useAuthStore();
+  const { login } = useAuthStore();
   const { showToast } = useUIStore();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -32,9 +32,9 @@ export function LoginPage() {
       const res = await api;
 
       if (res.data.success && res.data.data) {
-        const data = res.data.data as any;
-        setTokens(data.access_token, data.refresh_token);
-        setUser(data.user);
+        const data = res.data.data as { access_token: string; refresh_token: string; user: import('../types').User };
+        // 一次性原子地写入 user + tokens + isAuthenticated，避免两次 set 之间的不一致
+        login(data.user, data.access_token, data.refresh_token);
         showToast(isRegister ? '注册成功' : '登录成功', 'success');
         navigate('/');
       } else {

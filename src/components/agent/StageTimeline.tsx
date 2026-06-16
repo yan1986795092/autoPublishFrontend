@@ -1,11 +1,14 @@
-import { motion } from 'framer-motion';
+import { useState, useCallback } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../../utils/helpers';
-import type { StageInfo } from '../../types';
+import type { StageInfo, LLMChunk, ReasoningChunk } from '../../types';
 
 interface StageTimelineProps {
   stages: StageInfo[];
   currentStage: string | null;
   isRunning: boolean;
+  llmChunks?: Record<string, LLMChunk[]>;
+  reasoningChunks?: Record<string, ReasoningChunk[]>;
 }
 
 function formatDuration(seconds?: number): string {
@@ -14,133 +17,226 @@ function formatDuration(seconds?: number): string {
   return `${Math.floor(seconds / 60)}m${Math.round(seconds % 60)}s`;
 }
 
-export function StageTimeline({ stages, currentStage, isRunning }: StageTimelineProps) {
+/** 旋转的 Chevron 图标 */
+function Chevron({ open }: { open: boolean }) {
+  return (
+    <svg
+      width="10"
+      height="10"
+      viewBox="0 0 10 10"
+      className={cn(
+        'transition-transform duration-200',
+        open && 'rotate-90',
+      )}
+      style={{ transformOrigin: 'center' }}
+    >
+      <path
+        d="M3 1L7 5L3 9"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill="none"
+      />
+    </svg>
+  );
+}
+
+interface StageRowProps {
+  stage: StageInfo;
+  index: number;
+  totalStages: number;
+  expanded: boolean;
+  onToggle: () => void;
+  chunks?: LLMChunk[] | ReasoningChunk[];
+  hasDetail: boolean;
+}
+
+function StageRow({ stage, index, totalStages, expanded, onToggle, chunks, hasDetail }: StageRowProps) {
+  const isCurrent = stage.status === 'running';
+  const isCompleted = stage.status === 'completed';
+
+  // 多轮复审/润色显示轮次
+  const roundLabel = stage.reviewRound && stage.reviewRound > 0
+    ? `（第${stage.reviewRound}轮）`
+    : '';
+  const displayLabel = `${stage.label}${roundLabel}`;
+
+  return (
+    <div className="relative">
+      {/* 连接线 */}
+      {index < totalStages - 1 && (
+        <div className={cn(
+          'absolute left-[7px] top-[18px] w-[2px]',
+          isCompleted ? 'bg-green-400/30' : 'bg-app-border/10',
+          expanded ? 'h-[calc(100%+4px)]' : 'h-[calc(100%-18px)]',
+        )} />
+      )}
+
+      <div className="relative flex items-start gap-2.5 pb-2 group">
+        {/* 状态圆点 */}
+        <div className={cn(
+          'mt-[5px] w-[16px] h-[16px] rounded-full flex items-center justify-center flex-shrink-0 border-2 transition-all duration-300',
+          isCompleted && 'border-green-400 bg-green-400/20',
+          isCurrent && 'border-blue-400 bg-blue-400/20',
+          !isCompleted && !isCurrent && 'border-app-border/30 bg-app-surface/50',
+        )}>
+          {isCompleted ? (
+            <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+              <path d="M1 4L3 6L7 2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-green-400" />
+            </svg>
+          ) : isCurrent ? (
+            <span className="w-[6px] h-[6px] rounded-full bg-blue-400 animate-pulse" />
+          ) : null}
+        </div>
+
+        {/* 内容区 */}
+        <div className="flex-1 min-w-0">
+          {/* 标题行 */}
+          <div
+            className={cn(
+              'flex items-center gap-1.5 min-h-[26px]',
+              hasDetail && 'cursor-pointer',
+            )}
+            onClick={onToggle}
+          >
+            <span className="text-xs text-app-text-tertiary flex-shrink-0">{stage.icon}</span>
+            <span className={cn(
+              'text-xs font-medium transition-colors',
+              isCompleted && 'text-green-400',
+              isCurrent && 'text-blue-400',
+              !isCompleted && !isCurrent && 'text-app-text-secondary',
+            )}>
+              {displayLabel}
+            </span>
+
+            {/* 状态标签 */}
+            {isCompleted && (
+              <span className="text-[10px] text-green-400/60 ml-auto flex-shrink-0">
+                {formatDuration(stage.duration!)}
+              </span>
+            )}
+            {isCurrent && (
+              <span className="text-[10px] text-blue-400 ml-auto flex-shrink-0">运行中</span>
+            )}
+
+            {/* 展开/折叠箭头 */}
+            {hasDetail && !isCurrent && (
+              <span className={cn(
+                'ml-1 text-app-text-tertiary/40 transition-opacity',
+                'opacity-0 group-hover:opacity-100',
+              )}>
+                <Chevron open={expanded} />
+              </span>
+            )}
+          </div>
+
+          {/* 展开区域 */}
+          <AnimatePresence initial={false}>
+            {expanded && (
+              <motion.div
+                key="content"
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.2, ease: 'easeInOut' }}
+                className="overflow-hidden"
+              >
+                <div className="mt-1.5 space-y-1.5">
+                  {/* 推理过程 */}
+                  {stage.reasoning && (
+                    <div className="rounded-lg px-3 py-2 bg-white/5 border border-white/5">
+                      <p className="text-[11px] text-app-text-tertiary leading-relaxed m-0">
+                        💭 {stage.reasoning}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* 阶段产出内容（流式逐字，全部显示） */}
+                  {chunks && chunks.length > 0 && (
+                    <div className="rounded-lg px-3 py-2.5 bg-white/[0.03] border border-white/[0.06]">
+                      <p className="text-xs text-app-text-secondary leading-relaxed whitespace-pre-wrap">
+                        {chunks.map(c => c.content).join('')}
+                        {isCurrent && (
+                          <span className="inline-block w-[2px] h-[13px] bg-blue-400 ml-0.5 animate-pulse align-text-bottom" />
+                        )}
+                      </p>
+                    </div>
+                  )}
+
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function StageTimeline({ stages, isRunning, llmChunks, reasoningChunks }: StageTimelineProps) {
+  // 将展开状态提升到父组件，用 stageKey 作为键，避免在 map 中违反 Rules of Hooks
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(() => {
+    const initial = new Set<string>();
+    stages.forEach((s) => {
+      if (s.status === 'running') {
+        initial.add(`${s.agent}|${s.reviewRound || 0}`);
+      }
+    });
+    return initial;
+  });
+
+  const toggleExpanded = useCallback((key: string) => {
+    setExpandedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  }, []);
+
   if (stages.length === 0) return null;
 
   const completedCount = stages.filter(s => s.status === 'completed').length;
 
   return (
     <div className="my-3">
-      {/* Timeline */}
-      <div className="relative pl-5 border-l-2 border-app-border/30">
-        {stages.map((stage, i) => {
-          const isCurrent = stage.agent === currentStage;
-          const isCompleted = stage.status === 'completed';
+      {stages.map((stage, i) => {
+        const uniqueKey = `${stage.agent}|${stage.reviewRound || 0}`;
+        const chunks = llmChunks?.[stage.agent] || reasoningChunks?.[stage.agent];
+        const hasDetail = !!(stage.reasoning || (chunks && chunks.length > 0));
+        const isCurrent = stage.status === 'running';
+        const expanded = expandedKeys.has(uniqueKey);
 
-          return (
-            <div key={stage.agent} className={cn('relative pb-4', i === stages.length - 1 && 'pb-0')}>
-              {/* Dot indicator */}
-              <div className={cn(
-                'absolute -left-[13px] w-6 h-6 rounded-full border-2 border-app-bg flex items-center justify-center transition-all',
-                isCompleted && 'bg-green-500 border-green-500',
-                isCurrent && 'bg-blue-500 border-blue-500',
-                !isCompleted && !isCurrent && 'bg-gray-600 border-gray-500',
-              )}>
-                {isCompleted ? (
-                  <span className="text-[10px] text-white font-bold">✓</span>
-                ) : isCurrent ? (
-                  <span className="w-2 h-2 bg-white rounded-full animate-pulse" />
-                ) : (
-                  <span className="w-2 h-2 bg-gray-400 rounded-full" />
-                )}
-              </div>
+        const handleRowClick = () => {
+          if (!hasDetail || isCurrent) return;
+          toggleExpanded(uniqueKey);
+        };
 
-              {/* Label + duration */}
-              <div className="flex items-center gap-2 mb-1">
-                <span className={cn(
-                  'text-sm font-medium transition-colors',
-                  isCompleted && 'text-green-400',
-                  isCurrent && 'text-blue-400',
-                  !isCompleted && !isCurrent && 'text-app-text-tertiary',
-                )}>
-                  {stage.icon} {stage.label}
-                </span>
-                {isCompleted && stage.duration != null && (
-                  <span className="text-[10px] text-app-text-tertiary">{formatDuration(stage.duration)}</span>
-                )}
-                {isCurrent && (
-                  <span className="text-[10px] text-blue-400/70">进行中...</span>
-                )}
-              </div>
+        return (
+          <StageRow
+            key={uniqueKey}
+            stage={stage}
+            index={i}
+            totalStages={stages.length}
+            expanded={expanded}
+            onToggle={handleRowClick}
+            chunks={chunks}
+            hasDetail={hasDetail}
+          />
+        );
+      })}
 
-              {/* Reasoning content (for current or completed stage) */}
-              {(isCurrent || isCompleted) && stage.reasoning && (
-                <div className="ml-0 mb-1.5 bg-app-elevated/50 rounded-lg px-3 py-2 border border-app-border/20">
-                  <div className="flex items-start gap-1.5">
-                    <span className="text-[10px] text-app-text-tertiary mt-0.5">💭</span>
-                    <p className="text-[11px] text-app-text-secondary leading-relaxed m-0 italic">
-                      {stage.reasoning}
-                      {isCurrent && (
-                        <span className="inline-block w-[3px] h-[11px] bg-blue-400 ml-0.5 animate-pulse align-text-bottom" />
-                      )}
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {/* Sub-steps */}
-              {stage.substeps && stage.substeps.length > 0 && (
-                isCurrent ? (
-                  /* Current stage — expanded sub-steps */
-                  <div className="mt-1 space-y-0.5 pl-2 border-l border-blue-500/20">
-                    {stage.substeps.map((step, si) => (
-                      <div key={si} className="flex items-start gap-1.5 text-[10px] text-app-text-tertiary">
-                        {step.status === 'running' ? (
-                          <div className="mt-0.5 w-1.5 h-1.5 rounded-full border border-blue-400 border-t-transparent animate-spin flex-shrink-0" />
-                        ) : (
-                          <span className={cn(
-                            'mt-0.5 w-1.5 h-1.5 rounded-full flex-shrink-0',
-                            step.status === 'failed' ? 'bg-red-400' : 'bg-blue-400/60',
-                          )} />
-                        )}
-                        <span className="min-w-0">
-                          <span className="font-medium text-app-text-secondary/80">{step.agent}</span>
-                          <span className="ml-1">{step.action}</span>
-                          {step.output_summary && (
-                            <span className="text-[9px] text-app-text-tertiary block truncate max-w-[300px]">
-                              {step.output_summary}
-                            </span>
-                          )}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  /* Completed stage — collapsible sub-steps */
-                  <details className="ml-0">
-                    <summary className="text-[10px] text-app-text-tertiary cursor-pointer hover:text-app-text-secondary transition-colors">
-                      {stage.substeps.length} 个子步骤
-                    </summary>
-                    <div className="mt-1 space-y-0.5 pl-2 border-l border-app-border/20">
-                      {stage.substeps.map((step, si) => (
-                        <div key={si} className="flex items-start gap-1.5 text-[10px] text-app-text-tertiary">
-                          <span className={cn(
-                            'mt-0.5 w-1.5 h-1.5 rounded-full flex-shrink-0',
-                            step.status === 'failed' ? 'bg-red-400' : 'bg-green-400/60',
-                          )} />
-                          <span className="min-w-0">
-                            <span className="font-medium text-app-text-secondary/80">{step.agent}</span>
-                            <span className="ml-1">{step.action}</span>
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </details>
-                )
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Progress bar (only when running) */}
+      {/* 进度条 */}
       {isRunning && stages.length > 0 && (
-        <div className="mt-2">
-          <div className="flex justify-between text-[10px] text-app-text-tertiary mb-1">
-            <span>{completedCount}/{stages.length} 阶段</span>
-            <span>{stages.find(s => s.agent === currentStage)?.label || ''}</span>
+        <div className="mt-1 ml-[26px]">
+          <div className="flex justify-between text-[10px] text-app-text-tertiary/50 mb-1">
+            <span>{completedCount}/{stages.length}</span>
           </div>
-          <div className="h-1 bg-app-border/20 rounded-full overflow-hidden">
+          <div className="h-[2px] bg-app-border/10 rounded-full overflow-hidden">
             <motion.div
               className="h-full bg-gradient-to-r from-blue-500 to-purple-500 rounded-full"
               initial={{ width: 0 }}

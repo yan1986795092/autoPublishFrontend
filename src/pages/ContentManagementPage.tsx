@@ -183,6 +183,12 @@ export function ContentManagementPage() {
         try {
           await contentsApi.delete(id);
           setContents((prev) => prev.filter((c) => c.id !== id));
+          // 删除成功后清除该条目的选中状态，避免 BulkActionBar 显示已选中不存在的项目
+          setSelectedIds((prev) => {
+            const next = new Set(prev);
+            next.delete(id);
+            return next;
+          });
           showToast('删除成功', 'success');
         } catch {
           showToast('删除失败', 'error');

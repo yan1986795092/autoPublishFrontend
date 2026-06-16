@@ -181,9 +181,9 @@ export function ContentCalendar() {
               <p className="text-[10px] text-app-text-tertiary py-2">当天无内容</p>
             )}
             <div className="space-y-1">
-              {selectedItems.map((item, i) => (
+              {selectedItems.map((item) => (
                 <button
-                  key={`${item.id}-${i}`}
+                  key={item.id}
                   onClick={() => navigate(`/content/${item.id}`)}
                   className="flex items-center gap-2 w-full px-2.5 py-1.5 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] transition-colors text-left"
                 >

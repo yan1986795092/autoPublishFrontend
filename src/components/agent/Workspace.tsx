@@ -9,7 +9,7 @@ import { useNavigate } from 'react-router-dom';
 import { contentsApi } from '../../services/api';
 import { useUIStore } from '../../stores/useUIStore';
 import { useAgentStore } from '../../stores/useAgentStore';
-import type { StageInfo } from '../../types';
+import type { StageInfo, LLMChunk, ReasoningChunk } from '../../types';
 import {
   Send, Square, Bot, Sparkles, Copy, Check,
   SlidersHorizontal, Save,
@@ -18,8 +18,6 @@ import { AdvancedPanel } from './AdvancedPanel';
 import { StageTimeline } from './StageTimeline';
 import { PlatformTags } from './PlatformTags';
 import { PLATFORM_MAP } from './PlatformSelector';
-import Markdown from 'react-markdown';
-
 // ── Format helpers ──
 
 function formatTime(ts: number) {
@@ -31,26 +29,6 @@ function formatDuration(seconds: number) {
   if (seconds < 60) return `${seconds}s`;
   return `${Math.floor(seconds / 60)}m${seconds % 60}s`;
 }
-
-// ── Markdown components ──
-
-const markdownComponents = {
-  a: ({ href, children }: { href?: string; children?: React.ReactNode }) => (
-    <a href={href} target="_blank" rel="noreferrer" className="text-blue-400 hover:underline">{children}</a>
-  ),
-  code: ({ className, children }: { className?: string; children?: React.ReactNode }) => {
-    const isInline = !className;
-    if (isInline) {
-      return <code className="rounded bg-white/10 px-1 py-0.5 text-xs font-mono">{children}</code>;
-    }
-    return (
-      <pre className="overflow-x-auto rounded-lg bg-black/30 p-3 text-xs">
-        <code className={className}>{children}</code>
-      </pre>
-    );
-  },
-  pre: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
-};
 
 // ── Helpers ──
 
@@ -64,10 +42,13 @@ export function Workspace() {
   const engine = useExecutionEngine('create');
   const {
     prompt, setPrompt, isRunning, runningTime,
-    messages, currentResult, thinkingSteps, llmChunks,
+    messages, currentResult, thinkingSteps, llmChunks, reasoningChunks,
     stages, currentStage,
-    handleExecute, handleStop,
+    handleStop,
   } = engine;
+  // 解构 handleExecute 以避免 handleSubmit 的 useCallback 依赖整个 engine 对象
+  // （engine 是新对象引用，会导致 useCallback 失效并级联触发 handleKeyDown 重建）
+  const { handleExecute: engineHandleExecute } = engine;
 
   const [selectedPlatform, setSelectedPlatform] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -86,14 +67,14 @@ export function Workspace() {
   const handleSubmit = useCallback(async () => {
     if (!prompt.trim() || isRunning) return;
     // 传入选中的平台和生成参数
-    await engine.handleExecute(prompt.trim(), selectedPlatform, {
+    await engineHandleExecute(prompt.trim(), selectedPlatform, {
       creativity,
       content_length: contentLength,
       tone,
       audience,
     });
     setPrompt('');
-  }, [prompt, isRunning, engine, setPrompt, selectedPlatform, creativity, contentLength, tone, audience]);
+  }, [prompt, isRunning, engineHandleExecute, setPrompt, selectedPlatform, creativity, contentLength, tone, audience]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
@@ -153,6 +134,8 @@ export function Workspace() {
                   runningTime={runningTime}
                   stages={stages}
                   currentStage={currentStage}
+                  llmChunks={llmChunks}
+                  reasoningChunks={reasoningChunks}
                 />
               ))
             )}
@@ -216,7 +199,7 @@ export function Workspace() {
               ) : (
                 <Button
                   onClick={handleSubmit}
-                  disabled={!prompt.trim()}
+                  disabled={!prompt.trim() || isRunning}
                   className="h-9 px-4 flex-shrink-0 gap-1.5"
                   size="sm"
                 >
@@ -393,8 +376,8 @@ function EmptyWorkspace({ platform, onSelect }: { platform: { icon: string; labe
 
 function MessageBubble({
   message, copiedId, onCopy,
-  thinkingSteps, runningTime,
-  stages, currentStage,
+  runningTime,
+  stages, currentStage, llmChunks, reasoningChunks,
 }: {
   message: { id: string; role: string; content: string; timestamp: number; status?: string; result?: any };
   copiedId: string | null;
@@ -403,27 +386,13 @@ function MessageBubble({
   runningTime?: number;
   stages?: StageInfo[];
   currentStage?: string | null;
+  llmChunks?: Record<string, LLMChunk[]>;
+  reasoningChunks?: Record<string, ReasoningChunk[]>;
 }) {
-  const [showReview, setShowReview] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [fixing, setFixing] = useState(false);
   const navigate = useNavigate();
   const { showToast } = useUIStore();
-  const runStreaming = useAgentStore((s) => s.runStreaming);
 
-  const handleAutoFix = useCallback(async () => {
-    if (!message.content || !message.result?._reviewContent || fixing) return;
-    setFixing(true);
-    try {
-      const reviewText = message.result._reviewContent as string;
-      const fixPrompt = `请根据以下审核意见修改完善原文，输出修改后的完整内容。\n\n原文：\n${message.content}\n\n审核意见：\n${reviewText}\n\n要求：严格按照每一条审核意见修改，保持原文风格和结构，直接输出修改后的完整版本。`;
-      await runStreaming(fixPrompt);
-    } catch (e) {
-      console.error('auto-fix failed:', e);
-    } finally {
-      setFixing(false);
-    }
-  }, [message.content, message.result, fixing, runStreaming]);
 
   const handleSaveToContent = useCallback(async () => {
     if (!message.content) return;
@@ -511,55 +480,20 @@ function MessageBubble({
             </div>
           )}
 
-          {/* Content: streaming or completed */}
-          {displayContent && (
-            <div className="prose prose-invert prose-xs max-w-none text-sm leading-relaxed text-app-text-secondary">
-              <Markdown components={markdownComponents}>{displayContent}</Markdown>
-              {isRunning && <span className="inline-block w-1.5 h-4 bg-blue-400 animate-pulse ml-0.5 align-text-bottom" />}
-            </div>
-          )}
-
-          {/* Failed message */}
-          {isFailed && (
-            <div className="text-sm text-red-400 py-1">{displayContent || '请求失败，请重试'}</div>
-          )}
-
-          {/* Stage-based timeline (replaces old thinking steps) */}
+          {/* Stage-based timeline — 流式逐字渲染 */}
           {stages && stages.length > 0 && (
             <StageTimeline
               stages={stages}
               currentStage={currentStage || null}
               isRunning={isRunning}
+              llmChunks={llmChunks}
+              reasoningChunks={reasoningChunks}
             />
           )}
 
-          {/* Review content (from ReviewAgent etc.) — collapsible */}
-          {!isRunning && message.result?._reviewContent && (
-            <>
-              <button
-                onClick={() => setShowReview(!showReview)}
-                className="mt-2 flex items-center gap-1 text-[10px] text-amber-500/70 hover:text-amber-400 transition-colors"
-              >
-                <span className={cn('transition-transform text-[8px]', showReview && 'rotate-90')}>▸</span>
-                {showReview ? '隐藏' : '查看'}审核意见
-              </button>
-              {showReview && (
-                <div className="mt-2 p-3 rounded-lg border border-amber-500/20 bg-amber-500/5">
-                  <div className="prose prose-invert prose-xs max-w-none text-[11px] leading-relaxed text-app-text-secondary">
-                    <Markdown components={markdownComponents}>{message.result._reviewContent as string}</Markdown>
-                  </div>
-                  <Button
-                    onClick={handleAutoFix}
-                    disabled={fixing}
-                    variant="outline"
-                    size="xs"
-                    className="mt-3 text-[10px] text-amber-400 border-amber-500/30 hover:bg-amber-500/10"
-                  >
-                    {fixing ? '修复中...' : '✨ 自动修复'}
-                  </Button>
-                </div>
-              )}
-            </>
+          {/* Failed message */}
+          {isFailed && !displayContent && (
+            <div className="text-sm text-red-400 py-1">请求失败，请重试</div>
           )}
 
           {/* Save & Usage */}

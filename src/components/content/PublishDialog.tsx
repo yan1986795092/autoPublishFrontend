@@ -59,6 +59,14 @@ export function PublishDialog() {
     const newResults: PublishResult[] = platformList.map(p => ({ platform: p, status: 'pending' }));
     setResults(newResults);
 
+    const markAllFailed = (msg: string) => {
+      newResults.forEach((r, i) => {
+        if (r.status === 'pending') {
+          newResults[i] = { ...r, status: 'failed', error: msg };
+        }
+      });
+    };
+
     try {
       if (platformList.length === 1) {
         // Single publish
@@ -87,17 +95,18 @@ export function PublishDialog() {
                 platform: r.platform || platformList[i],
                 status: r.status === 'published' ? 'success' : 'failed',
                 url: r.platform_url,
-                error: r.status === 'published' ? undefined : '发布失败',
+                error: r.status === 'published' ? undefined : (r.error || '发布失败'),
               };
             }
           });
+        } else {
+          // 后端返回 success=false 或缺 results 时，把所有 pending 标记为失败
+          markAllFailed(res.data.error || '批量发布请求失败');
         }
       }
     } catch (e: unknown) {
       const msg = (e as Error)?.message || '发布请求失败';
-      newResults.forEach((r, i) => {
-        if (r.status === 'pending') newResults[i] = { ...r, status: 'failed', error: msg };
-      });
+      markAllFailed(msg);
     }
 
     setResults([...newResults]);
@@ -193,11 +202,11 @@ export function PublishDialog() {
               className="space-y-1.5"
             >
               <p className="text-[10px] font-medium text-app-text-tertiary">发布结果</p>
-              {results.map((r, i) => {
+              {results.map((r) => {
                 const platform = publishablePlatforms.find(p => p.id === r.platform);
                 return (
                   <div
-                    key={i}
+                    key={r.platform}
                     className={cn(
                       'flex items-center gap-2 rounded-lg border px-3 py-2 text-xs',
                       r.status === 'success' ? 'border-green-500/30 bg-green-500/5' :

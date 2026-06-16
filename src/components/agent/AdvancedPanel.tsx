@@ -50,8 +50,14 @@ export function AdvancedPanel({ selectedPlatform }: AdvancedPanelProps) {
   const isRunning = useAgentStore((s) => s.isRunning);
   const currentResult = useAgentStore((s) => s.currentResult);
   const thinkingSteps = useAgentStore((s) => s.thinkingSteps);
+  const messages = useAgentStore((s) => s.messages);
 
   const isIdle = !isRunning && !currentResult && !thinkingSteps.length;
+
+  // 实时内容：取当前运行中的 assistant 消息（流式写入）
+  const liveContent = messages.find(m => m.role === 'assistant' && m.status === 'running')?.content || '';
+
+  const showLive = isRunning && liveContent;
 
   return (
     <div
@@ -67,16 +73,21 @@ export function AdvancedPanel({ selectedPlatform }: AdvancedPanelProps) {
           </div>
         </div>
 
-        {/* 内容: 仅预览 */}
+        {/* 内容: 实时流式内容 + 最终结果 */}
         <ScrollArea className="flex-1 p-4">
           {isIdle ? (
             <IdleState />
-          ) : isRunning ? (
+          ) : showLive ? (
+            <div className="prose prose-invert prose-xs max-w-none text-sm leading-relaxed text-app-text-secondary">
+              <div className="whitespace-pre-wrap">{liveContent}</div>
+              <span className="inline-block w-1.5 h-4 bg-blue-400 animate-pulse ml-0.5 align-text-bottom" />
+            </div>
+          ) : currentResult ? (
+            <ResultPreview result={currentResult} selectedPlatform={selectedPlatform ?? null} />
+          ) : (
             <p className="text-xs text-app-text-tertiary text-center py-8">
               内容生成中，完成后显示预览...
             </p>
-          ) : (
-            <ResultPreview result={currentResult} selectedPlatform={selectedPlatform ?? null} />
           )}
         </ScrollArea>
       </div>

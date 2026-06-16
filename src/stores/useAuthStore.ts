@@ -10,6 +10,8 @@ interface AuthState {
   isLoading: boolean;
   setUser: (user: User | null) => void;
   setTokens: (accessToken: string, refreshToken: string) => void;
+  /** 一次性设置登录后的全部状态，避免 setTokens + setUser 之间出现中间不一致 */
+  login: (user: User, accessToken: string, refreshToken: string) => void;
   setLoading: (loading: boolean) => void;
   logout: () => void;
 }
@@ -28,6 +30,9 @@ export const useAuthStore = create<AuthState>()(
 
       setTokens: (accessToken, refreshToken) =>
         set({ accessToken, refreshToken, isAuthenticated: true }),
+
+      login: (user, accessToken, refreshToken) =>
+        set({ user, accessToken, refreshToken, isAuthenticated: true }),
 
       setLoading: (isLoading) => set({ isLoading }),
 

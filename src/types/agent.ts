@@ -222,6 +222,7 @@ export interface StageInfo {
   reasoning?: string;    // accumulated reasoning content for this stage
   substeps?: ThinkingStepEventData[];
   conflicts?: IntentConflict[];
+  reviewRound?: number;  // review-fix 循环的轮次（>0 表示是第几轮复审/再润色）
 }
 
 export interface IntentConflict {
@@ -233,13 +234,13 @@ export interface IntentConflict {
 // Agent → Stage mapping (frontend side, synced with backend STAGE_MAP)
 export const AGENT_STAGE_MAP: Record<string, { label: string; icon: string }> = {
   ManagerAgent:  { label: '思考分析中', icon: '🧠' },
+  PlanningAgent: { label: '任务规划中', icon: '📋' },
   WebSearch:     { label: '搜索资料中', icon: '🔍' },
   URLCrawler:    { label: '搜索资料中', icon: '🔍' },
   WritingAgent:  { label: '创作初稿中', icon: '✍️' },
   ReviewAgent:   { label: '评审优化中', icon: '📋' },
-  FixAgent:      { label: '质量检查中', icon: '✅' },
+  FixAgent:      { label: '润色优化中', icon: '✨' },
   CodeAgent:     { label: '代码生成中', icon: '💻' },
-  SEOAgent:      { label: 'SEO 优化中', icon: '🚀' },
   DiagramAgent:  { label: '图表生成中', icon: '📊' },
 };
 
@@ -251,6 +252,7 @@ export interface PreviousGeneration {
   events: StreamEvent[];
   timestamp: number;
   plan?: ExecutionPlan;
+  stages?: StageInfo[];
 }
 
 export type ContentType = 'blog' | 'social_post' | 'copywriting' | 'script' | 'newsletter' | 'report' | 'auto';

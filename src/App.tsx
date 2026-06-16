@@ -50,15 +50,15 @@ export default function App() {
           {/* Redirect old routes to unified workspace */}
           <Route path="/agent" element={<Navigate to="/?mode=chat" replace />} />
           <Route path="/agent-studio" element={<Navigate to="/?mode=studio" replace />} />
-          <Route path="/" element={<ErrorBoundary><HomePage /></ErrorBoundary>} />
-          <Route path="/operations" element={<ErrorBoundary><OperationsPage /></ErrorBoundary>} />
+          <Route path="/" element={<HomePage />} />
+          <Route path="/operations" element={<OperationsPage />} />
           <Route path="/agent-history" element={<Navigate to="/operations" replace />} />
           <Route path="/agent-metrics" element={<Navigate to="/operations" replace />} />
           <Route path="/traces" element={<Navigate to="/operations" replace />} />
           <Route path="/templates" element={<Navigate to="/" replace />} />
-          <Route path="/content" element={<ErrorBoundary><ContentManagementPage /></ErrorBoundary>} />
-          <Route path="/content/:id" element={<ErrorBoundary><ContentEditPage /></ErrorBoundary>} />
-          <Route path="/settings" element={<ErrorBoundary><SettingsPage /></ErrorBoundary>} />
+          <Route path="/content" element={<ContentManagementPage />} />
+          <Route path="/content/:id" element={<ContentEditPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />

@@ -1,8 +1,15 @@
 /** 公众号预览 — 宽屏文章排版 */
 
+import { useId } from 'react';
 import type { PlatformPreviewProps } from './index';
 
 export function WechatPreview({ content }: PlatformPreviewProps) {
+  // 每次渲染生成随机数会抖动，用 content 的长度作确定性种子
+  const seed = content.length;
+  const rand = (n: number) => Math.floor(((seed * 9301 + 49297) % 233280) / 233280 * n);
+  const likes = Math.floor(rand(8000) + 1000);
+  const views = Math.floor(rand(9000) + 2000);
+
   const lines = content.split('\n').filter(Boolean);
   const title = lines[0] || '';
 
@@ -42,7 +49,7 @@ export function WechatPreview({ content }: PlatformPreviewProps) {
 
       {/* 底部 */}
       <div className="px-5 py-3 border-t border-app-border/20 text-center text-[10px] text-app-text-tertiary">
-        阅读 {Math.floor(Math.random() * 10000 + 1000)} · 分享 · 在看
+        阅读 {views.toLocaleString()} · 分享 · 在看
       </div>
     </div>
   );

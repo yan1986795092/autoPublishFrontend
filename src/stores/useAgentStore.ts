@@ -188,16 +188,22 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
   addStreamEvent: (event) => set((state) => ({ streamEvents: [...state.streamEvents, event] })),
 
   stopStreaming: () => {
-    const { _streamingProcessor, _abortController } = useAgentStore.getState();
+    const { _streamingProcessor, _abortController, messages } = useAgentStore.getState();
     if (_streamingProcessor) {
       _streamingProcessor.abort();
     }
     if (_abortController) {
       _abortController.abort();
     }
+    // 将 running 中的 assistant 消息标记为 failed（用户可见停止状态）
+    const runningMsg = messages.find(m => m.role === 'assistant' && m.status === 'running');
+    if (runningMsg) {
+      get().updateMessage(runningMsg.id, { status: 'failed' });
+    }
     set({
       isRunning: false,
       currentTaskId: null,
+      currentResult: null,   // ← 侧边栏 AdvancedPanel 不再残留旧结果
       thinkingSteps: [],
       llmChunks: {},
       reasoningChunks: {},
@@ -268,8 +274,27 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
           taskId: m.task_id,
           plan: m.plan as ExecutionPlan | undefined,
         }));
+        // 从最后一条 assistant 消息中恢复 stages、thinkingSteps、reasoningChunks
+        const lastAsst = [...messages].reverse().find(m => m.role === 'assistant');
+        const restoredStages: StageInfo[] = (lastAsst?.result as any)?._stages || [];
+        const restoredThinkingSteps: ThinkingStep[] = (lastAsst?.result as any)?._thinkingSteps || [];
+        const restoredReasoningChunks: Record<string, ReasoningChunk[]> = (lastAsst?.result as any)?._reasoningChunks || {};
+        // 把 reasoning 内容写回每个 stage，以便 StageTimeline 能展示
+        for (const st of restoredStages) {
+          const chunk = restoredReasoningChunks[st.agent]?.[0];
+          if (chunk && !st.reasoning) {
+            st.reasoning = chunk.content;
+          }
+        }
         localStorage.setItem('currentConversationId', conversationId);
-        set({ conversationId, messages: chatMessages });
+        set({
+          conversationId,
+          messages: chatMessages,
+          stages: restoredStages,
+          currentStage: null,
+          thinkingSteps: restoredThinkingSteps,
+          reasoningChunks: restoredReasoningChunks,
+        });
         _saveConvToStorage(get());
       }
     } catch (e) {
@@ -345,13 +370,25 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
   },
 
   switchConversation: async (conversationId: string | null) => {
+    // 切换前必须停掉正在进行的 SSE 和 WebSocket，否则旧流会污染新对话
+    const { _streamingProcessor, _abortController, _ws } = useAgentStore.getState();
+    if (_streamingProcessor) _streamingProcessor.abort();
+    if (_abortController) _abortController.abort();
+    if (_ws) { _ws.close(); set({ _ws: null }); }
+    set({
+      _streamingProcessor: null,
+      _abortController: null,
+      wsConnectionState: 'disconnected',
+    });
+
     if (!conversationId) {
       localStorage.removeItem('currentConversationId');
-      set({ conversationId: null, messages: [] });
+      set({ conversationId: null, messages: [], isRunning: false, currentResult: null, thinkingSteps: [], llmChunks: {}, reasoningChunks: {}, stages: [], currentStage: null, intentConflicts: [], streamEvents: [] });
       _saveConvToStorage(get());
       return;
     }
     localStorage.setItem('currentConversationId', conversationId);
+    set({ conversationId, messages: [], isRunning: false, currentResult: null, thinkingSteps: [], llmChunks: {}, reasoningChunks: {}, stages: [], currentStage: null, intentConflicts: [], streamEvents: [] });
     await get().loadConversationMessages(conversationId);
   },
 
@@ -500,13 +537,18 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
   },
 
   runStreaming: async (prompt: string, platform?: string | null, parameters?: Record<string, unknown>) => {
+    // 防止重复调用
+    if (get().isRunning) return;
+
     const token = useAuthStore.getState().accessToken;
     const state = get();
 
     // ── Prepare local state immediately (don't wait for DB) ──
     let conversationId: string | null = state.conversationId;
-    let assistantMsgId: string = crypto.randomUUID();
-    const temporaryId = assistantMsgId;  // may be replaced when DB returns
+    // 使用 ref 对象持有 ID，避免在 messagePromise 内对外层 let 变量赋值后，
+    // SSE processor.on 回调中的 updateMsg 看不到更新。
+    const msgIdRef: { current: string } = { current: crypto.randomUUID() };
+    const temporaryId = msgIdRef.current;  // may be replaced when DB returns
 
     // Add assistant placeholder locally for immediate UI feedback
     if (!state.messages.find(m => m.role === 'assistant' && m.status === 'running')) {
@@ -544,7 +586,20 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
           });
           if (resp.data.success && resp.data.data) {
             conversationId = resp.data.data.conversation_id;
-            set({ conversationId });
+            // Optimistic update: immediately prepend the new conversation so the
+            // left sidebar reflects it without waiting for loadConversations.
+            const optimisticConv: ChatConversationSummary = {
+              id: conversationId,
+              title: resp.data.data.message?.content?.slice(0, 30) + (resp.data.data.message?.content?.length > 30 ? '…' : '') || '新对话',
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+              message_count: 1,
+            };
+            set((s) => ({
+              conversationId,
+              conversationList: [optimisticConv, ...s.conversationList],
+            }));
+            _saveConvToStorage(get());
             const [asstResp] = await Promise.all([
               chatApi.addMessage(conversationId, {
                 role: 'assistant', content: '', status: 'running',
@@ -574,7 +629,8 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       }
       // Swap temporary ID to real ID if they differ
       if (realAssistantId !== temporaryId) {
-        assistantMsgId = realAssistantId;
+        // 通过 ref 对象更新 ID，updateMsg 在 processor.on 回调中读到的就是最新值
+        msgIdRef.current = realAssistantId;
         set((s) => ({
           messages: s.messages.map(m =>
             m.id === temporaryId ? { ...m, id: realAssistantId } : m
@@ -604,7 +660,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       const now = Date.now();
       if (now - lastMsgUpdate >= _MSG_UPDATE_INTERVAL) {
         lastMsgUpdate = now;
-        get().updateMessage(assistantMsgId, { content });
+        get().updateMessage(msgIdRef.current, { content });
       }
     };
 
@@ -709,10 +765,14 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       const data = event.data as any;
       const agent = data.agent as string;
       const status = data.status as string;
+      const reviewRound = data._review_round as number | undefined;
+
+      // 用 agent + reviewRound 作为唯一键，区分多轮审核/润色
+      const stageKey = `${agent}|${reviewRound || 0}`;
 
       set((state) => {
         if (status === 'started') {
-          const existing = state.stages.find(s => s.agent === agent);
+          const existing = state.stages.find(s => `${s.agent}|${s.reviewRound || 0}` === stageKey);
           if (!existing) {
             const mapEntry = AGENT_STAGE_MAP[agent] || { label: '处理中', icon: '⚙️' };
             return {
@@ -723,6 +783,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
                 status: 'running' as const,
                 substeps: [],
                 conflicts: data.conflicts as IntentConflict[] | undefined,
+                reviewRound,
               }],
               currentStage: agent,
               intentConflicts: (data.conflicts as IntentConflict[]) || state.intentConflicts,
@@ -730,7 +791,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
           }
           return {
             stages: state.stages.map(s =>
-              s.agent === agent ? { ...s, status: 'running' as const } : s
+              `${s.agent}|${s.reviewRound || 0}` === stageKey ? { ...s, status: 'running' as const } : s
             ),
             currentStage: agent,
           };
@@ -739,7 +800,9 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
         if (status === 'completed') {
           return {
             stages: state.stages.map(s =>
-              s.agent === agent ? { ...s, status: 'completed' as const, duration: data.duration as number } : s
+              `${s.agent}|${s.reviewRound || 0}` === stageKey
+                ? { ...s, status: 'completed' as const, duration: data.duration as number }
+                : s
             ),
             currentStage: state.currentStage === agent ? null : state.currentStage,
           };
@@ -759,25 +822,43 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       const backendReview = (result.output as any)?.review_content as string | undefined;
       const finalReview = backendReview || reviewContent;
       const eventSteps = getResultThinkingSteps(result);
-      // 将审核内容附加到 result 以便 MessageBubble 展示
+      // 优先使用前端实时积累的 thinkingSteps，其次才用后端结果中解析出的 steps
+      const currentState = useAgentStore.getState();
+      const finalSteps = eventSteps.length > 0 ? eventSteps : currentState.thinkingSteps;
+      // 从 stages 中提取 reasoning 内容，重建 reasoningChunks 供后续恢复使用
+      const finalReasoningChunks: Record<string, { agent: string; content: string; timestamp: number }[]> = {};
+      for (const st of currentState.stages) {
+        if (st.reasoning) {
+          finalReasoningChunks[st.agent] = [{
+            agent: st.agent,
+            content: st.reasoning,
+            timestamp: Date.now(),
+          }];
+        }
+      }
       const resultWithReview = finalReview
         ? { ...result, _reviewContent: finalReview }
         : result;
-      get().updateMessage(assistantMsgId, {
+      get().updateMessage(msgIdRef.current, {
         status: 'completed', content: fullText, result: resultWithReview,
       });
       set((s) => ({
         currentResult: resultWithReview,
         isRunning: false,
         currentTaskId: null,
-        thinkingSteps: eventSteps.length > 0 ? eventSteps : s.thinkingSteps,
+        thinkingSteps: finalSteps,
         streamEvents: timelineEvents.length > 0 ? timelineEvents : s.streamEvents,
       }));
       get().loadTaskHistory();
       if (conversationId) {
-        chatApi.updateMessage(assistantMsgId, {
+        chatApi.updateMessage(msgIdRef.current, {
           status: 'completed', content: fullText,
-          result: resultWithReview as unknown as Record<string, unknown>,
+          result: {
+            ...resultWithReview,
+            _stages: currentState.stages.map(s => ({ ...s, reasoning: '' })),
+            _thinkingSteps: finalSteps,
+            _reasoningChunks: finalReasoningChunks,
+          } as unknown as Record<string, unknown>,
         }).catch(console.error);
       }
 
@@ -805,7 +886,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     processor.on('error', (event) => {
       flushChunks();
       errorOccurred = true;
-      get().updateMessage(assistantMsgId, {
+      get().updateMessage(msgIdRef.current, {
         status: 'failed',
         content: (event.data.message as string) || '执行出错',
       });
@@ -823,7 +904,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
         }),
       }));
       if (conversationId) {
-        chatApi.updateMessage(assistantMsgId, {
+        chatApi.updateMessage(msgIdRef.current, {
           status: 'failed',
           content: (event.data.message as string) || '执行出错',
         }).catch(console.error);
@@ -860,7 +941,6 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       // 审核/分析类 agent 的输出不进入主正文，单独收集用于审核展示
       if (agent && isReviewAgent(agent)) {
         reviewContent += content;
-        // 审核内容也作为 reasoningChunks 记录，让 UI 可展示
         set((s) => {
           const existing = s.reasoningChunks[agent] || [];
           return {
@@ -872,6 +952,25 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
           };
         });
         return;
+      }
+
+      // 中间 Agent（WebSearch、HotTopicAgent 等）→ 仅 stage 展示，不进正文
+      const _MAIN_CONTENT_AGENTS = ['WritingAgent', 'FixAgent'];
+      if (!_MAIN_CONTENT_AGENTS.includes(agent)) {
+        pendingChunks.push({ agent, content });
+        if (!chunkBatchTimer) {
+          chunkBatchTimer = setTimeout(() => {
+            chunkBatchTimer = null;
+            flushChunks();
+          }, _CHUNK_UPDATE_INTERVAL);
+        }
+        return;
+      }
+
+      // FixAgent 开始生成时清空 accumulated，只保留最新修复版本
+      if (agent === 'FixAgent' && accumulated) {
+        accumulated = '';
+        updateMsg(accumulated);
       }
 
       accumulated += content;
@@ -887,8 +986,13 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
 
     processor.on('done', () => {
       flushChunks();
-      if (accumulated) {
-        get().updateMessage(assistantMsgId, { content: accumulated });
+      // 如果 error 事件已标记过，不覆盖失败状态
+      if (errorOccurred) return;
+      // 仅当 result 事件未设置内容时才用 accumulated（防覆盖后端 fullText）
+      const msg = get().messages.find(m => m.id === msgIdRef.current);
+      const alreadySet = msg && msg.content && msg.content.length > 0 && get().currentResult;
+      if (accumulated && !alreadySet) {
+        get().updateMessage(msgIdRef.current, { content: accumulated });
       }
       set((s) => ({
         isRunning: false,
@@ -931,12 +1035,12 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
         }, controller.signal);
         return err;
       })(),
-      // Message creation runs in background, swaps assistantMsgId when done
-      messagePromise.then((realId) => { assistantMsgId = realId; }),
+      // Message creation runs in background, swaps msgIdRef.current when done
+      messagePromise.then((realId) => { msgIdRef.current = realId; }),
     ]);
 
     if (connectError && !errorOccurred) {
-      get().updateMessage(assistantMsgId, {
+      get().updateMessage(msgIdRef.current, {
         status: 'failed',
         content: connectError,
       });
@@ -944,6 +1048,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
         error: connectError,
         isRunning: false,
         currentTaskId: null,
+        currentResult: null,  // ← 连接失败时侧边栏不残留旧结果
         _abortController: null,
         _streamingProcessor: null,
       });
@@ -1019,9 +1124,10 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
         id: crypto.randomUUID(),
         prompt: s.messages.find(m => m.role === 'user')?.content || '',
         result: s.currentResult,
-        events: [],
+        events: s.streamEvents || [],
         timestamp: Date.now(),
         plan: s.currentPlan || undefined,
+        stages: s.stages.length > 0 ? [...s.stages] : undefined,
       };
       set((state) => ({ previousGenerations: [...state.previousGenerations, gen] }));
     }

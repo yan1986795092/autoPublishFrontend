@@ -247,14 +247,7 @@ export function ContentEditPage() {
     }
   };
 
-  // Listen for Ctrl+S keyboard shortcut
-  useEffect(() => {
-    const handler = () => { if (isDirty) handleSave(); };
-    window.addEventListener('shortcut:save', handler);
-    return () => window.removeEventListener('shortcut:save', handler);
-  }, [isDirty]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const handleSave = async () => {
+  const handleSave = useCallback(async () => {
     if (!id) return;
     setSaving(true);
     try {
@@ -267,7 +260,18 @@ export function ContentEditPage() {
     } finally {
       setSaving(false);
     }
-  };
+  }, [id, editTitle, editContentMd, showToast]);
+
+  // 使用 ref 持有最新 handleSave，避免在 effect 中依赖其引用变化
+  const handleSaveRef = useRef(handleSave);
+  useEffect(() => { handleSaveRef.current = handleSave; }, [handleSave]);
+
+  // Listen for Ctrl+S keyboard shortcut
+  useEffect(() => {
+    const handler = () => { if (isDirty) handleSaveRef.current(); };
+    window.addEventListener('shortcut:save', handler);
+    return () => window.removeEventListener('shortcut:save', handler);
+  }, [isDirty]);
 
   const handleExportMd = () => {
     const blob = new Blob([editContentMd], { type: 'text/markdown' });
@@ -395,6 +399,7 @@ export function ContentEditPage() {
                 onClick={() => {
                   setEditContentMd(content.content_md || '');
                   setEditTitle(content.title || '');
+                  setEditTags(data.tags || []);
                   setIsDirty(false);
                 }}
                 className="h-8 text-xs"

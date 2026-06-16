@@ -49,7 +49,6 @@ export function ConversationHistory({
   const conversationList = useAgentStore((s) => s.conversationList);
   const conversationId = useAgentStore((s) => s.conversationId);
   const loadConversations = useAgentStore((s) => s.loadConversations);
-  const switchConversation = useAgentStore((s) => s.switchConversation);
   // Load conversations from backend on mount (localStorage cache shown immediately)
   useEffect(() => {
     loadConversations();
@@ -65,7 +64,7 @@ export function ConversationHistory({
 
   const handleSelect = (id: string) => {
     onSelectSession(id);
-    switchConversation(id).catch(() => {});
+    // 不再重复调用 switchConversation —— HomePage.handleSelectSession 已经做了
   };
 
   const handleNewConversation = () => {

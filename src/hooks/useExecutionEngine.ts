@@ -16,6 +16,8 @@ interface UseExecutionEngineReturn {
   currentTaskId: string | null;
   thinkingSteps: ReturnType<typeof useAgentStore.getState>['thinkingSteps'];
   llmChunks: ReturnType<typeof useAgentStore.getState>['llmChunks'];
+  stages: ReturnType<typeof useAgentStore.getState>['stages'];
+  currentStage: ReturnType<typeof useAgentStore.getState>['currentStage'];
   messages: ReturnType<typeof useAgentStore.getState>['messages'];
   previousGenerations: ReturnType<typeof useAgentStore.getState>['previousGenerations'];
   appliedSkill: ReturnType<typeof useAgentStore.getState>['appliedSkill'];
@@ -64,6 +66,7 @@ function enrichPrompt(
 }
 
 export function useExecutionEngine(_mode: WorkspaceMode): UseExecutionEngineReturn {
+  void _mode; // reserved for future 'chat'/'create'/'studio' mode routing
   const isRunning = useAgentStore((s) => s.isRunning);
   const currentResult = useAgentStore((s) => s.currentResult);
   const currentPlan = useAgentStore((s) => s.currentPlan);
@@ -71,6 +74,9 @@ export function useExecutionEngine(_mode: WorkspaceMode): UseExecutionEngineRetu
   const currentTaskId = useAgentStore((s) => s.currentTaskId);
   const thinkingSteps = useAgentStore((s) => s.thinkingSteps);
   const llmChunks = useAgentStore((s) => s.llmChunks);
+  const reasoningChunks = useAgentStore((s) => s.reasoningChunks);
+  const stages = useAgentStore((s) => s.stages);
+  const currentStage = useAgentStore((s) => s.currentStage);
   const messages = useAgentStore((s) => s.messages);
   const previousGenerations = useAgentStore((s) => s.previousGenerations);
   const appliedSkill = useAgentStore((s) => s.appliedSkill);
@@ -148,11 +154,11 @@ export function useExecutionEngine(_mode: WorkspaceMode): UseExecutionEngineRetu
     prompt, setPrompt,
     runningTime, isRunning,
     currentResult, currentPlan, currentTask, currentTaskId,
-    thinkingSteps, llmChunks, messages, previousGenerations,
+    thinkingSteps, llmChunks, reasoningChunks, stages, currentStage, messages, previousGenerations,
     appliedSkill, appliedSkillFull,
     wsConnectionState,
     useStreaming, setUseStreaming,
-    handleExecute, handleStop: () => stopStreaming(), handleDirectExecute,
+    handleExecute, handleStop, handleDirectExecute,
     handleClearCurrent: clearCurrent,
     handleSetAppliedSkill: setAppliedSkill,
     addMessage,

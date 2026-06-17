@@ -24,7 +24,7 @@ export class SSEProcessor {
     const events: SSEEvent[] = [];
     const lines = block.split('\n');
     let eventType = '';
-    let dataLines: string[] = [];
+    const dataLines: string[] = [];
 
     for (const line of lines) {
       if (line.startsWith('event: ')) {

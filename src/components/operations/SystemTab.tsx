@@ -43,13 +43,6 @@ const PROVIDER_LABELS: Record<string, string> = {
   deepseek: 'DeepSeek',
 };
 
-const PROVIDER_COLORS: Record<string, string> = {
-  zhipu: 'text-green-400',
-  qwen: 'text-blue-400',
-  openai: 'text-purple-400',
-  deepseek: 'text-yellow-400',
-};
-
 function ProviderBadge({ provider, enabled }: { provider: string; enabled: boolean }) {
   return (
     <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium border ${
@@ -77,8 +70,8 @@ export function SystemTab() {
   const [metrics, setMetrics] = useState<AgentMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [refreshing, setRefreshing] = useState(false);
   const [stale, setStale] = useState(false);
+  const [, setRefreshing] = useState(false);
 
   const fetchMetrics = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);

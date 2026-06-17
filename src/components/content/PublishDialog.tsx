@@ -4,12 +4,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Switch } from '../ui/switch';
 import { Separator } from '../ui/separator';
-import { LoadingSpinner } from '../ui/loading-spinner';
 import { useUIStore } from '../../stores/useUIStore';
 import { publishApi, contentsApi } from '../../services/api';
 import { ALL_PLATFORMS } from '../agent/PlatformSelector';
 import { cn } from '../../utils/helpers';
-import { Send, Clock, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
+import { Send, CheckCircle2, Loader2 } from 'lucide-react';
 
 interface PublishResult {
   platform: string;

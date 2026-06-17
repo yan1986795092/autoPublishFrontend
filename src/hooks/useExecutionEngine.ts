@@ -34,22 +34,12 @@ interface UseExecutionEngineReturn {
   addMessage: ReturnType<typeof useAgentStore.getState>['addMessage'];
 }
 
-function enrichPrompt(
+// Skill template 替换已移至后端 api.py，前端不再重复处理。
+// 此处仅追加内容类型/风格/篇幅等元信息标签。
+function appendContentMeta(
   text: string,
-  appliedSkillFull: ReturnType<typeof useAgentStore.getState>['appliedSkillFull'],
   contentTypeConfig: ReturnType<typeof useAgentStore.getState>['contentTypeConfig'],
 ): string {
-  const skill = appliedSkillFull;
-  if (skill) {
-    if (skill.user_prompt_template) {
-      let template = skill.user_prompt_template;
-      template = template.replace(/\{topic\}/g, text.split('\n')[0]);
-      template = template.replace(/\{content\}/g, text);
-      return template;
-    }
-    return text;
-  }
-
   const config = contentTypeConfig;
   if (config && config.type !== 'auto') {
     const parts: string[] = [`[内容类型: ${config.type}]`];
@@ -61,7 +51,6 @@ function enrichPrompt(
     if (enabled.length > 0) parts.push(`[附加功能: ${enabled.join(', ')}]`);
     return `${text}\n\n${parts.join('\n')}`;
   }
-
   return text;
 }
 
@@ -110,7 +99,7 @@ export function useExecutionEngine(_mode: WorkspaceMode): UseExecutionEngineRetu
 
   const handleExecute = useCallback(async (text: string, platform?: string | null, parameters?: Record<string, unknown>) => {
     if (!text.trim() || isRunning) return;
-    const enriched = enrichPrompt(text.trim(), appliedSkillFull, contentTypeConfig);
+    const enriched = appendContentMeta(text.trim(), contentTypeConfig);
     const userMsg: ChatMessage = {
       id: crypto.randomUUID(),
       role: 'user',
@@ -128,7 +117,7 @@ export function useExecutionEngine(_mode: WorkspaceMode): UseExecutionEngineRetu
 
   const handleDirectExecute = useCallback(async () => {
     if (!prompt.trim()) return;
-    const enriched = enrichPrompt(prompt.trim(), appliedSkillFull, contentTypeConfig);
+    const enriched = appendContentMeta(prompt.trim(), contentTypeConfig);
     const userMsg: ChatMessage = {
       id: crypto.randomUUID(),
       role: 'user',

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../../utils/helpers';
 import type { StageInfo, LLMChunk, ReasoningChunk } from '../../types';
@@ -143,27 +143,26 @@ function StageRow({ stage, index, totalStages, expanded, onToggle, chunks, hasDe
                 className="overflow-hidden"
               >
                 <div className="mt-1.5 space-y-1.5">
-                  {/* 推理过程 */}
-                  {stage.reasoning && (
-                    <div className="rounded-lg px-3 py-2 bg-white/5 border border-white/5">
-                      <p className="text-[11px] text-app-text-tertiary leading-relaxed m-0">
-                        💭 {stage.reasoning}
-                      </p>
-                    </div>
-                  )}
-
-                  {/* 阶段产出内容（流式逐字，全部显示） */}
+                  {/* 阶段产出内容 */}
                   {chunks && chunks.length > 0 && (
                     <div className="rounded-lg px-3 py-2.5 bg-white/[0.03] border border-white/[0.06]">
                       <p className="text-xs text-app-text-secondary leading-relaxed whitespace-pre-wrap">
-                        {chunks.map(c => c.content).join('')}
+                        {(() => {
+                          const full = chunks.map(c => c.content).join('');
+                          const isSearch = stage.agent === 'WebSearch' || stage.agent === 'HotTopicAgent';
+                          if (isSearch && full.length > 300) {
+                            const trimmed = full.slice(0, 300);
+                            const lastBreak = trimmed.lastIndexOf('\n');
+                            return (lastBreak > 100 ? trimmed.slice(0, lastBreak) : trimmed) + '\n...（共 ' + full.length + ' 字）';
+                          }
+                          return full;
+                        })()}
                         {isCurrent && (
                           <span className="inline-block w-[2px] h-[13px] bg-blue-400 ml-0.5 animate-pulse align-text-bottom" />
                         )}
                       </p>
                     </div>
                   )}
-
                 </div>
               </motion.div>
             )}
@@ -175,16 +174,34 @@ function StageRow({ stage, index, totalStages, expanded, onToggle, chunks, hasDe
 }
 
 export function StageTimeline({ stages, isRunning, llmChunks, reasoningChunks }: StageTimelineProps) {
-  // 将展开状态提升到父组件，用 stageKey 作为键，避免在 map 中违反 Rules of Hooks
-  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(() => {
-    const initial = new Set<string>();
-    stages.forEach((s) => {
-      if (s.status === 'running') {
-        initial.add(`${s.agent}|${s.reviewRound || 0}`);
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(() => new Set());
+
+  // 运行中自动展开，完成立即折叠
+  useEffect(() => {
+    if (!isRunning) return; // 全部完成由下面的 effect 处理
+    setExpandedKeys((prev) => {
+      const next = new Set(prev);
+      let changed = false;
+      for (const s of stages) {
+        const key = `${s.agent}|${s.reviewRound || 0}`;
+        if (s.status === 'running' && !next.has(key)) {
+          next.add(key);
+          changed = true;
+        } else if (s.status === 'completed' && next.has(key)) {
+          next.delete(key);
+          changed = true;
+        }
       }
+      return changed ? next : prev;
     });
-    return initial;
-  });
+  }, [stages, isRunning]);
+
+  // 生成完毕 → 全部折叠（避免消息太长）
+  useEffect(() => {
+    if (!isRunning) {
+      setExpandedKeys(new Set());
+    }
+  }, [isRunning]);
 
   const toggleExpanded = useCallback((key: string) => {
     setExpandedKeys((prev) => {
@@ -206,8 +223,16 @@ export function StageTimeline({ stages, isRunning, llmChunks, reasoningChunks }:
     <div className="my-3">
       {stages.map((stage, i) => {
         const uniqueKey = `${stage.agent}|${stage.reviewRound || 0}`;
-        const chunks = llmChunks?.[stage.agent] || reasoningChunks?.[stage.agent];
-        const hasDetail = !!(stage.reasoning || (chunks && chunks.length > 0));
+        const rawChunks = llmChunks?.[stage.agent] || reasoningChunks?.[uniqueKey];
+        // ReviewAgent 的 chunks 拼接后去掉评分明细，只保留结论+问题+建议
+        const isReview = stage.agent.includes('Review');
+        const cleanContent = isReview
+          ? (rawChunks || []).map(c => c.content).join('').replace(/\*\*各维度评分[\s\S]*?(?=\*\*审核结论：)/, '')
+          : undefined;
+        const chunks = isReview && cleanContent
+          ? [{ agent: stage.agent, content: cleanContent, timestamp: Date.now() }]
+          : (rawChunks || []);
+        const hasDetail = !!(chunks && chunks.length > 0);
         const isCurrent = stage.status === 'running';
         const expanded = expandedKeys.has(uniqueKey);
 

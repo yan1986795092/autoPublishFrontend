@@ -49,7 +49,7 @@ export function ContentCalendar() {
       }
     };
     fetch();
-  }, [year, month]);
+  }, [year, month, showToast]);
 
   const daysInMonth = new Date(year, month, 0).getDate();
   const firstDayOfWeek = new Date(year, month - 1, 1).getDay();

@@ -3,7 +3,6 @@
 import type { PlatformPreviewProps } from './index';
 
 function parseEmail(content: string) {
-  const lines = content.split('\n');
   let subject = '';
   let preheader = '';
   let body = content;

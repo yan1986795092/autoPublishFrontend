@@ -1,13 +1,11 @@
 /** 公众号预览 — 宽屏文章排版 */
 
-import { useId } from 'react';
 import type { PlatformPreviewProps } from './index';
 
 export function WechatPreview({ content }: PlatformPreviewProps) {
-  // 每次渲染生成随机数会抖动，用 content 的长度作确定性种子
+  // 内容长度作确定性种子，避免每次渲染随机数跳动
   const seed = content.length;
   const rand = (n: number) => Math.floor(((seed * 9301 + 49297) % 233280) / 233280 * n);
-  const likes = Math.floor(rand(8000) + 1000);
   const views = Math.floor(rand(9000) + 2000);
 
   const lines = content.split('\n').filter(Boolean);

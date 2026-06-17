@@ -5,14 +5,11 @@ import { ScrollArea } from '../ui/scroll-area';
 import { Separator } from '../ui/separator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { useExecutionEngine } from '../../hooks/useExecutionEngine';
-import { useNavigate } from 'react-router-dom';
-import { contentsApi } from '../../services/api';
-import { useUIStore } from '../../stores/useUIStore';
 import { useAgentStore } from '../../stores/useAgentStore';
 import type { StageInfo, LLMChunk, ReasoningChunk } from '../../types';
 import {
   Send, Square, Bot, Sparkles, Copy, Check,
-  SlidersHorizontal, Save,
+  SlidersHorizontal, Eye,
 } from 'lucide-react';
 import { AdvancedPanel } from './AdvancedPanel';
 import { StageTimeline } from './StageTimeline';
@@ -374,10 +371,25 @@ function EmptyWorkspace({ platform, onSelect }: { platform: { icon: string; labe
   );
 }
 
+/**
+ * 降级方案：为没有 _llmChunks 的旧消息，从 message.content 构建 chunks
+ */
+function _fallbackLlmChunks(result: any, content: string): Record<string, LLMChunk[]> {
+  const chunks: Record<string, LLMChunk[]> = {};
+  if (!content || !result?._stages) return chunks;
+  const ts = Date.now();
+  for (const st of result._stages) {
+    if (st.agent === 'WritingAgent' || st.agent === 'FixAgent') {
+      chunks[st.agent] = [{ agent: st.agent, content, timestamp: ts }];
+    }
+  }
+  return chunks;
+}
+
 function MessageBubble({
   message, copiedId, onCopy,
   runningTime,
-  stages, currentStage, llmChunks, reasoningChunks,
+  stages, currentStage, llmChunks, reasoningChunks, thinkingSteps,
 }: {
   message: { id: string; role: string; content: string; timestamp: number; status?: string; result?: any };
   copiedId: string | null;
@@ -389,34 +401,10 @@ function MessageBubble({
   llmChunks?: Record<string, LLMChunk[]>;
   reasoningChunks?: Record<string, ReasoningChunk[]>;
 }) {
-  const [saving, setSaving] = useState(false);
-  const navigate = useNavigate();
-  const { showToast } = useUIStore();
-
-
-  const handleSaveToContent = useCallback(async () => {
+  const handlePreview = useCallback(() => {
     if (!message.content) return;
-    setSaving(true);
-    try {
-      // 直接创建 Content 记录，不再触发 AI 重新生成
-      const title = message.content.split('\n')[0].replace(/^#+\s*/, '').slice(0, 80) || '生成内容';
-      const res = await contentsApi.create({
-        title,
-        content_md: message.content,
-        platform_code: 'xiaohongshu',
-      });
-      const contentId = res.data.data?.id;
-      if (contentId) {
-        showToast('已保存到内容管理', 'success', { label: '查看', onClick: () => navigate(`/content/${contentId}`) });
-      } else {
-        showToast('已保存但无法跳转，请在内容管理中查看', 'success');
-      }
-    } catch {
-      showToast('保存失败，请稍后重试', 'error');
-    } finally {
-      setSaving(false);
-    }
-  }, [message.content, navigate, showToast]);
+    useAgentStore.getState().setPreviewContent(message.content);
+  }, [message.content]);
 
   if (message.role === 'user') {
     return (
@@ -433,6 +421,19 @@ function MessageBubble({
     const isRunning = message.status === 'running';
     const isFailed = message.status === 'failed';
     const displayContent = message.content || '';
+
+    // Per-message stages/chunks: completed messages use stored data, not global state.
+    // This prevents all messages from showing the same (latest) stages/chunks.
+    const msgResult = message.result as any;
+    const displayStages = isRunning || !msgResult?._stages?.length
+      ? (stages || [])
+      : msgResult._stages;
+    const displayCurrentStage = isRunning ? (currentStage || null) : null;
+    const displayLlmChunks = isRunning
+      ? (llmChunks || {})
+      : (msgResult._llmChunks || _fallbackLlmChunks(msgResult, displayContent));
+    const displayReasoning = isRunning ? (reasoningChunks || {}) : (msgResult._reasoningChunks || {});
+    const displayThinkingSteps = isRunning ? (thinkingSteps || []) : (msgResult._thinkingSteps || []);
 
     return (
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex justify-start">
@@ -481,14 +482,28 @@ function MessageBubble({
           )}
 
           {/* Stage-based timeline — 流式逐字渲染 */}
-          {stages && stages.length > 0 && (
+          {displayStages.length > 0 && (
             <StageTimeline
-              stages={stages}
-              currentStage={currentStage || null}
+              stages={displayStages}
+              currentStage={displayCurrentStage}
               isRunning={isRunning}
-              llmChunks={llmChunks}
-              reasoningChunks={reasoningChunks}
+              llmChunks={displayLlmChunks}
+              reasoningChunks={displayReasoning}
+              thinkingSteps={displayThinkingSteps}
             />
+          )}
+
+          {/* 最终产物（全部完成后显示） */}
+          {!isRunning && displayStages.length > 0 && displayContent && (
+            <div className="mt-3 rounded-lg border border-white/[0.08] bg-white/[0.02] overflow-hidden">
+              <div className="flex items-center gap-2 px-3 py-2 border-b border-white/[0.06]">
+                <span className="text-xs">🎯</span>
+                <span className="text-xs font-medium text-app-text">最终产物</span>
+              </div>
+              <div className="px-3 py-2 text-sm text-app-text whitespace-pre-wrap leading-relaxed">
+                {displayContent}
+              </div>
+            </div>
           )}
 
           {/* Failed message */}
@@ -496,18 +511,17 @@ function MessageBubble({
             <div className="text-sm text-red-400 py-1">请求失败，请重试</div>
           )}
 
-          {/* Save & Usage */}
+          {/* Preview button & usage */}
           {!isRunning && displayContent && (
-            <div className="mt-3 flex items-center justify-between border-t border-app-border/30 pt-2">
+            <div className="flex items-center justify-between border-t border-app-border/30 pt-2">
               <Button
-                onClick={handleSaveToContent}
-                disabled={saving}
+                onClick={handlePreview}
                 variant="ghost"
                 size="xs"
                 className="text-app-text-tertiary hover:text-primary-400"
               >
-                <Save className="w-3 h-3 mr-1" />
-                {saving ? '保存中...' : '保存到内容管理'}
+                <Eye className="w-3.5 h-3.5 mr-1" />
+                预览
               </Button>
               {message.result?.usage && (
                 <div className="flex flex-wrap gap-3 text-[10px] text-app-text-tertiary">

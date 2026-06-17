@@ -34,7 +34,6 @@ import {
   CalendarDays,
   List,
   Send,
-  BarChart3,
   FileEdit,
   Globe,
   Archive,

@@ -1,12 +1,8 @@
-import { useState, useEffect } from 'react';
 import { ScrollArea } from '../ui/scroll-area';
-import { cn } from '../../utils/helpers';
 import { PANELS } from '../../config/layout';
 import { Eye, Bot } from 'lucide-react';
 import { useAgentStore } from '../../stores/useAgentStore';
 import { ResultPreview } from './ResultPreview';
-
-type RightTab = 'preview';
 
 /** 空闲状态：无任务、无结果时显示的引导界面 */
 function IdleState() {
@@ -51,8 +47,9 @@ export function AdvancedPanel({ selectedPlatform }: AdvancedPanelProps) {
   const currentResult = useAgentStore((s) => s.currentResult);
   const thinkingSteps = useAgentStore((s) => s.thinkingSteps);
   const messages = useAgentStore((s) => s.messages);
+  const previewContent = useAgentStore((s) => s.previewContent);
 
-  const isIdle = !isRunning && !currentResult && !thinkingSteps.length;
+  const isIdle = !isRunning && !currentResult && !thinkingSteps.length && !previewContent;
 
   // 实时内容：取当前运行中的 assistant 消息（流式写入）
   const liveContent = messages.find(m => m.role === 'assistant' && m.status === 'running')?.content || '';
@@ -73,9 +70,13 @@ export function AdvancedPanel({ selectedPlatform }: AdvancedPanelProps) {
           </div>
         </div>
 
-        {/* 内容: 实时流式内容 + 最终结果 */}
+        {/* 内容: 预览 / 实时流式 / 最终结果 */}
         <ScrollArea className="flex-1 p-4">
-          {isIdle ? (
+          {previewContent ? (
+            <div className="prose prose-invert prose-xs max-w-none text-sm leading-relaxed text-app-text-secondary">
+              <div className="whitespace-pre-wrap">{previewContent}</div>
+            </div>
+          ) : isIdle ? (
             <IdleState />
           ) : showLive ? (
             <div className="prose prose-invert prose-xs max-w-none text-sm leading-relaxed text-app-text-secondary">

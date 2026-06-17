@@ -3,7 +3,6 @@
 import type { PlatformPreviewProps } from './index';
 
 export function TechDocPreview({ content }: PlatformPreviewProps) {
-  const lines = content.split('\n');
   const hasCode = content.includes('```');
 
   return (

@@ -4,7 +4,6 @@ import type { PlatformPreviewProps } from './index';
 
 export function BrandStoryPreview({ content }: PlatformPreviewProps) {
   const paragraphs = content.split('\n').filter(Boolean);
-  const firstLine = paragraphs[0] || '';
 
   return (
     <div className="max-w-lg mx-auto rounded-xl border border-app-border bg-app-surface overflow-hidden">

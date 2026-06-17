@@ -28,6 +28,15 @@ const platformConfig: Record<string, { label: string; icon: React.ReactNode }> =
   wechat: { label: '公众号', icon: <MessageSquare className="w-3 h-3" /> },
 };
 
+function getActionLabel(action: string): string {
+  const labels: Record<string, string> = {
+    rewrite: '改写', expand: '扩写', summarize: '总结',
+    translate: '翻译', tone: '语调优化', headlines: '生成标题',
+    seo: 'SEO 分析', tags: '标签推荐', banned: '违禁词检测',
+  };
+  return labels[action] || action;
+}
+
 export function ContentEditPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -75,12 +84,11 @@ export function ContentEditPage() {
   }, [content, diffMode, diffBase, versions]);
 
   // Reset diff state when closing dialog
+  const [historyOpen, setHistoryOpen] = useState(false);
   const handleHistoryOpenChange = useCallback((v: boolean) => {
     setHistoryOpen(v);
     if (!v) { setDiffMode(false); setDiffBase(null); setDiffLines(null); }
   }, []);
-
-  // Autosave: debounce 10s after content changes
   useEffect(() => {
     if (!isDirty || !id) return;
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
@@ -195,38 +203,28 @@ export function ContentEditPage() {
         setIsDirty(true);
         showToast(`${getActionLabel(action)}成功`, 'success');
       }
-    } catch {
-      showToast(`${getActionLabel(action)}失败`, 'error');
+    } catch (err: unknown) {
+      let msg = '操作失败，请重试';
+      if (err instanceof Error) msg = err.message;
+      else if (typeof err === 'object' && err !== null) {
+        // axios error shape
+        const e = err as { response?: { data?: { message?: string } }; message?: string };
+        msg = e.response?.data?.message || e.message || msg;
+      }
+      showToast(`${getActionLabel(action)}失败: ${msg}`, 'error');
     } finally {
       setAiLoading(false);
     }
   }, [editContentMd, editTags, platform, showToast]);
 
-  function getActionLabel(action: string): string {
-    const labels: Record<string, string> = {
-      rewrite: '改写', expand: '扩写', summarize: '总结',
-      translate: '翻译', tone: '语调优化', headlines: '生成标题',
-      seo: 'SEO 分析', tags: '标签推荐', banned: '违禁词检测',
-    };
-    return labels[action] || action;
-  }
-
   // Preview dialog
   const [previewOpen, setPreviewOpen] = useState(false);
-  // History dialog
-  const [historyOpen, setHistoryOpen] = useState(false);
-
   // Publish history
   const [publishHistoryOpen, setPublishHistoryOpen] = useState(false);
   const [publishRecords, setPublishRecords] = useState<Array<{ id: string; platform_code: string; status: string; platform_url?: string; published_at?: string; created_at: string }>>([]);
   const [publishHistoryLoading, setPublishHistoryLoading] = useState(false);
 
-  useEffect(() => {
-    if (!id) { navigate('/content'); return; }
-    loadContent(id);
-  }, [id]);
-
-  const loadContent = async (contentId: string) => {
+  const loadContent = useCallback(async (contentId: string) => {
     setLoading(true);
     try {
       const res = await contentsApi.get(contentId);
@@ -245,7 +243,12 @@ export function ContentEditPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [showToast, navigate]);
+
+  useEffect(() => {
+    if (!id) { navigate('/content'); return; }
+    loadContent(id);
+  }, [id, loadContent]);
 
   const handleSave = useCallback(async () => {
     if (!id) return;
@@ -260,7 +263,7 @@ export function ContentEditPage() {
     } finally {
       setSaving(false);
     }
-  }, [id, editTitle, editContentMd, showToast]);
+  }, [id, editTitle, editContentMd, showToast, loadContent]);
 
   // 使用 ref 持有最新 handleSave，避免在 effect 中依赖其引用变化
   const handleSaveRef = useRef(handleSave);
@@ -399,7 +402,7 @@ export function ContentEditPage() {
                 onClick={() => {
                   setEditContentMd(content.content_md || '');
                   setEditTitle(content.title || '');
-                  setEditTags(data.tags || []);
+                  setEditTags(content.tags || []);
                   setIsDirty(false);
                 }}
                 className="h-8 text-xs"

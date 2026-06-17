@@ -7,7 +7,7 @@ import type {
 import { AGENT_STAGE_MAP } from '../types';
 import { getResultThinkingSteps } from '../utils/agentEvents';
 import { resultToTimelineEvents } from '../utils/agentEventTimeline';
-import { agentApi, chatApi, contentsApi, type ChatConversationSummary } from '../services/api';
+import { agentApi, chatApi, type ChatConversationSummary } from '../services/api';
 import { SSEProcessor } from '../services/sse-processor';
 import { useAuthStore } from './useAuthStore';
 
@@ -85,6 +85,10 @@ interface AgentState {
   appliedSkillFull: import('../types').Skill | null;
   setAppliedSkill: (applied: import('../types').AppliedSkill | null, full: import('../types').Skill | null) => void;
 
+  // 右侧预览
+  previewContent: string | null;
+  setPreviewContent: (content: string | null) => void;
+
   // Stream events
   addStreamEvent: (event: StreamEvent) => void;
 
@@ -124,29 +128,7 @@ function _saveConvToStorage(state: Pick<AgentState, 'conversationId' | 'conversa
 
 const _initFromStorage = _loadConvFromStorage();
 
-/**
- * 从生成内容中智能提取标题：
- * 1. 跳过 Separator 行（---, ===, ___）
- * 2. 跳过 Agent 标记行（--- WritingAgent --- 等）
- * 3. 取第一个 # 标题行或第一个有效句子
- */
-function extractTitleFromContent(content: string): string {
-  const lines = content.split('\n');
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    // 跳过分隔线
-    if (/^[-=_*]{3,}$/.test(trimmed)) continue;
-    // 跳过 Agent 标记行（--- NameAgent ---）
-    if (/^---\s+\w+Agent\s+---$/i.test(trimmed)) continue;
-    // 取 # 标题行
-    const headingMatch = trimmed.match(/^#+\s+(.+)/);
-    if (headingMatch) return headingMatch[1].slice(0, 80);
-    // 取第一个有效句子（至少 4 个字符，不是纯标点）
-    if (/^[一-鿿\w]{4,}/.test(trimmed)) return trimmed.slice(0, 80);
-  }
-  return '';
-}
+// extractTitleFromContent 已移至后端 merge_and_finish，前端不再需要此函数。
 
 export const useAgentStore = create<AgentState>()((set, get) => ({
   currentTaskId: null,
@@ -172,12 +154,14 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
   contentTypeConfig: null,
   appliedSkill: null,
   appliedSkillFull: null,
+  previewContent: null,
   conversationId: _initFromStorage.conversationId,
   conversationList: _initFromStorage.conversationList,
   _streamingProcessor: null,
 
   setAppliedSkill: (applied, full) => set({ appliedSkill: applied, appliedSkillFull: full }),
   setContentTypeConfig: (config) => set({ contentTypeConfig: config }),
+  setPreviewContent: (content) => set({ previewContent: content }),
 
   addMessage: (msg) => set((state) => ({ messages: [...state.messages, msg] })),
   updateMessage: (id, updates) => set((state) => ({
@@ -188,17 +172,25 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
   addStreamEvent: (event) => set((state) => ({ streamEvents: [...state.streamEvents, event] })),
 
   stopStreaming: () => {
-    const { _streamingProcessor, _abortController, messages } = useAgentStore.getState();
+    const { _streamingProcessor, _abortController, messages, stages, thinkingSteps, reasoningChunks } = useAgentStore.getState();
     if (_streamingProcessor) {
       _streamingProcessor.abort();
     }
     if (_abortController) {
       _abortController.abort();
     }
-    // 将 running 中的 assistant 消息标记为 failed（用户可见停止状态）
+    // 将 running 中的 assistant 消息标记为 failed，并保存已生成的部分 stages
     const runningMsg = messages.find(m => m.role === 'assistant' && m.status === 'running');
     if (runningMsg) {
-      get().updateMessage(runningMsg.id, { status: 'failed' });
+      const updates: Partial<ChatMessage> = { status: 'failed' };
+      if (stages.length > 0) {
+        updates.result = {
+          _stages: stages.map(s => ({ ...s })),
+          _thinkingSteps: thinkingSteps,
+          _reasoningChunks: reasoningChunks,
+        } as any;
+      }
+      get().updateMessage(runningMsg.id, updates);
     }
     set({
       isRunning: false,
@@ -264,28 +256,50 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       const response = await chatApi.getConversation(conversationId);
       if (response.data.success && response.data.data) {
         const { messages } = response.data.data;
-        const chatMessages: ChatMessage[] = messages.map((m) => ({
-          id: m.id,
-          role: m.role as 'user' | 'assistant' | 'system',
-          content: m.content,
-          timestamp: new Date(m.created_at).getTime(),
-          status: m.status as ChatMessage['status'],
-          result: m.result as AgentResult | undefined,
-          taskId: m.task_id,
-          plan: m.plan as ExecutionPlan | undefined,
-        }));
-        // 从最后一条 assistant 消息中恢复 stages、thinkingSteps、reasoningChunks
-        const lastAsst = [...messages].reverse().find(m => m.role === 'assistant');
-        const restoredStages: StageInfo[] = (lastAsst?.result as any)?._stages || [];
-        const restoredThinkingSteps: ThinkingStep[] = (lastAsst?.result as any)?._thinkingSteps || [];
-        const restoredReasoningChunks: Record<string, ReasoningChunk[]> = (lastAsst?.result as any)?._reasoningChunks || {};
-        // 把 reasoning 内容写回每个 stage，以便 StageTimeline 能展示
-        for (const st of restoredStages) {
-          const chunk = restoredReasoningChunks[st.agent]?.[0];
-          if (chunk && !st.reasoning) {
-            st.reasoning = chunk.content;
+        const chatMessages: ChatMessage[] = messages.map((m) => {
+          const msg = {
+            id: m.id,
+            role: m.role as 'user' | 'assistant' | 'system',
+            content: m.content,
+            timestamp: new Date(m.created_at).getTime(),
+            status: m.status as ChatMessage['status'],
+            result: m.result as AgentResult | undefined,
+            taskId: m.task_id,
+            plan: m.plan as ExecutionPlan | undefined,
+          };
+          const result = msg.result as any;
+          // 旧格式归一化：thinking steps / reasoning 藏在 _stages[].substeps[] 里
+          if (result?._stages?.length) {
+            for (const st of result._stages) {
+              // reasoning: 优先取 _reasoningChunks，其次从 substeps 拼接
+              if (result._reasoningChunks?.[st.agent]?.[0]?.content) {
+                const rKey = `${st.agent}|${st.reviewRound || 0}`;
+                if (!st.reasoning) st.reasoning = (result._reasoningChunks[rKey] || result._reasoningChunks[st.agent] || [{}])[0]?.content || '';
+              } else if (st.substeps?.length && !st.reasoning) {
+                st.reasoning = st.substeps
+                  .filter((s: any) => s.reasoning)
+                  .map((s: any) => s.reasoning)
+                  .join('\n\n');
+              }
+            }
+            // 扁平化所有 substeps 作为 _thinkingSteps（供全局 store 和 MessageBubble 使用）
+            if (!result._thinkingSteps) {
+              result._thinkingSteps = result._stages.flatMap((st: any) =>
+                (st.substeps || []).map((s: any) => ({
+                  ...s,
+                  status: s.status === 'completed' ? 'done' : s.status,
+                }))
+              );
+            }
           }
-        }
+          return msg;
+        });
+        // 同时恢复全局 state 给当前对话的实时展示
+        const lastAsst = [...messages].reverse().find(m => m.role === 'assistant');
+        const lastResult = lastAsst?.result as any;
+        const restoredStages: StageInfo[] = (lastResult?._stages || []) as StageInfo[];
+        const restoredThinkingSteps: ThinkingStep[] = (lastResult?._thinkingSteps || []) as ThinkingStep[];
+        const restoredReasoningChunks: Record<string, ReasoningChunk[]> = (lastResult?._reasoningChunks || {}) as Record<string, ReasoningChunk[]>;
         localStorage.setItem('currentConversationId', conversationId);
         set({
           conversationId,
@@ -611,7 +625,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
             }
           }
         } else {
-          const [userResp, asstResp] = await Promise.all([
+          const [, asstResp] = await Promise.all([
             chatApi.addMessage(conversationId, {
               role: 'user', content: prompt, status: 'completed',
             }),
@@ -647,6 +661,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     let lastStep: ThinkingStep | null = null;
     let errorOccurred = false;
     let accumulated = '';
+    let draftContent = '';
     let reviewContent = '';
     let lastMsgUpdate = 0;
 
@@ -762,6 +777,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     });
 
     processor.on('stage', (event) => {
+      flushChunks();  // 确保 stage 更新前 pendingChunks 已经刷进 llmChunks
       const data = event.data as any;
       const agent = data.agent as string;
       const status = data.status as string;
@@ -825,22 +841,22 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       // 优先使用前端实时积累的 thinkingSteps，其次才用后端结果中解析出的 steps
       const currentState = useAgentStore.getState();
       const finalSteps = eventSteps.length > 0 ? eventSteps : currentState.thinkingSteps;
-      // 从 stages 中提取 reasoning 内容，重建 reasoningChunks 供后续恢复使用
-      const finalReasoningChunks: Record<string, { agent: string; content: string; timestamp: number }[]> = {};
-      for (const st of currentState.stages) {
-        if (st.reasoning) {
-          finalReasoningChunks[st.agent] = [{
-            agent: st.agent,
-            content: st.reasoning,
-            timestamp: Date.now(),
-          }];
-        }
-      }
       const resultWithReview = finalReview
         ? { ...result, _reviewContent: finalReview }
         : result;
+      // 本地保存含 reasoning 的 stages，供已完成消息的 StageTimeline 渲染
+      // _reasoningChunks = currentState.reasoningChunks（含评审内容），
+      // _llmChunks = currentState.llmChunks（含写作/润色产出）
+      const resultWithTracking = {
+        ...resultWithReview,
+        _stages: currentState.stages.map(s => ({ ...s })),
+        _thinkingSteps: finalSteps,
+        _reasoningChunks: currentState.reasoningChunks,
+        _llmChunks: currentState.llmChunks,
+        _draftContent: draftContent || (result.output as any)?.draft_content || undefined,
+      };
       get().updateMessage(msgIdRef.current, {
-        status: 'completed', content: fullText, result: resultWithReview,
+        status: 'completed', content: fullText, result: resultWithTracking,
       });
       set((s) => ({
         currentResult: resultWithReview,
@@ -857,30 +873,14 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
             ...resultWithReview,
             _stages: currentState.stages.map(s => ({ ...s, reasoning: '' })),
             _thinkingSteps: finalSteps,
-            _reasoningChunks: finalReasoningChunks,
+            _reasoningChunks: currentState.reasoningChunks,
+            _llmChunks: currentState.llmChunks,
+            _draftContent: draftContent || (result.output as any)?.draft_content || undefined,
           } as unknown as Record<string, unknown>,
         }).catch(console.error);
       }
 
-      // ── 自动保存到内容管理（不阻塞 UI） ──
-      if (fullText) {
-        // 清理内容：移除 Agent 标记行（--- WritingAgent ---）和 Separator 行
-        const cleanMd = fullText.split('\n').filter((line: string) => {
-          const t = line.trim();
-          return !/^---\s+\w+Agent\s+---$/i.test(t) && !/^[-=_*]{3,}$/.test(t);
-        }).join('\n').trim();
-        // 智能提取标题
-        const title = (result.output as any)?.title
-          || extractTitleFromContent(cleanMd)
-          || '生成内容';
-        contentsApi.create({
-          title,
-          content_md: cleanMd,
-          platform_code: platform || 'xiaohongshu',
-        }).catch((err: unknown) => {
-          console.error('auto-save content failed:', err);
-        });
-      }
+      // 自动保存内容到 contents 表已移至后端 merge_and_finish，详见 backend/src/agent/nodes.py
     });
 
     processor.on('error', (event) => {
@@ -914,10 +914,12 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     processor.on('reasoning', (event) => {
       const agent = (event.data as any).agent as string;
       const content = (event.data as any).content as string;
+      const reviewRound = (event.data as any)._review_round || 0;
+      const key = `${agent}|${reviewRound}`;
       set((s) => {
-        const existing = s.reasoningChunks[agent] || [];
+        const existing = s.reasoningChunks[key] || [];
         return {
-          reasoningChunks: { ...s.reasoningChunks, [agent]: [...existing, { agent, content, timestamp: Date.now() }] },
+          reasoningChunks: { ...s.reasoningChunks, [key]: [...existing, { agent, content, timestamp: Date.now() }] },
           // Also append reasoning to the corresponding stage
           stages: s.stages.map(st =>
             st.agent === agent ? { ...st, reasoning: (st.reasoning || '') + content } : st
@@ -938,15 +940,17 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       const agent = (event.data as any).agent as string;
       const content = (event.data as any).content as string;
 
-      // 审核/分析类 agent 的输出不进入主正文，单独收集用于审核展示
+      // 审核/分析类 agent 的输出不进入主正文，按 round 分别存储
       if (agent && isReviewAgent(agent)) {
         reviewContent += content;
         set((s) => {
-          const existing = s.reasoningChunks[agent] || [];
+          const reviewRound = (event.data as any)._review_round || 0;
+          const key = `${agent}|${reviewRound}`;
+          const existing = s.reasoningChunks[key] || [];
           return {
-            reasoningChunks: { ...s.reasoningChunks, [agent]: [...existing, { agent, content, timestamp: Date.now() }] },
+            reasoningChunks: { ...s.reasoningChunks, [key]: [...existing, { agent, content, timestamp: Date.now() }] },
             streamEvents: _pushStreamEvent(s.streamEvents, {
-              id: `review-${Date.now()}-${agent}`, type: 'reasoning', timestamp: Date.now(),
+              id: `review-${Date.now()}-${key}`, type: 'reasoning', timestamp: Date.now(),
               data: event.data, agent, content,
             }),
           };
@@ -967,8 +971,9 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
         return;
       }
 
-      // FixAgent 开始生成时清空 accumulated，只保留最新修复版本
+      // FixAgent 开始生成时，保存上一版内容并清空 accumulated（每轮都执行）
       if (agent === 'FixAgent' && accumulated) {
+        if (!draftContent) draftContent = accumulated;  // 初稿仅存第一次
         accumulated = '';
         updateMsg(accumulated);
       }

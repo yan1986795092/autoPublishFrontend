@@ -148,6 +148,23 @@ export interface ChatMessage {
   result?: AgentResult;
   taskId?: string;
   plan?: ExecutionPlan;
+  /** 标记为纯对话回复（非生成结果），渲染时不显示 stages */
+  isConversationReply?: boolean;
+}
+
+/** 对话 LLM 触发生成的指令 */
+export interface ConversationTrigger {
+  action: 'create' | 'revise' | 'expand';
+  topic?: string;
+  platform?: string;
+  style?: string;
+  length?: string;
+  tone?: string;
+  audience?: string;
+  keywords?: string[];
+  revision_focus?: string;
+  /** 完整的 prompt，可直接传给 runStreaming */
+  _prompt?: string;
 }
 
 // P2.6: Tool use event types

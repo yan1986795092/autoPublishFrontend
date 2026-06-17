@@ -5,6 +5,7 @@ import { ScrollArea } from '../ui/scroll-area';
 import { Separator } from '../ui/separator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { useExecutionEngine } from '../../hooks/useExecutionEngine';
+import { useConversationChat } from '../../hooks/useConversationChat';
 import { useAgentStore } from '../../stores/useAgentStore';
 import type { StageInfo, LLMChunk, ReasoningChunk } from '../../types';
 import {
@@ -37,6 +38,7 @@ function cn(...classes: (string | undefined | false | null)[]): string {
 
 export function Workspace() {
   const engine = useExecutionEngine('create');
+  const { sendChatMessage, isChatting } = useConversationChat();
   const {
     prompt, setPrompt, isRunning, runningTime,
     messages, currentResult, thinkingSteps, llmChunks, reasoningChunks,
@@ -62,16 +64,12 @@ export function Workspace() {
   const platform = selectedPlatform ? PLATFORM_MAP.get(selectedPlatform) : null;
 
   const handleSubmit = useCallback(async () => {
-    if (!prompt.trim() || isRunning) return;
-    // 传入选中的平台和生成参数
-    await engineHandleExecute(prompt.trim(), selectedPlatform, {
-      creativity,
-      content_length: contentLength,
-      tone,
-      audience,
-    });
+    if (!prompt.trim() || isRunning || isChatting) return;
+    const text = prompt.trim();
     setPrompt('');
-  }, [prompt, isRunning, engineHandleExecute, setPrompt, selectedPlatform, creativity, contentLength, tone, audience]);
+    // 统一走对话引擎：LLM 自行判断是闲聊、小修改、还是触发生成
+    await sendChatMessage(text);
+  }, [prompt, isRunning, isChatting, setPrompt, sendChatMessage]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
@@ -87,7 +85,7 @@ export function Workspace() {
   }, []);
 
   const hasEvents = messages.length > 0 || thinkingSteps.length > 0 || currentResult !== null;
-  const isIdle = messages.length === 0 && !isRunning;
+  const isIdle = messages.length === 0 && !isRunning && !isChatting;
 
   return (
     <div className="flex h-full">
@@ -189,19 +187,19 @@ export function Workspace() {
                 className="flex-1 min-h-[44px] max-h-[120px] resize-none bg-transparent text-sm text-app-text placeholder:text-app-text-tertiary outline-none leading-relaxed"
                 rows={1}
               />
-              {isRunning ? (
+              {isRunning || isChatting ? (
                 <Button onClick={handleStop} className="h-9 px-3 flex-shrink-0" variant="destructive" size="sm">
                   <Square className="w-3.5 h-3.5" />
                 </Button>
               ) : (
                 <Button
                   onClick={handleSubmit}
-                  disabled={!prompt.trim() || isRunning}
+                  disabled={!prompt.trim() || isRunning || isChatting}
                   className="h-9 px-4 flex-shrink-0 gap-1.5"
                   size="sm"
                 >
                   <Send className="w-3.5 h-3.5" />
-                  生成
+                  发送
                 </Button>
               )}
             </div>
@@ -391,7 +389,7 @@ function MessageBubble({
   runningTime,
   stages, currentStage, llmChunks, reasoningChunks, thinkingSteps,
 }: {
-  message: { id: string; role: string; content: string; timestamp: number; status?: string; result?: any };
+  message: { id: string; role: string; content: string; timestamp: number; status?: string; result?: any; isConversationReply?: boolean };
   copiedId: string | null;
   onCopy: (id: string, text: string) => void;
   thinkingSteps?: any[];
@@ -418,6 +416,53 @@ function MessageBubble({
   }
 
   if (message.role === 'assistant') {
+    // ── 判断是对话回复还是生成结果 ──
+    // 三种情况：
+    //   1. isConversationReply === true → 对话回复（聊天气泡）
+    //   2. status === 'running' 且 非对话回复 → 正在生成（展示 StageTimeline）
+    //   3. result._stages 存在 → 已完成生成结果
+    //   4. 其他（如后端 reload 的数据，无 result）→ 聊天气泡兜底
+    const _isConvReply = message.isConversationReply === true;
+    const _msgResult = message.result as any | null;
+    const _hasStages = _msgResult?._stages?.length > 0;
+    const _isRunningGen = message.status === 'running' && !_isConvReply;
+
+    const _isChatBubble = _isConvReply || (!_isRunningGen && !_hasStages);
+    if (_isChatBubble) {
+      const isRunning = message.status === 'running';
+      const isFailed = message.status === 'failed';
+      return (
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex justify-start">
+          <div className="max-w-[85%] rounded-2xl rounded-tl-md bg-app-elevated/60 border border-app-border/20 px-4 py-2.5">
+            {isRunning && !message.content ? (
+              <div className="flex items-center gap-1.5 py-1">
+                <Bot className="w-4 h-4 text-blue-400 animate-pulse" />
+                <span className="text-sm text-app-text-secondary">思考中</span>
+                <span className="flex gap-0.5">
+                  <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                </span>
+              </div>
+            ) : (
+              <>
+                <p className="text-sm text-app-text whitespace-pre-wrap leading-relaxed">{message.content}</p>
+                {isRunning && (
+                  <span className="inline-block w-2 h-4 bg-blue-400 ml-0.5 animate-pulse" />
+                )}
+              </>
+            )}
+            {!isRunning && !isFailed && (
+              <p className="mt-1 text-[10px] text-app-text-tertiary">{formatTime(message.timestamp)}</p>
+            )}
+            {isFailed && (
+              <p className="text-xs text-red-400 mt-1">回复失败</p>
+            )}
+          </div>
+        </motion.div>
+      );
+    }
+
     const isRunning = message.status === 'running';
     const isFailed = message.status === 'failed';
     const displayContent = message.content || '';
@@ -431,9 +476,13 @@ function MessageBubble({
     const displayCurrentStage = isRunning ? (currentStage || null) : null;
     const displayLlmChunks = isRunning
       ? (llmChunks || {})
-      : (msgResult._llmChunks || _fallbackLlmChunks(msgResult, displayContent));
-    const displayReasoning = isRunning ? (reasoningChunks || {}) : (msgResult._reasoningChunks || {});
-    const displayThinkingSteps = isRunning ? (thinkingSteps || []) : (msgResult._thinkingSteps || []);
+      : (msgResult?._llmChunks || _fallbackLlmChunks(msgResult, displayContent));
+    const displayReasoning = isRunning
+      ? (reasoningChunks || {})
+      : (msgResult?._reasoningChunks || {});
+    const displayThinkingSteps = isRunning
+      ? (thinkingSteps || [])
+      : (msgResult?._thinkingSteps || []);
 
     return (
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex justify-start">

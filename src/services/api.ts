@@ -761,3 +761,29 @@ export const chatApi = {
       };
     }>('/api/v1/chat/quick-start', data),
 };
+
+// ===================== Conversation API =====================
+
+export interface ConversationTriggerData {
+  action: 'create' | 'revise' | 'expand';
+  topic?: string;
+  platform?: string;
+  style?: string;
+  length?: string;
+  tone?: string;
+  audience?: string;
+  keywords?: string[];
+  revision_focus?: string;
+  _prompt?: string;
+}
+
+export const conversationApi = {
+  /** 对话聊天 SSE 流 URL */
+  chatUrl: () => `${API_BASE_URL}/api/v1/conversation/chat`,
+
+  /** 对话聊天 — 返回 SSE EventSource URL（前端直接用 EventSource 或 SSEProcessor 连接） */
+  chat: (data: { message: string; conversation_id?: string }) =>
+    apiClient.post<Blob>('/api/v1/conversation/chat', data, {
+      responseType: 'blob',
+    }),
+};

@@ -207,6 +207,7 @@ export type {
   AgentMetrics,
   StageInfo,
   IntentConflict,
+  ConversationTrigger,
 } from './agent';
 
 export { AGENT_STAGE_MAP } from './agent';

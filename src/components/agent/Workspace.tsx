@@ -72,7 +72,7 @@ export function Workspace() {
   }, [prompt, isRunning, isChatting, setPrompt, sendChatMessage]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+    if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSubmit();
     }
@@ -206,7 +206,7 @@ export function Workspace() {
             {/* Platform tags below input */}
             <div className="mt-1.5 flex items-center justify-between">
               <PlatformTags selected={selectedPlatform} onSelect={setSelectedPlatform} />
-              <span className="text-[10px] text-app-text-tertiary/50">Ctrl+Enter 发送</span>
+              <span className="text-[10px] text-app-text-tertiary/50">Enter 发送 · Shift+Enter 换行</span>
             </div>
           </div>
         </div>

@@ -150,6 +150,7 @@ export interface ChatMessage {
   plan?: ExecutionPlan;
   /** 标记为纯对话回复（非生成结果），渲染时不显示 stages */
   isConversationReply?: boolean;
+  isGeneratedMessage?: boolean;
 }
 
 /** 对话 LLM 触发生成的指令 */

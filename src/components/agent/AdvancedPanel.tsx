@@ -3,6 +3,9 @@ import { PANELS } from '../../config/layout';
 import { Eye, Bot } from 'lucide-react';
 import { useAgentStore } from '../../stores/useAgentStore';
 import { ResultPreview } from './ResultPreview';
+import { PLATFORM_MAP, ALL_PLATFORMS, autoDetectPlatform } from './PlatformSelector';
+import { useEffect } from 'react';
+import { cn } from '../../utils/helpers';
 
 /** 空闲状态：无任务、无结果时显示的引导界面 */
 function IdleState() {
@@ -38,23 +41,86 @@ function IdleState() {
   );
 }
 
-interface AdvancedPanelProps {
-  selectedPlatform?: string | null;
+interface PlatformTabBarProps {
+  selected: string | null;
+  onSelect: (id: string | null) => void;
+  hasResult: boolean;
+  prompt?: string;
 }
 
-export function AdvancedPanel({ selectedPlatform }: AdvancedPanelProps) {
+function PlatformTabBar({ selected, onSelect, hasResult, prompt }: PlatformTabBarProps) {
+  // 当有结果时，根据 prompt 自动检测平台（静默）
+  useEffect(() => {
+    if (!hasResult || selected !== null) return;
+    if (!prompt) return;
+    const detected = autoDetectPlatform(prompt);
+    if (detected) onSelect(detected);
+  }, [hasResult, selected, onSelect, prompt]);
+
+  const displayPlatform = selected ? PLATFORM_MAP.get(selected) : null;
+
+  return (
+    <div className="border-b border-app-border/50 bg-app-surface/40">
+      {/* 平台选择网格 — 显示全部平台 */}
+      <div className="flex flex-wrap gap-1 px-3 py-2">
+        {ALL_PLATFORMS.map(p => {
+          const isSelected = selected === p.id;
+          return (
+            <button
+              key={p.id}
+              onClick={() => onSelect(isSelected ? null : p.id)}
+              className={cn(
+                'flex items-center gap-1 px-2 py-1 rounded-full text-[11px] transition-all duration-150',
+                isSelected
+                  ? 'bg-blue-500/20 text-blue-400 ring-1 ring-blue-500/30 font-medium'
+                  : 'text-app-text-tertiary hover:text-app-text-secondary hover:bg-app-elevated/60'
+              )}
+            >
+              <span>{p.icon}</span>
+              <span className="hidden sm:inline">{p.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* 已选平台信息条 */}
+      {displayPlatform && (
+        <div className="flex items-center gap-1.5 px-3 pb-2">
+          <span className="text-xs">{displayPlatform.icon}</span>
+          <span className="text-xs font-medium text-app-text">{displayPlatform.label}</span>
+          <span className="text-[9px] text-app-text-tertiary bg-app-surface px-1.5 py-0.5 rounded">
+            {displayPlatform.category === 'publishable' ? '可发布' : '文案'}
+          </span>
+          <button
+            onClick={() => onSelect(null)}
+            className="ml-auto text-[10px] text-app-text-tertiary hover:text-app-text-secondary transition-colors"
+          >
+            清除
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function AdvancedPanel() {
   const isRunning = useAgentStore((s) => s.isRunning);
   const currentResult = useAgentStore((s) => s.currentResult);
   const thinkingSteps = useAgentStore((s) => s.thinkingSteps);
   const messages = useAgentStore((s) => s.messages);
   const previewContent = useAgentStore((s) => s.previewContent);
+  const previewPlatform = useAgentStore((s) => s.previewPlatform);
+  const setPreviewPlatform = useAgentStore((s) => s.setPreviewPlatform);
 
-  const isIdle = !isRunning && !currentResult && !thinkingSteps.length && !previewContent;
+  const isIdle = !isRunning && !currentResult && !thinkingSteps.length && !previewContent && messages.length === 0;
 
   // 实时内容：取当前运行中的 assistant 消息（流式写入）
   const liveContent = messages.find(m => m.role === 'assistant' && m.status === 'running')?.content || '';
-
   const showLive = isRunning && liveContent;
+
+  // 获取最新一条 user message 的内容用于自动检测平台
+  const lastUserMessage = [...messages].reverse().find(m => m.role === 'user');
+  const prompt = lastUserMessage?.content || '';
 
   return (
     <div
@@ -63,12 +129,22 @@ export function AdvancedPanel({ selectedPlatform }: AdvancedPanelProps) {
     >
       <div className="h-full flex flex-col">
         {/* 标题 */}
-        <div className="flex-shrink-0 border-b border-app-border px-4 py-2.5">
+        <div className="flex-shrink-0 border-b border-app-border/30 bg-app-surface/60 px-4 py-2.5">
           <div className="flex items-center gap-2">
             <Eye className="w-4 h-4 text-blue-400" />
             <span className="text-sm font-semibold text-app-text">预览</span>
           </div>
         </div>
+
+        {/* 平台 Tab Bar — 有内容即显示 */}
+        {!isIdle && (
+          <PlatformTabBar
+            selected={previewPlatform}
+            onSelect={setPreviewPlatform}
+            hasResult={!!currentResult}
+            prompt={prompt}
+          />
+        )}
 
         {/* 内容: 预览 / 实时流式 / 最终结果 */}
         <ScrollArea className="flex-1 p-4">
@@ -84,7 +160,7 @@ export function AdvancedPanel({ selectedPlatform }: AdvancedPanelProps) {
               <span className="inline-block w-1.5 h-4 bg-blue-400 animate-pulse ml-0.5 align-text-bottom" />
             </div>
           ) : currentResult ? (
-            <ResultPreview result={currentResult} selectedPlatform={selectedPlatform ?? null} />
+            <ResultPreview result={currentResult} selectedPlatform={previewPlatform} />
           ) : (
             <p className="text-xs text-app-text-tertiary text-center py-8">
               内容生成中，完成后显示预览...

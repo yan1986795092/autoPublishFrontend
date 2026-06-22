@@ -35,6 +35,9 @@ interface AgentState {
   currentStage: string | null;
   intentConflicts: IntentConflict[];
 
+  // 流式事件是否已开始（第一个 SSE 事件到达后为 true）
+  hasFirstEventReceived: boolean;
+
   // WebSocket 状态
   wsConnectionState: 'connecting' | 'connected' | 'disconnected';
   _ws: WebSocket | null;
@@ -84,6 +87,10 @@ interface AgentState {
   previewContent: string | null;
   setPreviewContent: (content: string | null) => void;
 
+  // 预览面板平台选择（默认 null = 自动检测）
+  previewPlatform: string | null;
+  setPreviewPlatform: (platform: string | null) => void;
+
   // Stream events
   addStreamEvent: (event: StreamEvent) => void;
 
@@ -104,6 +111,26 @@ const _MAX_STREAM_EVENTS = 500;
 const _CHUNK_UPDATE_INTERVAL = 120;
 
 const _MSG_UPDATE_INTERVAL = 50;
+
+function _hasPersistedGenerationResult(result: any): boolean {
+  if (!result || typeof result !== 'object') return false;
+
+  if (Array.isArray(result._stages) && result._stages.length > 0) return true;
+  if (result._draftContent) return true;
+  if (result._llmChunks && Object.keys(result._llmChunks).length > 0) return true;
+  if (result.usage) return true;
+  if (result.agent_type || result.task_id) return true;
+
+  const output = result.output;
+  if (!output || typeof output !== 'object') return false;
+  return Boolean(output.full_text || output.content || output.draft_content);
+}
+
+function _isTriggerOnlyConversationResult(result: any): boolean {
+  if (!result || typeof result !== 'object') return false;
+  return Boolean(result.trigger) && !_hasPersistedGenerationResult(result);
+}
+
 function _loadConvFromStorage(): Pick<AgentState, 'conversationId' | 'conversationList'> {
   try {
     const raw = localStorage.getItem(_CONV_STORAGE_KEY);
@@ -139,6 +166,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
   stages: [],
   currentStage: null,
   intentConflicts: [],
+  hasFirstEventReceived: false,
   wsConnectionState: 'disconnected',
   _ws: null,
   _reconnectTimer: null,
@@ -149,6 +177,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
   appliedSkill: null,
   appliedSkillFull: null,
   previewContent: null,
+  previewPlatform: null,
   conversationId: _initFromStorage.conversationId,
   conversationList: _initFromStorage.conversationList,
   conversationListTotal: 0,
@@ -157,6 +186,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
   setAppliedSkill: (applied, full) => set({ appliedSkill: applied, appliedSkillFull: full }),
   setContentTypeConfig: (config) => set({ contentTypeConfig: config }),
   setPreviewContent: (content) => set({ previewContent: content }),
+  setPreviewPlatform: (platform) => set({ previewPlatform: platform }),
 
   addMessage: (msg) => set((state) => ({ messages: [...state.messages, msg] })),
   updateMessage: (id, updates) => set((state) => ({
@@ -275,6 +305,8 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
             result: m.result as AgentResult | undefined,
             taskId: m.task_id,
             plan: m.plan as ExecutionPlan | undefined,
+            isConversationReply: false,
+            isGeneratedMessage: false,
           };
           const result = msg.result as any;
           // 旧格式归一化：thinking steps / reasoning 藏在 _stages[].substeps[] 里
@@ -301,11 +333,18 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
               );
             }
           }
+          if (msg.role === 'assistant') {
+            msg.isGeneratedMessage = _hasPersistedGenerationResult(result) || msg.status === 'running';
+            msg.isConversationReply = _isTriggerOnlyConversationResult(result)
+              || (!result && !msg.taskId && !msg.plan);
+          }
           return msg;
         });
         // 同时恢复全局 state 给当前对话的实时展示
-        const lastAsst = [...messages].reverse().find(m => m.role === 'assistant');
-        const lastResult = lastAsst?.result as any;
+        const lastGenerated = [...chatMessages].reverse().find((m) =>
+          m.role === 'assistant' && _hasPersistedGenerationResult(m.result)
+        );
+        const lastResult = lastGenerated?.result as any;
         const restoredStages: StageInfo[] = (lastResult?._stages || []) as StageInfo[];
         const restoredThinkingSteps: ThinkingStep[] = (lastResult?._thinkingSteps || []) as ThinkingStep[];
         const restoredReasoningChunks: Record<string, ReasoningChunk[]> = (lastResult?._reasoningChunks || {}) as Record<string, ReasoningChunk[]>;
@@ -313,6 +352,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
         set({
           // 不要回写 conversationId —— 用户可能已经切换到另一个对话
           messages: chatMessages,
+          currentResult: _hasPersistedGenerationResult(lastResult) ? lastResult as AgentResult : null,
           stages: restoredStages,
           currentStage: null,
           thinkingSteps: restoredThinkingSteps,
@@ -592,12 +632,12 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     if (!state.messages.find(m => m.role === 'assistant' && m.status === 'running')) {
       get().addMessage({
         id: temporaryId, role: 'assistant', content: '', status: 'running',
-        timestamp: Date.now(),
+        timestamp: Date.now(), isGeneratedMessage: true,
       });
     }
 
     // ── Start streaming state ──
-    set({ isRunning: true, error: null, thinkingSteps: [], currentResult: null, llmChunks: {}, reasoningChunks: {}, stages: [], currentStage: null, intentConflicts: [], streamEvents: [] });
+    set({ isRunning: true, error: null, thinkingSteps: [], currentResult: null, llmChunks: {}, reasoningChunks: {}, stages: [], currentStage: null, intentConflicts: [], streamEvents: [], hasFirstEventReceived: false });
     const controller = new AbortController();
     set({ _abortController: controller });
 
@@ -674,7 +714,6 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     let accumulated = '';
     let draftContent = '';
     let reviewContent = '';
-    let lastMsgUpdate = 0;
 
     // Agent 名称中如果包含这些关键词，其输出不进入主正文
     const REVIEW_AGENT_PATTERNS = [/Review/i, /Judge/i, /Critic/i, /Analyze/i, /审核/i, /检查/i];
@@ -682,12 +721,25 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     const isReviewAgent = (name: string): boolean =>
       REVIEW_AGENT_PATTERNS.some(p => p.test(name));
 
+    // 节流写 message.content：保留所有 chunk 内容，只控制 set() 频率
+    // 旧实现 (50ms 间隔直接丢弃中间的 chunk) 会导致 SSE 高频推送时大段内容被跳过
+    let msgUpdateTimer: ReturnType<typeof setTimeout> | null = null;
+    let msgUpdatePending = false;
     const updateMsg = (content: string) => {
-      const now = Date.now();
-      if (now - lastMsgUpdate >= _MSG_UPDATE_INTERVAL) {
-        lastMsgUpdate = now;
-        get().updateMessage(msgIdRef.current, { content });
+      // 有待写入 → 下一次 timer 触发时一定会带上最新的 content（accumulated 永远是最新累计值）
+      if (msgUpdateTimer) {
+        msgUpdatePending = true;
+        return;
       }
+      get().updateMessage(msgIdRef.current, { content });
+      msgUpdateTimer = setTimeout(() => {
+        msgUpdateTimer = null;
+        if (msgUpdatePending) {
+          msgUpdatePending = false;
+          // 读最新的 accumulated（来自闭包）→ 重新触发一次写入
+          get().updateMessage(msgIdRef.current, { content: accumulated });
+        }
+      }, _MSG_UPDATE_INTERVAL);
     };
 
     // ── Chunk batching (avoids per-chunk set()) ──
@@ -722,6 +774,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     // Register SSE handlers
     processor.on('plan', (event) => {
       set((s) => ({
+        hasFirstEventReceived: true,
         currentPlan: event.data as unknown as ExecutionPlan,
         streamEvents: _pushStreamEvent(s.streamEvents, {
           id: `plan-${Date.now()}`,

@@ -1,5 +1,5 @@
-import React, { useState, useCallback, useRef } from 'react';
-import { motion } from 'framer-motion';
+import React, { useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '../ui/button';
 import { ScrollArea } from '../ui/scroll-area';
 import { Separator } from '../ui/separator';
@@ -7,15 +7,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { useExecutionEngine } from '../../hooks/useExecutionEngine';
 import { useConversationChat } from '../../hooks/useConversationChat';
 import { useAgentStore } from '../../stores/useAgentStore';
-import type { StageInfo, LLMChunk, ReasoningChunk } from '../../types';
+import { AGENT_STAGE_MAP, type StageInfo, type LLMChunk, type ReasoningChunk } from '../../types';
 import {
   Send, Square, Bot, Sparkles, Copy, Check,
-  SlidersHorizontal, Eye,
+  SlidersHorizontal, Eye, ArrowDown,
 } from 'lucide-react';
 import { AdvancedPanel } from './AdvancedPanel';
 import { StageTimeline } from './StageTimeline';
-import { PlatformTags } from './PlatformTags';
-import { PLATFORM_MAP } from './PlatformSelector';
 // ── Format helpers ──
 
 function formatTime(ts: number) {
@@ -42,14 +40,13 @@ export function Workspace() {
   const {
     prompt, setPrompt, isRunning, runningTime,
     messages, currentResult, thinkingSteps, llmChunks, reasoningChunks,
-    stages, currentStage,
+    stages, currentStage, hasFirstEventReceived,
     handleStop,
   } = engine;
   // 解构 handleExecute 以避免 handleSubmit 的 useCallback 依赖整个 engine 对象
   // （engine 是新对象引用，会导致 useCallback 失效并级联触发 handleKeyDown 重建）
   const { handleExecute: engineHandleExecute } = engine;
 
-  const [selectedPlatform, setSelectedPlatform] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const createConversation = useAgentStore((s) => s.createConversation);
@@ -61,7 +58,95 @@ export function Workspace() {
   const [tone, setTone] = useState<string>('friendly');
   const [audience, setAudience] = useState<string>('intermediate');
 
-  const platform = selectedPlatform ? PLATFORM_MAP.get(selectedPlatform) : null;
+  // ── 流式消息区滚动控制：自动贴底 + 用户上滑让出 + 「回到最新」按钮 ──
+  const scrollViewportRef = useRef<HTMLDivElement | null>(null);
+  // 防止程序滚动触发的 scroll 事件与 useLayoutEffect 互相触发形成抖动
+  const scrollDueToProgramRef = useRef(false);
+  // 用户是否主动上滑离开底部（让出控制权）
+  const [isUserPinned, setIsUserPinned] = useState(false);
+  // 离开底部时累计的「新内容」计数（贴底后清零）
+  const [unreadCount, setUnreadCount] = useState(0);
+  // 距离底部多少像素以内算「贴底」
+  const PIN_THRESHOLD = 80;
+
+  const isAtBottom = useCallback(() => {
+    const el = scrollViewportRef.current;
+    if (!el) return true;
+    return el.scrollHeight - el.scrollTop - el.clientHeight <= PIN_THRESHOLD;
+  }, []);
+
+  // 监听视口滚动：用户主动上滑离开底部 → 让出控制权并开始累计未读
+  // 注意：程序调用 scrollTo 触发的 scroll 事件会被 scrollDueToProgramRef 忽略，避免与 useLayoutEffect 互相触发
+  const handleScrollViewport = useCallback(() => {
+    if (scrollDueToProgramRef.current) return;
+    const atBottom = isAtBottom();
+    setIsUserPinned((prev) => {
+      if (atBottom && prev) {
+        // 回到底部 → 重新贴底，清零未读
+        setUnreadCount(0);
+        return false;
+      }
+      if (!atBottom && !prev) {
+        return true;
+      }
+      return prev;
+    });
+  }, [isAtBottom]);
+
+  const scrollToBottom = useCallback((smooth = false) => {
+    const el = scrollViewportRef.current;
+    if (!el) return;
+    // 标记本次为程序滚动，防止 handleScrollViewport 的 scroll 事件与 useLayoutEffect 互相触发
+    scrollDueToProgramRef.current = true;
+    el.scrollTo({
+      top: el.scrollHeight,
+      behavior: smooth ? 'smooth' : 'auto',
+    });
+    setIsUserPinned(false);
+    setUnreadCount(0);
+    // 等待一个 event loop 后清除标记，让用户的下次真实滚动能正常响应
+    setTimeout(() => { scrollDueToProgramRef.current = false; }, 0);
+  }, []);
+
+  // 追踪消息/阶段数量的上轮值，用于判断是否需要滚动
+  const prevCountsRef = useRef({ messages: 0, stages: 0 });
+
+  // 流式内容更新时：只在 messages 或 stages 实际增长时才滚动到最新
+  // 避免每次 chunk 写入都触发 scroll 导致抖动
+  useLayoutEffect(() => {
+    if (!isRunning) return;
+    if (isUserPinned) {
+      // 用户在看历史：累计新阶段数作为未读提示
+      setUnreadCount((c) => c + 1);
+      return;
+    }
+    const el = scrollViewportRef.current;
+    if (!el) return;
+
+    const msgCount = messages.length;
+    const stageCount = stages.length;
+    const prev = prevCountsRef.current;
+    const grew = msgCount > prev.messages || stageCount > prev.stages;
+
+    if (grew) {
+      prevCountsRef.current = { messages: msgCount, stages: stageCount };
+      // 标记本次为程序滚动，防止 handleScrollViewport 的 scroll 事件与 rAF 互相触发
+      scrollDueToProgramRef.current = true;
+      const id = requestAnimationFrame(() => {
+        el.scrollTop = el.scrollHeight;
+        setTimeout(() => { scrollDueToProgramRef.current = false; }, 0);
+      });
+      return () => cancelAnimationFrame(id);
+    }
+  }, [isRunning, isUserPinned, messages.length, stages.length]);
+
+  // 新一轮开始时重置状态
+  useEffect(() => {
+    if (isRunning) {
+      setIsUserPinned(false);
+      setUnreadCount(0);
+    }
+  }, [isRunning]);
 
   const handleSubmit = useCallback(async () => {
     if (!prompt.trim() || isRunning || isChatting) return;
@@ -90,32 +175,15 @@ export function Workspace() {
   return (
     <div className="flex h-full">
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Platform indicator (compact, shown when selected) */}
-        {selectedPlatform && (
-          <div className="flex-shrink-0 border-b border-app-border/30 bg-app-surface/50">
-            <div className="flex items-center gap-2 px-6 py-1.5">
-              <span className="text-[11px] text-app-text-secondary">
-                {PLATFORM_MAP.get(selectedPlatform)?.icon} {PLATFORM_MAP.get(selectedPlatform)?.label}
-              </span>
-              {PLATFORM_MAP.get(selectedPlatform)?.category === 'publishable' && (
-                <span className="text-[9px] text-green-400 bg-green-500/10 px-1.5 py-0.5 rounded-full font-medium">发布</span>
-              )}
-              <button
-                onClick={() => setSelectedPlatform(null)}
-                className="ml-auto text-[10px] text-app-text-tertiary hover:text-app-text-secondary transition-colors"
-              >
-                清除
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Messages area */}
-        <ScrollArea className="flex-1 min-w-0 px-6 py-4">
-          <div className="max-w-3xl mx-auto space-y-4">
+        {/* Messages area — 受控滚动视口：自动贴底 + 用户上滑让出 */}
+        <ScrollArea
+          className="flex-1 min-w-0 px-6 py-4"
+          viewportRef={scrollViewportRef}
+          onViewportScroll={handleScrollViewport}
+        >
+          <div className="max-w-3xl mx-auto space-y-4 relative">
             {isIdle ? (
               <EmptyWorkspace
-                platform={platform}
                 onSelect={(s) => { setPrompt(s); inputRef.current?.focus(); }}
               />
             ) : (
@@ -135,8 +203,8 @@ export function Workspace() {
               ))
             )}
 
-            {/* Running indicator — only show if no stages yet (pre-stage bootstrap) */}
-            {isRunning && stages.length === 0 && messages[messages.length - 1]?.status === 'running' && (
+            {/* Running indicator — show only before first SSE event arrives (stream hasn't started showing results yet) */}
+            {isRunning && !hasFirstEventReceived && messages[messages.length - 1]?.status === 'running' && (
               <div className="flex items-center gap-2 text-xs text-app-text-tertiary px-1">
                 <Bot className="w-4 h-4 text-blue-400 animate-pulse" />
                 <span>思考中</span>
@@ -148,6 +216,30 @@ export function Workspace() {
                 <span className="ml-auto text-[10px]">{formatDuration(runningTime)}</span>
               </div>
             )}
+
+            {/* 「回到最新」浮动按钮：用户上滑离开底部时出现 */}
+            <AnimatePresence>
+              {isRunning && isUserPinned && (
+                <motion.button
+                  key="scroll-to-bottom"
+                  type="button"
+                  onClick={() => scrollToBottom(true)}
+                  initial={{ opacity: 0, y: 8, scale: 0.9 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 8, scale: 0.9 }}
+                  transition={{ duration: 0.15 }}
+                  className="sticky bottom-2 left-full -translate-x-2 ml-2 mt-2 inline-flex items-center gap-1.5 rounded-full bg-blue-500/90 hover:bg-blue-500 text-white px-3 py-1.5 text-xs font-medium shadow-lg shadow-blue-500/20 backdrop-blur transition-colors"
+                >
+                  <ArrowDown className="w-3.5 h-3.5" />
+                  回到最新
+                  {unreadCount > 0 && (
+                    <span className="ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-white/25 text-[10px] font-semibold">
+                      {unreadCount > 99 ? '99+' : unreadCount}
+                    </span>
+                  )}
+                </motion.button>
+              )}
+            </AnimatePresence>
           </div>
         </ScrollArea>
 
@@ -203,16 +295,15 @@ export function Workspace() {
                 </Button>
               )}
             </div>
-            {/* Platform tags below input */}
-            <div className="mt-1.5 flex items-center justify-between">
-              <PlatformTags selected={selectedPlatform} onSelect={setSelectedPlatform} />
+            {/* Hint text below input */}
+            <div className="mt-1.5 flex items-center justify-end">
               <span className="text-[10px] text-app-text-tertiary/50">Enter 发送 · Shift+Enter 换行</span>
             </div>
           </div>
         </div>
       </div>
 
-      <AdvancedPanel selectedPlatform={selectedPlatform} />
+      <AdvancedPanel />
 
       {/* ── Params Dialog ── */}
       <Dialog open={paramsOpen} onOpenChange={setParamsOpen}>
@@ -308,62 +399,29 @@ export function Workspace() {
 
 // ── Sub-components ──
 
-function EmptyWorkspace({ platform, onSelect }: { platform: { icon: string; label: string } | null; onSelect: (s: string) => void }) {
+function EmptyWorkspace({ onSelect }: { onSelect: (s: string) => void }) {
   return (
     <div className="flex flex-col items-center justify-center py-16 text-center">
       <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 border border-white/10 flex items-center justify-center mb-4">
         <Sparkles className="w-7 h-7 text-blue-400" />
       </div>
-      <h2 className="text-base font-semibold text-app-text mb-1">
-        {platform ? `开始${platform.label}创作` : '开始创作'}
-      </h2>
+      <h2 className="text-base font-semibold text-app-text mb-1">开始创作</h2>
       <p className="text-xs text-app-text-secondary leading-relaxed max-w-sm mb-5">
-        {platform
-          ? `为${platform.label}生成适配的内容，Agent 将自动调整风格和格式`
-          : '选择一个平台，或直接输入需求，Agent 将自动拆解任务并执行'
-        }
+        告诉 Agent 你想创作什么，LLM 将自动拆解任务并完成
       </p>
       <div className="flex flex-wrap gap-2 justify-center">
-        {platform?.label === '小红书' && (
-          <button onClick={() => onSelect('为某款 AI 写作工具写一篇小红书种草笔记，要求标题吸引人，正文口语化')}
-            className="px-4 py-2 rounded-full border border-app-border/50 text-xs text-app-text-secondary hover:border-red-500/30 hover:text-red-400 transition-colors">
-            📕 写一篇种草笔记
-          </button>
-        )}
-        {platform?.label === '公众号' && (
-          <button onClick={() => onSelect('写一篇关于远程办公效率的深度长文，2000 字左右')}
-            className="px-4 py-2 rounded-full border border-app-border/50 text-xs text-app-text-secondary hover:border-green-500/30 hover:text-green-400 transition-colors">
-            📱 写一篇公众号文章
-          </button>
-        )}
-        {platform?.label === '微博' && (
-          <button onClick={() => onSelect('写一条关于 AI 热点的微博，140 字以内，带话题标签')}
-            className="px-4 py-2 rounded-full border border-app-border/50 text-xs text-app-text-secondary hover:border-yellow-500/30 hover:text-yellow-400 transition-colors">
-            🔵 写一条微博
-          </button>
-        )}
-        {platform?.label === '抖音' && (
-          <button onClick={() => onSelect('为一个 30 秒的科技产品宣传视频创作分镜脚本')}
-            className="px-4 py-2 rounded-full border border-app-border/50 text-xs text-app-text-secondary hover:border-pink-500/30 hover:text-pink-400 transition-colors">
-            🎵 写抖音脚本
-          </button>
-        )}
-        {!platform && (
-          <>
-            <button onClick={() => onSelect('写一篇 AI 编程趋势分析')}
-              className="px-4 py-2 rounded-full border border-app-border/50 text-xs text-app-text-secondary hover:border-blue-500/30 hover:text-blue-400 transition-colors">
-              ✏️ 写一篇文章
-            </button>
-            <button onClick={() => onSelect('为一款智能笔记应用写产品推广文案')}
-              className="px-4 py-2 rounded-full border border-app-border/50 text-xs text-app-text-secondary hover:border-purple-500/30 hover:text-purple-400 transition-colors">
-              📝 写产品文案
-            </button>
-            <button onClick={() => onSelect('编写一份 REST API 设计规范文档')}
-              className="px-4 py-2 rounded-full border border-app-border/50 text-xs text-app-text-secondary hover:border-cyan-500/30 hover:text-cyan-400 transition-colors">
-              📘 写技术文档
-            </button>
-          </>
-        )}
+        <button onClick={() => onSelect('写一篇 AI 编程趋势分析')}
+          className="px-4 py-2 rounded-full border border-app-border/50 text-xs text-app-text-secondary hover:border-blue-500/30 hover:text-blue-400 transition-colors">
+          ✏️ 写一篇文章
+        </button>
+        <button onClick={() => onSelect('为一款智能笔记应用写产品推广文案')}
+          className="px-4 py-2 rounded-full border border-app-border/50 text-xs text-app-text-secondary hover:border-purple-500/30 hover:text-purple-400 transition-colors">
+          📝 写产品文案
+        </button>
+        <button onClick={() => onSelect('编写一份 REST API 设计规范文档')}
+          className="px-4 py-2 rounded-full border border-app-border/50 text-xs text-app-text-secondary hover:border-cyan-500/30 hover:text-cyan-400 transition-colors">
+          📘 写技术文档
+        </button>
       </div>
     </div>
   );
@@ -384,12 +442,64 @@ function _fallbackLlmChunks(result: any, content: string): Record<string, LLMChu
   return chunks;
 }
 
+function _hasPersistedGenerationResult(result: any): boolean {
+  if (!result || typeof result !== 'object') return false;
+
+  if (Array.isArray(result._stages) && result._stages.length > 0) return true;
+  if (result._draftContent) return true;
+  if (result._llmChunks && Object.keys(result._llmChunks).length > 0) return true;
+  if (result.usage) return true;
+  if (result.agent_type || result.task_id) return true;
+
+  const output = result.output;
+  if (!output || typeof output !== 'object') return false;
+  return Boolean(output.full_text || output.content || output.draft_content);
+}
+
+function _isTriggerOnlyConversationResult(result: any): boolean {
+  if (!result || typeof result !== 'object') return false;
+  return Boolean(result.trigger) && !_hasPersistedGenerationResult(result);
+}
+
+function _synthesizeStages(result: any, content: string): StageInfo[] {
+  const llmChunks = result?._llmChunks as Record<string, LLMChunk[]> | undefined;
+  const generatedAgents = ['WritingAgent', 'FixAgent'].filter((agent) =>
+    Boolean(llmChunks?.[agent]?.length)
+  );
+
+  if (generatedAgents.length > 0) {
+    return generatedAgents.map((agent) => {
+      const mapEntry = AGENT_STAGE_MAP[agent] || { label: '生成中', icon: '✍️' };
+      return {
+        agent,
+        label: mapEntry.label,
+        icon: mapEntry.icon,
+        status: 'completed' as const,
+      };
+    });
+  }
+
+  const draftContent = result?._draftContent || result?.output?.draft_content;
+  const finalContent = result?.output?.full_text || result?.output?.content || content;
+  if (draftContent || finalContent) {
+    const mapEntry = AGENT_STAGE_MAP.WritingAgent;
+    return [{
+      agent: 'WritingAgent',
+      label: mapEntry.label,
+      icon: mapEntry.icon,
+      status: 'completed' as const,
+    }];
+  }
+
+  return [];
+}
+
 function MessageBubble({
   message, copiedId, onCopy,
   runningTime,
   stages, currentStage, llmChunks, reasoningChunks, thinkingSteps,
 }: {
-  message: { id: string; role: string; content: string; timestamp: number; status?: string; result?: any; isConversationReply?: boolean };
+  message: { id: string; role: string; content: string; timestamp: number; status?: string; result?: any; isConversationReply?: boolean; isGeneratedMessage?: boolean };
   copiedId: string | null;
   onCopy: (id: string, text: string) => void;
   thinkingSteps?: any[];
@@ -403,6 +513,18 @@ function MessageBubble({
     if (!message.content) return;
     useAgentStore.getState().setPreviewContent(message.content);
   }, [message.content]);
+
+  // 「最终产物」面板的展开状态：流式过程中默认折叠，避免撑高视口；完成后默认展开
+  const [finalExpanded, setFinalExpanded] = useState(false);
+  useEffect(() => {
+    // 完成时默认展开；开始生成时重置为折叠
+    if (message.status === 'running') {
+      setFinalExpanded(false);
+    } else if (message.status === 'completed' || (!message.status && message.content)) {
+      setFinalExpanded(true);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [message.status]);
 
   if (message.role === 'user') {
     return (
@@ -423,11 +545,15 @@ function MessageBubble({
     //   3. result._stages 存在 → 已完成生成结果
     //   4. 其他（如后端 reload 的数据，无 result）→ 聊天气泡兜底
     const _isConvReply = message.isConversationReply === true;
+    const _isGeneratedMessage = message.isGeneratedMessage === true;
     const _msgResult = message.result as any | null;
-    const _hasStages = _msgResult?._stages?.length > 0;
-    const _isRunningGen = message.status === 'running' && !_isConvReply;
+    const _hasGeneratedResult = _hasPersistedGenerationResult(_msgResult);
+    const _isTriggerOnlyReply = _isTriggerOnlyConversationResult(_msgResult);
+    const _isRunningGen = (message.status === 'running' && !_isConvReply) || _isGeneratedMessage;
 
-    const _isChatBubble = _isConvReply || (!_isRunningGen && !_hasStages);
+    const _isChatBubble = (_isConvReply && !_isGeneratedMessage)
+      || _isTriggerOnlyReply
+      || (!_isRunningGen && !_hasGeneratedResult);
     if (_isChatBubble) {
       const isRunning = message.status === 'running';
       const isFailed = message.status === 'failed';
@@ -470,9 +596,9 @@ function MessageBubble({
     // Per-message stages/chunks: completed messages use stored data, not global state.
     // This prevents all messages from showing the same (latest) stages/chunks.
     const msgResult = message.result as any;
-    const displayStages = isRunning || !msgResult?._stages?.length
-      ? (stages || [])
-      : msgResult._stages;
+    const storedStages = Array.isArray(msgResult?._stages) ? msgResult._stages : [];
+    const fallbackStages = storedStages.length === 0 ? _synthesizeStages(msgResult, displayContent) : storedStages;
+    const displayStages = isRunning ? (stages || []) : fallbackStages;
     const displayCurrentStage = isRunning ? (currentStage || null) : null;
     const displayLlmChunks = isRunning
       ? (llmChunks || {})
@@ -541,17 +667,46 @@ function MessageBubble({
               thinkingSteps={displayThinkingSteps}
             />
           )}
-
-          {/* 最终产物（全部完成后显示） */}
-          {!isRunning && displayStages.length > 0 && displayContent && (
+          {/* 最终产物（可折叠：流式过程中默认折叠避免撑高视口，完成后默认展开） */}
+          {displayContent && (
             <div className="mt-3 rounded-lg border border-white/[0.08] bg-white/[0.02] overflow-hidden">
-              <div className="flex items-center gap-2 px-3 py-2 border-b border-white/[0.06]">
+              <button
+                type="button"
+                onClick={() => setFinalExpanded((v) => !v)}
+                className="w-full flex items-center gap-2 px-3 py-2 border-b border-white/[0.06] hover:bg-white/[0.03] transition-colors text-left"
+              >
                 <span className="text-xs">🎯</span>
                 <span className="text-xs font-medium text-app-text">最终产物</span>
-              </div>
-              <div className="px-3 py-2 text-sm text-app-text whitespace-pre-wrap leading-relaxed">
-                {displayContent}
-              </div>
+                {!finalExpanded && (
+                  <span className="text-[10px] text-app-text-tertiary/70 ml-1">
+                    · {displayContent.length} 字
+                  </span>
+                )}
+                <span className={cn(
+                  'ml-auto text-app-text-tertiary/60 transition-transform duration-200',
+                  finalExpanded && 'rotate-180',
+                )}>
+                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                    <path d="M2 4L5 7L8 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </span>
+              </button>
+              <AnimatePresence initial={false}>
+                {finalExpanded && (
+                  <motion.div
+                    key="final-content"
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.2, ease: 'easeInOut' }}
+                    className="overflow-hidden"
+                  >
+                    <div className="px-3 py-2 text-sm text-app-text whitespace-pre-wrap leading-relaxed max-h-[60vh] overflow-y-auto">
+                      {displayContent}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           )}
 

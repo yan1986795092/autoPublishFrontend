@@ -66,6 +66,7 @@ export function useExecutionEngine(_mode: WorkspaceMode): UseExecutionEngineRetu
     appliedSkill, appliedSkillFull, wsConnectionState,
     runStreaming, runAsync, stopStreaming, disconnectWebSocket,
     clearCurrent, setAppliedSkill, addMessage,
+    hasFirstEventReceived,
   } = useAgentStore(useShallow((s) => ({
     isRunning: s.isRunning,
     currentResult: s.currentResult,
@@ -88,6 +89,7 @@ export function useExecutionEngine(_mode: WorkspaceMode): UseExecutionEngineRetu
     clearCurrent: s.clearCurrent,
     setAppliedSkill: s.setAppliedSkill,
     addMessage: s.addMessage,
+    hasFirstEventReceived: s.hasFirstEventReceived,
   })));
 
   // contentTypeConfig 是 any 类型，单独订阅以避免触发 useShallow 的浅比较
@@ -159,6 +161,7 @@ export function useExecutionEngine(_mode: WorkspaceMode): UseExecutionEngineRetu
     appliedSkill, appliedSkillFull,
     wsConnectionState,
     useStreaming, setUseStreaming,
+    hasFirstEventReceived,
     handleExecute, handleStop, handleDirectExecute,
     handleClearCurrent: clearCurrent,
     handleSetAppliedSkill: setAppliedSkill,
@@ -168,6 +171,7 @@ export function useExecutionEngine(_mode: WorkspaceMode): UseExecutionEngineRetu
     thinkingSteps, llmChunks, reasoningChunks, stages, currentStage, messages,
     appliedSkill, appliedSkillFull, wsConnectionState,
     useStreaming,
+    hasFirstEventReceived,
     handleExecute, handleStop, handleDirectExecute,
     clearCurrent, setAppliedSkill, addMessage,
   ]);

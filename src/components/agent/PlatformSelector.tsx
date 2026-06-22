@@ -43,7 +43,6 @@ export const PLATFORM_GROUPS: { key: Platform['category']; label: string; badge:
     platforms: [
       { id: 'tech-doc', label: '技术文档', icon: '📘', category: 'professional', hint: '结构清晰 · 术语规范 · 示例' },
       { id: 'tutorial', label: '教程指南', icon: '📗', category: 'professional', hint: '循序渐进 · 步骤清晰 · 学练' },
-      { id: 'seo', label: 'SEO文章', icon: '🔍', category: 'professional', hint: '关键词布局 · 搜索友好 · 优化' },
       { id: 'email', label: '邮件营销', icon: '📧', category: 'professional', hint: '问候语 · 价值内容 · CTA' },
     ],
   },
@@ -51,6 +50,47 @@ export const PLATFORM_GROUPS: { key: Platform['category']; label: string; badge:
 
 export const ALL_PLATFORMS = PLATFORM_GROUPS.flatMap(g => g.platforms);
 export const PLATFORM_MAP = new Map(ALL_PLATFORMS.map(p => [p.id, p]));
+
+// ── Auto-detection ──
+
+const DETECTION_KEYWORDS: [string, string][] = [
+  ['小红书', 'xiaohongshu'],
+  ['种草', 'xiaohongshu'],
+  ['小红書', 'xiaohongshu'],
+  ['公众号', 'wechat'],
+  ['微信文章', 'wechat'],
+  ['微信公众号', 'wechat'],
+  ['微博', 'weibo'],
+  ['微博文章', 'weibo'],
+  ['抖音', 'douyin'],
+  ['TikTok', 'douyin'],
+  ['B站', 'bilibili'],
+  ['bilibili', 'bilibili'],
+  ['BILIBILI', 'bilibili'],
+  ['产品文案', 'copywriting'],
+  ['推广文案', 'copywriting'],
+  ['品牌故事', 'brand-story'],
+  ['广告文案', 'ad-copy'],
+  ['小说', 'fiction'],
+  ['故事', 'fiction'],
+  ['剧本', 'script'],
+  ['脚本', 'script'],
+  ['技术文档', 'tech-doc'],
+  ['API 文档', 'tech-doc'],
+  ['教程', 'tutorial'],
+  ['SEO', 'seo'],
+  ['邮件营销', 'email'],
+  ['营销邮件', 'email'],
+];
+
+/** 根据 prompt 关键词静默检测目标平台，检测不到返回 null */
+export function autoDetectPlatform(prompt: string): string | null {
+  const lower = prompt.toLowerCase();
+  for (const [keyword, platformId] of DETECTION_KEYWORDS) {
+    if (lower.includes(keyword.toLowerCase())) return platformId;
+  }
+  return null;
+}
 
 // ── Component ──
 

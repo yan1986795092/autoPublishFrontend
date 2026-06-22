@@ -275,7 +275,9 @@ export const agentApi = {
   wsUrl: (taskId: string) => {
     const base = import.meta.env.VITE_API_BASE_URL || '';
     const wsBase = base.replace(/^http/, 'ws');
-    return `${wsBase || 'ws://localhost:8000'}/api/v1/agent/ws/${taskId}`;
+    const token = useAuthStore.getState().accessToken;
+    const qs = token ? `?token=${encodeURIComponent(token)}` : '';
+    return `${wsBase || 'ws://localhost:8000'}/api/v1/agent/ws/${taskId}${qs}`;
   },
 
   /** SSE 流式执行：通过 fetch + ReadableStream 接收实时事件 */

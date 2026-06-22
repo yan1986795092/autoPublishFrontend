@@ -29,6 +29,7 @@ export interface Content {
   updated_at: string;
   view_count?: number;
   like_count?: number;
+  versions?: ContentVersion[];
 }
 
 export interface ContentVersion {
@@ -191,7 +192,6 @@ export type {
   AgentResult,
   AsyncTask,
   ChatMessage,
-  PreviousGeneration,
   ContentType,
   ContentStyle,
   StreamEvent,

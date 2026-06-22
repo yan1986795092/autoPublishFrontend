@@ -82,15 +82,15 @@ export const contentsApi = {
     apiClient.post<ApiResponse<{ contents: GenerateResponse[] }>>('/api/v1/contents/generate/batch', data),
 
   calendar: (year?: number, month?: number) =>
-    apiClient.get<ApiResponse<{ calendar: Record<string, Array<{ id: string; title: string; type: string; platform_code: string; status: string }>>; year: number; month: number }>>('/api/v1/contents/calendar', { params: { year, month } }),
+    apiClient.get<ApiResponse<{ calendar: Record<string, Array<{ id: string; content_id: string; title: string; type: string; platform_code: string; content_status: string }>>; year: number; month: number }>>('/api/v1/contents/calendar', { params: { year, month } }),
 
   list: (params?: { page?: number; page_size?: number; status?: string; platform_code?: string; search?: string; tag?: string }) =>
     apiClient.get<ApiResponse<PaginatedResponse<Content>>>('/api/v1/contents', { params }),
 
-  get: (id: string) =>
-    apiClient.get<ApiResponse<Content>>(`/api/v1/contents/${id}`),
+  get: (id: string, config?: { signal?: AbortSignal }) =>
+    apiClient.get<ApiResponse<Content>>(`/api/v1/contents/${id}`, config),
 
-  update: (id: string, data: { title?: string; content_md?: string; content_html?: string; status?: string }) =>
+  update: (id: string, data: { title?: string; content_md?: string; content_html?: string; status?: string; change_summary?: string }) =>
     apiClient.put<ApiResponse<Content>>(`/api/v1/contents/${id}`, data),
 
   autosave: (id: string, content_md: string) =>

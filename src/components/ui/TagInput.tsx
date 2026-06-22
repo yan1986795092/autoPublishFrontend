@@ -36,6 +36,11 @@ export function TagInput({ tags, onChange, disabled, placeholder = '输入标签
     }
   };
 
+  // 只在输入框里有未提交内容时，失焦才自动添加标签
+  const handleBlur = () => {
+    if (input.trim()) addTag();
+  };
+
   return (
     <div className="flex flex-wrap items-center gap-1.5 p-2 rounded-lg border border-app-border bg-app-surface focus-within:border-primary-500/50 transition-colors">
       {tags.map((tag) => (
@@ -59,7 +64,7 @@ export function TagInput({ tags, onChange, disabled, placeholder = '输入标签
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          onBlur={addTag}
+          onBlur={handleBlur}
           placeholder={tags.length === 0 ? placeholder : ''}
           disabled={disabled}
           className="flex-1 min-w-[80px] bg-transparent text-[11px] text-app-text placeholder:text-app-text-tertiary outline-none"

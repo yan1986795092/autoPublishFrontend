@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Button } from '../ui/button';
 import { ScrollArea } from '../ui/scroll-area';
@@ -120,7 +120,7 @@ export function Workspace() {
               />
             ) : (
               messages.map((msg) => (
-                <MessageBubble
+                <MessageBubbleMemo
                   key={msg.id}
                   message={msg}
                   copiedId={copiedId}
@@ -588,4 +588,14 @@ function MessageBubble({
 
   return null;
 }
+
+const MessageBubbleMemo = React.memo(MessageBubble, (prev, next) => {
+  // 仅当 message / copiedId 变化时重渲染；stages/llmChunks/reasoningChunks/thinkingSteps/runningTime
+  // 变化不影响已完成的 message（displayStages 已优先用 message.result._stages），
+  // 避免新流触发时所有历史 message 重新渲染导致 local state 反复重置。
+  if (prev.message !== next.message) return false;
+  if (prev.copiedId !== next.copiedId) return false;
+  if (prev.onCopy !== next.onCopy) return false;
+  return true;
+});
 

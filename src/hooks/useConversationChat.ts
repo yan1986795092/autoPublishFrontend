@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useAgentStore } from '../stores/useAgentStore';
 import { useUIStore } from '../stores/useUIStore';
 import { conversationApi } from '../services/api';
@@ -20,6 +20,8 @@ interface UseConversationChatReturn {
 export function useConversationChat(): UseConversationChatReturn {
   const [isChatting, setIsChatting] = useState(false);
   const processorRef = useRef<SSEProcessor | null>(null);
+  // 持有当前请求的 AbortController，组件卸载或新一轮请求时调用 abort()
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const addMessage = useAgentStore((s) => s.addMessage);
   const updateMessage = useAgentStore((s) => s.updateMessage);
@@ -57,6 +59,11 @@ export function useConversationChat(): UseConversationChatReturn {
     const processor = new SSEProcessor();
     processorRef.current = processor;
 
+    // 持有可中止的 controller，卸载/重复触发时可主动 abort
+    const abortController = new AbortController();
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = abortController;
+
     const token = useAuthStore.getState().accessToken;
 
     processor.on('text', (event) => {
@@ -85,8 +92,39 @@ export function useConversationChat(): UseConversationChatReturn {
       // 如果有 trigger，走生成流程
       if (triggerData && triggerData._prompt) {
         showToast('开始创作...', 'info');
-        // 调用现有的生成 Pipeline
-        await runStreaming(triggerData._prompt, triggerData.platform);
+        try {
+          // 从 store 实时取最新 messages，避免闭包过期
+          // （sendChatMessage 不再依赖 messages，回调里拿到的就是最新值）
+          const latestMessages = useAgentStore.getState().messages;
+          const latestGeneratedMessage = [...latestMessages]
+            .reverse()
+            .find((message) =>
+              message.role === 'assistant'
+              && message.isConversationReply !== true
+              && (message.content || message.result)
+            );
+
+          await runStreaming(
+            triggerData._prompt || triggerData.topic || '',
+            triggerData.platform,
+            {
+              action: triggerData.action,
+              topic: triggerData.topic,
+              platform: triggerData.platform,
+              style: triggerData.style,
+              tone: triggerData.tone,
+              audience: triggerData.audience,
+              keywords: triggerData.keywords,
+              length: triggerData.length,
+              revision_focus: triggerData.revision_focus,
+              content: latestGeneratedMessage?.content || '',
+            },
+            triggerData,
+          );
+        } catch (e) {
+          console.error('runStreaming failed:', e);
+          showToast('生成启动失败', 'error');
+        }
       }
     });
 
@@ -120,7 +158,7 @@ export function useConversationChat(): UseConversationChatReturn {
           setIsChatting(false);
           showToast(errorMsg, 'error');
         },
-      }, new AbortController().signal, 60_000);
+      }, abortController.signal, 60_000);
     } catch (e: any) {
       if (e?.name !== 'AbortError') {
         updateMessage(assistantId, {
@@ -132,6 +170,14 @@ export function useConversationChat(): UseConversationChatReturn {
       }
     }
   }, [isChatting, addMessage, updateMessage, conversationId, runStreaming, showToast]);
+
+  // 组件卸载时中止未完成的 SSE 请求，避免 setState on unmounted
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+      abortControllerRef.current = null;
+    };
+  }, []);
 
   return { isChatting, sendChatMessage };
 }

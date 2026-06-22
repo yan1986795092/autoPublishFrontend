@@ -23,6 +23,7 @@ import { ContentCalendar } from '../components/content/ContentCalendar';
 import { PLATFORM_MAP } from '../components/agent/PlatformSelector';
 import { useNavigate } from 'react-router-dom';
 import { useUIStore } from '../stores/useUIStore';
+import { useAgentStore } from '../stores/useAgentStore';
 import {
   FileText,
   Trash2,
@@ -79,7 +80,7 @@ export function ContentManagementPage() {
   // Pagination
   const [page, setPage] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
-  const pageSize = 10;
+  const pageSize = 8;
 
   const navigate = useNavigate();
   const { showToast, openPublishDialog } = useUIStore();
@@ -229,9 +230,9 @@ export function ContentManagementPage() {
   if (loading) return <SkeletonList count={5} />;
 
   return (
-    <div className="space-y-4 max-w-4xl mx-auto p-6">
+    <div className="flex flex-col h-full max-w-4xl mx-auto p-6 space-y-4">
       {/* ── Page Header ── */}
-      <div className="flex items-center gap-3 mb-2">
+      <div className="flex items-center gap-3">
         <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary-600 to-primary-500 flex items-center justify-center shadow-sm shadow-primary-600/20">
           <FileText className="w-[18px] h-[18px] text-white" />
         </div>
@@ -243,7 +244,7 @@ export function ContentManagementPage() {
 
       {/* ── Stats Bar（来自后端全量统计） ── */}
       {stats && (
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-4 gap-3 shrink-0">
           {[
             { icon: FileText, label: '总数', value: stats.total, color: 'text-blue-400' },
             { icon: FileEdit, label: '草稿', value: stats.draft, color: 'text-yellow-400' },
@@ -262,7 +263,7 @@ export function ContentManagementPage() {
       )}
 
       {/* ── Header: Search + View Toggle + New Button ── */}
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center justify-between gap-3 shrink-0">
         <div className="relative flex-1 max-w-xs">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-app-text-tertiary pointer-events-none" />
           <Input
@@ -317,7 +318,16 @@ export function ContentManagementPage() {
           </div>
           <Button
             size="sm"
-            onClick={() => navigate('/')}
+            onClick={async () => {
+              const store = useAgentStore.getState();
+              const newId = await store.createConversation();
+              if (newId) {
+                await store.switchConversation(newId);
+              } else {
+                store.clearCurrent();
+              }
+              navigate('/');
+            }}
             className="h-8 px-3 text-xs bg-primary-600 hover:bg-primary-500"
           >
             <Plus className="h-3.5 w-3.5 mr-1" />
@@ -327,7 +337,7 @@ export function ContentManagementPage() {
       </div>
 
       {/* ── Filter Pills ── */}
-      <div className="flex items-center gap-1 flex-wrap">
+      <div className="flex items-center gap-1 flex-wrap shrink-0">
         {FILTERS.map((f) => (
           <Button
             key={f.value}
@@ -407,6 +417,9 @@ export function ContentManagementPage() {
         />
       )}
 
+      {/* ── Content Area ── */}
+      <div className="flex-1 min-h-0">
+
       {/* ── Card View ── */}
       {view === 'card' && (
         <AnimatePresence mode="wait">
@@ -426,7 +439,7 @@ export function ContentManagementPage() {
               {processedContents.map((content, idx) => {
                 const statusCfg = STATUS_CONFIG[content.status] || STATUS_CONFIG.draft;
                 const display = getPlatformDisplay(content.platform_code || '');
-                const preview = (content.content_md || '').slice(0, 100);
+                const preview = (content.content_md || '').slice(0, 200);
                 return (
                   <motion.div
                     key={content.id}
@@ -436,10 +449,10 @@ export function ContentManagementPage() {
                   >
                     <Card
                       variant="interactive"
-                      className="h-full cursor-pointer hover:border-primary-500/30 transition-all"
+                      className="h-[200px] cursor-pointer hover:border-primary-500/30 transition-all overflow-hidden"
                       onClick={() => navigate(`/content/${content.id}`)}
                     >
-                      <div className="p-3 flex flex-col h-full gap-2">
+                      <div className="p-3 flex flex-col h-full gap-1.5">
                         {/* Header: title + checkbox */}
                         <div className="flex items-start gap-2">
                           <input
@@ -455,7 +468,7 @@ export function ContentManagementPage() {
                             onClick={(e) => e.stopPropagation()}
                             className="mt-0.5 rounded border-app-border bg-app-surface text-primary-500 focus:ring-primary-500 shrink-0"
                           />
-                          <h3 className="text-sm font-medium text-app-text line-clamp-1 flex-1 min-w-0">
+                          <h3 className="text-sm font-medium text-app-text truncate flex-1 min-w-0">
                             {content.title || '无标题'}
                           </h3>
                           <span className={`shrink-0 inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] ${statusCfg.className}`}>
@@ -465,20 +478,20 @@ export function ContentManagementPage() {
 
                         {/* Content preview */}
                         {preview && (
-                          <p className="text-[11px] text-app-text-tertiary line-clamp-2 leading-relaxed">
+                          <p className="text-[11px] text-app-text-tertiary line-clamp-3 leading-relaxed flex-1 overflow-hidden">
                             {preview}
                           </p>
                         )}
 
                         {/* Footer: platform + tags + time */}
-                        <div className="mt-auto flex items-center gap-2 pt-1">
+                        <div className="flex items-center gap-2 pt-1 shrink-0">
                           <span className="text-xs">{display.icon} {display.label}</span>
                           <span className="text-[10px] text-app-text-tertiary ml-auto">
                             {formatRelativeTime(content.updated_at)}
                           </span>
                         </div>
                         {content.tags && content.tags.length > 0 && (
-                          <div className="flex flex-wrap gap-1">
+                          <div className="flex flex-wrap gap-1 shrink-0">
                             {content.tags.slice(0, 3).map(tag => (
                               <span key={tag} className="text-[9px] px-1.5 py-0.5 rounded-full bg-app-surface border border-app-border/30 text-app-text-tertiary">
                                 {tag}
@@ -596,14 +609,14 @@ export function ContentManagementPage() {
                               className="rounded border-app-border bg-app-surface text-primary-500 focus:ring-primary-500"
                             />
                           </td>
-                          <td className="px-3 py-2.5">
+                          <td className="px-3 py-2.5 max-w-0">
                             <button
                               onClick={() =>
                                 navigate(`/content/${content.id}`)
                               }
-                              className="text-sm font-medium text-app-text hover:text-primary-400 transition-colors text-left"
+                              className="text-sm font-medium text-app-text hover:text-primary-400 transition-colors text-left w-full"
                             >
-                              {content.title || '无标题'}
+                              <span className="truncate block">{content.title || '无标题'}</span>
                             </button>
                           </td>
                           <td className="px-3 py-2.5">
@@ -670,17 +683,20 @@ export function ContentManagementPage() {
                 </table>
               </div>
 
-              {/* Pagination */}
-              <div className="mt-3">
-                <Pagination
-                  page={safePage}
-                  totalPages={totalPages}
-                  onPageChange={setPage}
-                />
-              </div>
             </motion.div>
           )}
         </AnimatePresence>
+      )}
+
+      </div>
+
+      {/* ── Pagination (card & list views only) ── */}
+      {(view === 'card' || view === 'list') && processedContents.length > 0 && (
+        <Pagination
+          page={safePage}
+          totalPages={totalPages}
+          onPageChange={setPage}
+        />
       )}
 
       {/* ── Confirm Dialog ── */}

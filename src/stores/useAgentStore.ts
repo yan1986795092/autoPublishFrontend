@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type {
   AsyncTask, AgentResult, ExecutionPlan, ChatMessage,
   ThinkingStep, StreamEvent, LLMChunk, ReasoningChunk,
-  PreviousGeneration, StageInfo, IntentConflict,
+  StageInfo, IntentConflict,
 } from '../types';
 import { AGENT_STAGE_MAP } from '../types';
 import { getResultThinkingSteps } from '../utils/agentEvents';
@@ -39,24 +39,20 @@ interface AgentState {
   wsConnectionState: 'connecting' | 'connected' | 'disconnected';
   _ws: WebSocket | null;
   _reconnectTimer: ReturnType<typeof setTimeout> | null;
-
-  // 任务历史
-  taskHistory: AsyncTask[];
-
-  // 历史生成记录（多次执行的结果存档）
-  previousGenerations: PreviousGeneration[];
+  // 正在加载的对话 ID（用于丢弃过期请求，避免竞态）
+  _inflightLoadId: string | null;
 
   // 消息列表（Chat 式界面）
   messages: ChatMessage[];
   addMessage: (msg: ChatMessage) => void;
   updateMessage: (id: string, updates: Partial<ChatMessage>) => void;
   clearMessages: () => void;
-  clearHistory: () => void;
 
   // === 对话持久化 ===
   conversationId: string | null;
   conversationList: ChatConversationSummary[];
-  loadConversations: (opts?: { showErrorToast?: (msg: string) => void }) => Promise<void>;
+  conversationListTotal: number;
+  loadConversations: (opts?: { showErrorToast?: (msg: string) => void; limit?: number; offset?: number }) => Promise<void>;
   loadConversationMessages: (conversationId: string) => Promise<void>;
   createConversation: (title?: string) => Promise<string | null>;
   deleteConversation: (conversationId: string) => Promise<boolean>;
@@ -67,9 +63,8 @@ interface AgentState {
   previewPlan: (prompt: string) => Promise<ExecutionPlan | null>;
   runSync: (prompt: string) => Promise<AgentResult | null>;
   runAsync: (prompt: string, platform?: string | null) => Promise<string | null>;
-  runStreaming: (prompt: string, platform?: string | null) => Promise<void>;
+  runStreaming: (prompt: string, platform?: string | null, parameters?: Record<string, unknown>, trigger?: Record<string, unknown>) => Promise<void>;
   loadTaskStatus: (taskId: string) => Promise<void>;
-  loadTaskHistory: () => Promise<void>;
   setCurrentResult: (result: AgentResult | null) => void;
   setCurrentTask: (task: AsyncTask | null) => void;
   cancelTask: (taskId: string) => Promise<boolean>;
@@ -147,9 +142,8 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
   wsConnectionState: 'disconnected',
   _ws: null,
   _reconnectTimer: null,
-  taskHistory: [],
+  _inflightLoadId: null,
   _abortController: null,
-  previousGenerations: [],
   messages: [],
   contentTypeConfig: null,
   appliedSkill: null,
@@ -157,6 +151,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
   previewContent: null,
   conversationId: _initFromStorage.conversationId,
   conversationList: _initFromStorage.conversationList,
+  conversationListTotal: 0,
   _streamingProcessor: null,
 
   setAppliedSkill: (applied, full) => set({ appliedSkill: applied, appliedSkillFull: full }),
@@ -168,7 +163,6 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     messages: state.messages.map((m) => (m.id === id ? { ...m, ...updates } : m)),
   })),
   clearMessages: () => set({ messages: [] }),
-  clearHistory: () => set({ previousGenerations: [] }),
   addStreamEvent: (event) => set((state) => ({ streamEvents: [...state.streamEvents, event] })),
 
   stopStreaming: () => {
@@ -209,39 +203,48 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
   },
 
   // === 对话持久化 ===
-  loadConversations: async (opts?: { showErrorToast?: (msg: string) => void }) => {
+  loadConversations: async (opts?: { showErrorToast?: (msg: string) => void; limit?: number; offset?: number }) => {
     const savedId = localStorage.getItem('currentConversationId');
-    console.log('[loadConversations] start, savedId from localStorage:', savedId);
+    // 默认拉到后端上限 200；想"加载更多"可在 opts 里显式传 offset
+    const limit = Math.max(1, Math.min(opts?.limit ?? 200, 200));
+    const offset = Math.max(0, opts?.offset ?? 0);
     try {
-      const response = await chatApi.listConversations({ limit: 50 });
-      console.log('[loadConversations] response:', response.data);
+      const response = await chatApi.listConversations({ limit, offset });
       if (response.data.success && response.data.data) {
         const serverConversations = response.data.data.conversations;
+        const total = response.data.data.total ?? serverConversations.length;
         // 合并服务端列表与本地状态，避免条件竞争导致新创建的对话被覆盖
         set((state) => {
           const serverIds = new Set(serverConversations.map(c => c.id));
           const localOnly = state.conversationList.filter(c => !serverIds.has(c.id));
-          const merged = localOnly.length > 0
-            ? [...localOnly, ...serverConversations]
-            : serverConversations;
+          // offset>0 时是"加载更多"，把已有放在新分页前面；否则正常覆盖
+          const merged = offset === 0
+            ? (localOnly.length > 0 ? [...localOnly, ...serverConversations] : serverConversations)
+            : [...state.conversationList, ...serverConversations.filter(c => !state.conversationList.some(x => x.id === c.id))];
 
-          // 从合并后的列表中找当前对话ID
-          const validId = savedId && merged.some((c) => c.id === savedId)
+          // 从合并后的列表中找当前对话ID（仅在首屏时恢复）
+          const validId = offset === 0 && savedId && merged.some((c) => c.id === savedId)
             ? savedId
-            : (merged[0]?.id ?? null);
+            : (offset === 0 ? (merged[0]?.id ?? null) : state.conversationId);
 
-          console.log('[loadConversations] merged count:', merged.length, 'validId:', validId);
-          if (validId !== savedId) {
+          if (offset === 0 && validId !== savedId) {
             if (validId) localStorage.setItem('currentConversationId', validId);
             else localStorage.removeItem('currentConversationId');
           }
-          return { conversationList: merged, conversationId: validId };
+          return {
+            conversationList: merged,
+            conversationListTotal: offset === 0 ? total : state.conversationListTotal,
+            ...(offset === 0 ? { conversationId: validId } : {}),
+          };
         });
         _saveConvToStorage(get());
-        const currentId = get().conversationId;
-        if (currentId) {
-          console.log('[loadConversations] loading messages for:', currentId);
-          await get().loadConversationMessages(currentId);
+        if (offset === 0) {
+          const currentId = get().conversationId;
+          if (currentId) {
+            // 标记 inflight，让后续 switchConversation 抢占时可丢弃这次结果
+            set({ _inflightLoadId: currentId });
+            await get().loadConversationMessages(currentId);
+          }
         }
       }
     } catch (e) {
@@ -254,6 +257,12 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
   loadConversationMessages: async (conversationId: string) => {
     try {
       const response = await chatApi.getConversation(conversationId);
+      // 竞态保护：响应到达时检查 inflight 标记是否仍是当前对话，
+      // 如果用户已经在加载期间切换到了其他对话，丢弃这次结果。
+      const inflight = useAgentStore.getState()._inflightLoadId;
+      if (inflight !== conversationId) {
+        return;
+      }
       if (response.data.success && response.data.data) {
         const { messages } = response.data.data;
         const chatMessages: ChatMessage[] = messages.map((m) => {
@@ -302,7 +311,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
         const restoredReasoningChunks: Record<string, ReasoningChunk[]> = (lastResult?._reasoningChunks || {}) as Record<string, ReasoningChunk[]>;
         localStorage.setItem('currentConversationId', conversationId);
         set({
-          conversationId,
+          // 不要回写 conversationId —— 用户可能已经切换到另一个对话
           messages: chatMessages,
           stages: restoredStages,
           currentStage: null,
@@ -397,13 +406,29 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
 
     if (!conversationId) {
       localStorage.removeItem('currentConversationId');
-      set({ conversationId: null, messages: [], isRunning: false, currentResult: null, thinkingSteps: [], llmChunks: {}, reasoningChunks: {}, stages: [], currentStage: null, intentConflicts: [], streamEvents: [] });
+      set({
+        conversationId: null, _inflightLoadId: null,
+        messages: [], isRunning: false, currentResult: null, thinkingSteps: [],
+        llmChunks: {}, reasoningChunks: {}, stages: [], currentStage: null,
+        intentConflicts: [], streamEvents: [],
+      });
       _saveConvToStorage(get());
       return;
     }
     localStorage.setItem('currentConversationId', conversationId);
-    set({ conversationId, messages: [], isRunning: false, currentResult: null, thinkingSteps: [], llmChunks: {}, reasoningChunks: {}, stages: [], currentStage: null, intentConflicts: [], streamEvents: [] });
-    await get().loadConversationMessages(conversationId);
+    // 抢占式清空 + 标记 inflight，避免旧对话的加载请求污染新对话
+    set({
+      conversationId, _inflightLoadId: conversationId,
+      messages: [], isRunning: false, currentResult: null, thinkingSteps: [],
+      llmChunks: {}, reasoningChunks: {}, stages: [], currentStage: null,
+      intentConflicts: [], streamEvents: [],
+    });
+    try {
+      await get().loadConversationMessages(conversationId);
+    } catch (e) {
+      // 异常由 loadConversationMessages 内部 catch；这里只做兜底
+      console.error('[switchConversation] load failed:', e);
+    }
   },
 
   setWsConnectionState: (wsConnectionState) => set({ wsConnectionState }),
@@ -440,7 +465,6 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
           if (eventSteps.length > 0) {
             set({ thinkingSteps: eventSteps });
           }
-          useAgentStore.getState().loadTaskHistory();
           const msgs = useAgentStore.getState().messages;
           const assistantMsg = msgs.find((m) => m.role === 'assistant' && m.status === 'running');
           if (assistantMsg) {
@@ -550,7 +574,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     return arr.length > _MAX_STREAM_EVENTS ? arr.slice(-_MAX_STREAM_EVENTS) : arr;
   },
 
-  runStreaming: async (prompt: string, platform?: string | null, parameters?: Record<string, unknown>) => {
+  runStreaming: async (prompt: string, platform?: string | null, parameters?: Record<string, unknown>, trigger?: Record<string, unknown>) => {
     // 防止重复调用
     if (get().isRunning) return;
 
@@ -572,19 +596,6 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       });
     }
 
-    // Archive previous generation
-    const prevState = get();
-    if (prevState.thinkingSteps.length > 0 || prevState.currentResult) {
-      set((s) => ({
-        previousGenerations: [...s.previousGenerations, {
-          id: crypto.randomUUID(), prompt,
-          result: prevState.currentResult,
-          events: [], timestamp: Date.now(),
-          plan: prevState.currentPlan || undefined,
-        }],
-      }));
-    }
-
     // ── Start streaming state ──
     set({ isRunning: true, error: null, thinkingSteps: [], currentResult: null, llmChunks: {}, reasoningChunks: {}, stages: [], currentStage: null, intentConflicts: [], streamEvents: [] });
     const controller = new AbortController();
@@ -596,7 +607,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       try {
         if (!conversationId) {
           const resp = await chatApi.quickStart({
-            role: 'user', content: prompt, status: 'completed',
+            role: 'user', content: '[内容生成]', status: 'completed',
           });
           if (resp.data.success && resp.data.data) {
             conversationId = resp.data.data.conversation_id;
@@ -627,7 +638,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
         } else {
           const [, asstResp] = await Promise.all([
             chatApi.addMessage(conversationId, {
-              role: 'user', content: prompt, status: 'completed',
+              role: 'user', content: '[内容生成]', status: 'completed',
             }),
             chatApi.addMessage(conversationId, {
               role: 'assistant', content: '', status: 'running',
@@ -755,7 +766,9 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     processor.on('progress', (event) => {
       set((s) => ({
         currentTask: {
-          ...(s.currentTask || {}),
+          // Preserve any existing fields. If s.currentTask is null (e.g. after
+          // stopStreaming cleared it), fall back to a minimal skeleton so we
+          // still have a place to render the live progress.
           id: (event.data.task_id as string) || s.currentTask?.id || '',
           user_id: s.currentTask?.user_id || '',
           prompt: s.currentTask?.prompt || prompt,
@@ -865,7 +878,6 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
         thinkingSteps: finalSteps,
         streamEvents: timelineEvents.length > 0 ? timelineEvents : s.streamEvents,
       }));
-      get().loadTaskHistory();
       if (conversationId) {
         chatApi.updateMessage(msgIdRef.current, {
           status: 'completed', content: fullText,
@@ -1018,7 +1030,36 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     const bodyPayload: Record<string, unknown> = { prompt };
     if (appliedSkill?.skill_id) bodyPayload.skill_id = appliedSkill.skill_id;
     if (platform) bodyPayload.platform = platform;
-    if (parameters) bodyPayload.parameters = parameters;
+    const resolvedParameters = { ...(parameters || {}) };
+    if (resolvedParameters.action === 'revise') {
+      const latestState = useAgentStore.getState();
+      const latestGeneratedMessage = [...latestState.messages]
+        .reverse()
+        .find((message) =>
+          message.role === 'assistant'
+          && message.isConversationReply !== true
+          && (message.content || message.result)
+        );
+      const latestResult = (latestGeneratedMessage?.result || latestState.currentResult) as any;
+      const latestOutput = latestResult?.output || {};
+
+      if (!resolvedParameters.content) {
+        resolvedParameters.content =
+          latestGeneratedMessage?.content
+          || latestOutput.full_text
+          || latestOutput.content
+          || '';
+      }
+
+      if (!resolvedParameters.draft_content) {
+        resolvedParameters.draft_content =
+          latestResult?._draftContent
+          || latestOutput.draft_content
+          || '';
+      }
+    }
+    if (Object.keys(resolvedParameters).length > 0) bodyPayload.parameters = resolvedParameters;
+    if (trigger && typeof trigger === 'object') bodyPayload.trigger = trigger;
     set({ _streamingProcessor: processor });
 
     // Fire SSE and message creation in parallel
@@ -1079,18 +1120,6 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     }
   },
 
-  loadTaskHistory: async () => {
-    try {
-      const response = await agentApi.listAsyncTasks(20);
-      if (response.data.success && response.data.data) {
-        const data = response.data.data as { tasks: AsyncTask[]; total: number };
-        set({ taskHistory: data.tasks });
-      }
-    } catch (e) {
-      console.error('loadTaskHistory failed:', e);
-    }
-  },
-
   setCurrentResult: (result) => set({ currentResult: result }),
   setCurrentTask: (task) => set({ currentTask: task }),
 
@@ -1123,19 +1152,6 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     const s = useAgentStore.getState();
     if (s._abortController) s._abortController.abort();
     if (s._streamingProcessor) s._streamingProcessor.abort();
-    // Archive current generation before clearing
-    if (s.thinkingSteps.length > 0 || s.currentResult) {
-      const gen: PreviousGeneration = {
-        id: crypto.randomUUID(),
-        prompt: s.messages.find(m => m.role === 'user')?.content || '',
-        result: s.currentResult,
-        events: s.streamEvents || [],
-        timestamp: Date.now(),
-        plan: s.currentPlan || undefined,
-        stages: s.stages.length > 0 ? [...s.stages] : undefined,
-      };
-      set((state) => ({ previousGenerations: [...state.previousGenerations, gen] }));
-    }
     set({
       currentTaskId: null,
       currentTask: null,

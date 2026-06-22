@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useAgentStore } from '../stores/useAgentStore';
 import { useUIStore } from '../stores/useUIStore';
 import type { ChatMessage } from '../types';
@@ -19,7 +20,6 @@ interface UseExecutionEngineReturn {
   stages: ReturnType<typeof useAgentStore.getState>['stages'];
   currentStage: ReturnType<typeof useAgentStore.getState>['currentStage'];
   messages: ReturnType<typeof useAgentStore.getState>['messages'];
-  previousGenerations: ReturnType<typeof useAgentStore.getState>['previousGenerations'];
   appliedSkill: ReturnType<typeof useAgentStore.getState>['appliedSkill'];
   appliedSkillFull: ReturnType<typeof useAgentStore.getState>['appliedSkillFull'];
   wsConnectionState: ReturnType<typeof useAgentStore.getState>['wsConnectionState'];
@@ -56,21 +56,41 @@ function appendContentMeta(
 
 export function useExecutionEngine(_mode: WorkspaceMode): UseExecutionEngineReturn {
   void _mode; // reserved for future 'chat'/'create'/'studio' mode routing
-  const isRunning = useAgentStore((s) => s.isRunning);
-  const currentResult = useAgentStore((s) => s.currentResult);
-  const currentPlan = useAgentStore((s) => s.currentPlan);
-  const currentTask = useAgentStore((s) => s.currentTask);
-  const currentTaskId = useAgentStore((s) => s.currentTaskId);
-  const thinkingSteps = useAgentStore((s) => s.thinkingSteps);
-  const llmChunks = useAgentStore((s) => s.llmChunks);
-  const reasoningChunks = useAgentStore((s) => s.reasoningChunks);
-  const stages = useAgentStore((s) => s.stages);
-  const currentStage = useAgentStore((s) => s.currentStage);
-  const messages = useAgentStore((s) => s.messages);
-  const previousGenerations = useAgentStore((s) => s.previousGenerations);
-  const appliedSkill = useAgentStore((s) => s.appliedSkill);
-  const appliedSkillFull = useAgentStore((s) => s.appliedSkillFull);
-  const wsConnectionState = useAgentStore((s) => s.wsConnectionState);
+
+  // 合并订阅：用 useShallow 把多个独立 selector 合并到一个订阅里，
+  // 只有当其中任一字段实际变化时才返回新引用，避免每次 store 变化都触发重渲染。
+  const {
+    isRunning, currentResult, currentPlan, currentTask, currentTaskId,
+    thinkingSteps, llmChunks, reasoningChunks, stages, currentStage,
+    messages,
+    appliedSkill, appliedSkillFull, wsConnectionState,
+    runStreaming, runAsync, stopStreaming, disconnectWebSocket,
+    clearCurrent, setAppliedSkill, addMessage,
+  } = useAgentStore(useShallow((s) => ({
+    isRunning: s.isRunning,
+    currentResult: s.currentResult,
+    currentPlan: s.currentPlan,
+    currentTask: s.currentTask,
+    currentTaskId: s.currentTaskId,
+    thinkingSteps: s.thinkingSteps,
+    llmChunks: s.llmChunks,
+    reasoningChunks: s.reasoningChunks,
+    stages: s.stages,
+    currentStage: s.currentStage,
+    messages: s.messages,
+    appliedSkill: s.appliedSkill,
+    appliedSkillFull: s.appliedSkillFull,
+    wsConnectionState: s.wsConnectionState,
+    runStreaming: s.runStreaming,
+    runAsync: s.runAsync,
+    stopStreaming: s.stopStreaming,
+    disconnectWebSocket: s.disconnectWebSocket,
+    clearCurrent: s.clearCurrent,
+    setAppliedSkill: s.setAppliedSkill,
+    addMessage: s.addMessage,
+  })));
+
+  // contentTypeConfig 是 any 类型，单独订阅以避免触发 useShallow 的浅比较
   const contentTypeConfig = useAgentStore((s) => s.contentTypeConfig);
 
   const showToast = useUIStore((s) => s.showToast);
@@ -78,14 +98,6 @@ export function useExecutionEngine(_mode: WorkspaceMode): UseExecutionEngineRetu
   const [prompt, setPrompt] = useState('');
   const [runningTime, setRunningTime] = useState(0);
   const [useStreaming, setUseStreaming] = useState(true);
-
-  const runStreaming = useAgentStore((s) => s.runStreaming);
-  const runAsync = useAgentStore((s) => s.runAsync);
-  const stopStreaming = useAgentStore((s) => s.stopStreaming);
-  const disconnectWebSocket = useAgentStore((s) => s.disconnectWebSocket);
-  const clearCurrent = useAgentStore((s) => s.clearCurrent);
-  const setAppliedSkill = useAgentStore((s) => s.setAppliedSkill);
-  const addMessage = useAgentStore((s) => s.addMessage);
 
   useEffect(() => {
     if (!isRunning) {
@@ -139,11 +151,11 @@ export function useExecutionEngine(_mode: WorkspaceMode): UseExecutionEngineRetu
     showToast('任务已终止', 'info');
   }, [stopStreaming, disconnectWebSocket, showToast]);
 
-  return {
+  return useMemo(() => ({
     prompt, setPrompt,
     runningTime, isRunning,
     currentResult, currentPlan, currentTask, currentTaskId,
-    thinkingSteps, llmChunks, reasoningChunks, stages, currentStage, messages, previousGenerations,
+    thinkingSteps, llmChunks, reasoningChunks, stages, currentStage, messages,
     appliedSkill, appliedSkillFull,
     wsConnectionState,
     useStreaming, setUseStreaming,
@@ -151,5 +163,12 @@ export function useExecutionEngine(_mode: WorkspaceMode): UseExecutionEngineRetu
     handleClearCurrent: clearCurrent,
     handleSetAppliedSkill: setAppliedSkill,
     addMessage,
-  };
+  }), [
+    prompt, isRunning, currentResult, currentPlan, currentTask, currentTaskId,
+    thinkingSteps, llmChunks, reasoningChunks, stages, currentStage, messages,
+    appliedSkill, appliedSkillFull, wsConnectionState,
+    useStreaming,
+    handleExecute, handleStop, handleDirectExecute,
+    clearCurrent, setAppliedSkill, addMessage,
+  ]);
 }

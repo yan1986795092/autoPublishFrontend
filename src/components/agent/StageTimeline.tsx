@@ -1,7 +1,8 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../../utils/helpers';
 import type { StageInfo, LLMChunk, ReasoningChunk } from '../../types';
+import { AGENT_STAGE_MAP } from '../../types';
 
 interface StageTimelineProps {
   stages: StageInfo[];
@@ -9,6 +10,7 @@ interface StageTimelineProps {
   isRunning: boolean;
   llmChunks?: Record<string, LLMChunk[]>;
   reasoningChunks?: Record<string, ReasoningChunk[]>;
+  planTasks?: string[];  // 计划中的 agent 类型列表，用于预渲染未开始的步骤
 }
 
 function formatDuration(seconds?: number): string {
@@ -175,10 +177,13 @@ function StageRow({ stage, index, totalStages, expanded, onToggle, chunks, hasDe
 
 export function StageTimeline({ stages, isRunning, llmChunks, reasoningChunks }: StageTimelineProps) {
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(() => new Set());
+  // 记录上一次的 isRunning，仅在 true→false 翻转时才清空 expandedKeys，
+  // 避免在父级任何无关渲染（例如新流触发时其它消息的 StageTimeline 重渲染）误清空。
+  const prevIsRunningRef = useRef<boolean>(isRunning);
 
-  // 运行中自动展开，完成立即折叠
+  // 运行中自动展开 running stage、完成后自动折叠；仅在 isRunning=true 期间生效
   useEffect(() => {
-    if (!isRunning) return; // 全部完成由下面的 effect 处理
+    if (!isRunning) return;
     setExpandedKeys((prev) => {
       const next = new Set(prev);
       let changed = false;
@@ -196,11 +201,13 @@ export function StageTimeline({ stages, isRunning, llmChunks, reasoningChunks }:
     });
   }, [stages, isRunning]);
 
-  // 生成完毕 → 全部折叠（避免消息太长）
+  // 仅在 isRunning 由 true 翻转到 false 时清空（保持历史消息的展开状态）
   useEffect(() => {
-    if (!isRunning) {
+    const prev = prevIsRunningRef.current;
+    if (prev && !isRunning) {
       setExpandedKeys(new Set());
     }
+    prevIsRunningRef.current = isRunning;
   }, [isRunning]);
 
   const toggleExpanded = useCallback((key: string) => {

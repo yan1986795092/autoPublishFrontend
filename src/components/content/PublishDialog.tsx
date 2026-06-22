@@ -33,12 +33,18 @@ export function PublishDialog() {
       setPublishMode('publish');
       setPublishing(false);
       setResults([]);
-      // Load content title
-      contentsApi.get(publishDialogContentId).then(res => {
+      // Load content title with cancel-on-unmount
+      const abortController = new AbortController();
+      contentsApi.get(publishDialogContentId, { signal: abortController.signal }).then(res => {
         if (res.data.success && res.data.data) {
           setContentTitle(res.data.data.title || '无标题');
         }
-      }).catch(() => setContentTitle('未知内容'));
+      }).catch((err) => {
+        // 静默忽略 axios/AbortController 取消导致的错误
+        if (err?.name === 'CanceledError' || err?.name === 'AbortError' || err?.code === 'ERR_CANCELED') return;
+        setContentTitle('未知内容');
+      });
+      return () => abortController.abort();
     }
   }, [publishDialogOpen, publishDialogContentId]);
 

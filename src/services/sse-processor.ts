@@ -60,11 +60,12 @@ export class SSEProcessor {
     connectTimeoutMs: number = 15_000,
   ): Promise<void> {
     const controller = new AbortController();
+    let externalAbortHandler: (() => void) | null = null;
 
     // Proxy external abort → internal controller, so either signal stops the stream
     if (externalSignal) {
-      const h = () => { if (!controller.signal.aborted) controller.abort(); };
-      externalSignal.addEventListener('abort', h);
+      externalAbortHandler = () => { if (!controller.signal.aborted) controller.abort(); };
+      externalSignal.addEventListener('abort', externalAbortHandler);
       if (externalSignal.aborted) controller.abort();
     }
 
@@ -147,6 +148,10 @@ export class SSEProcessor {
       }
     } finally {
       clearTimeout(connectTimer);
+      // Remove the externalSignal listener we registered, so it can be GC'd.
+      if (externalSignal && externalAbortHandler) {
+        externalSignal.removeEventListener('abort', externalAbortHandler);
+      }
       this.cleanup();
     }
   }

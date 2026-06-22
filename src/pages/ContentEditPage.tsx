@@ -56,23 +56,22 @@ export function ContentEditPage() {
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Version diff state
   const [diffMode, setDiffMode] = useState(false);
-  const [diffBase, setDiffBase] = useState<string | null>(null);
+  const [diffSelected, setDiffSelected] = useState<string[]>([]);
   const [diffLines, setDiffLines] = useState<Array<{ type: string; text: string }> | null>(null);
   const [diffLoading, setDiffLoading] = useState(false);
 
-  // Load diff from backend when diffBase changes
+  // Load diff from backend when both versions are selected
   useEffect(() => {
-    if (!diffMode || !diffBase || !content) {
+    if (!diffMode || diffSelected.length !== 2 || !content) {
       setDiffLines(null);
       return;
     }
-    const target = versions.find(v => v.id !== diffBase);
-    if (!target) return;
+    const [v1, v2] = diffSelected;
     let cancelled = false;
     setDiffLoading(true);
     (async () => {
       try {
-        const res = await contentsApi.diffVersions(content.id, diffBase, target.id);
+        const res = await contentsApi.diffVersions(content.id, v1, v2);
         if (!cancelled && res.data.success && res.data.data) {
           setDiffLines(res.data.data.changes);
         }
@@ -81,13 +80,13 @@ export function ContentEditPage() {
       }
     })();
     return () => { cancelled = true; };
-  }, [content, diffMode, diffBase, versions]);
+  }, [content, diffMode, diffSelected, versions]);
 
   // Reset diff state when closing dialog
   const [historyOpen, setHistoryOpen] = useState(false);
   const handleHistoryOpenChange = useCallback((v: boolean) => {
     setHistoryOpen(v);
-    if (!v) { setDiffMode(false); setDiffBase(null); setDiffLines(null); }
+    if (!v) { setDiffMode(false); setDiffSelected([]); setDiffLines(null); }
   }, []);
   useEffect(() => {
     if (!isDirty || !id) return;
@@ -229,7 +228,7 @@ export function ContentEditPage() {
     try {
       const res = await contentsApi.get(contentId);
       if (res.data.success && res.data.data) {
-        const data = res.data.data as Content & { versions?: ContentVersion[] };
+        const data = res.data.data;
         setContent(data);
         setEditTitle(data.title || '');
         setEditContentMd(data.content_md || '');
@@ -371,12 +370,10 @@ export function ContentEditPage() {
               发布
             </Button>
           )}
-          {versions.length > 0 && (
-            <Button variant="outline" size="sm" onClick={() => setHistoryOpen(true)} className="h-8 text-xs">
-              <HistoryIcon className="h-3.5 w-3.5 mr-1" />
-              历史
-            </Button>
-          )}
+          <Button variant="outline" size="sm" onClick={() => setHistoryOpen(true)} className="h-8 text-xs">
+            <HistoryIcon className="h-3.5 w-3.5 mr-1" />
+            历史
+          </Button>
           {content && (
             <Button variant="outline" size="sm" onClick={async () => {
               setPublishHistoryLoading(true);
@@ -653,7 +650,7 @@ export function ContentEditPage() {
               </div>
               {versions.length >= 2 && (
                 <button
-                  onClick={() => { setDiffMode(!diffMode); setDiffBase(null); }}
+                  onClick={() => { setDiffMode(!diffMode); setDiffSelected([]); }}
                   className={cn(
                     'text-[10px] px-2 py-0.5 rounded transition-colors',
                     diffMode ? 'bg-blue-500/10 text-blue-400' : 'text-app-text-tertiary hover:text-app-text-secondary'
@@ -666,16 +663,20 @@ export function ContentEditPage() {
           </DialogHeader>
           {versions.length > 0 ? (
             <div className="flex-1 overflow-auto space-y-2 pr-1">
-              {diffMode && diffBase && (() => {
-                const target = versions.find(v => v.id !== diffBase);
-                if (!target) return null;
+              {diffMode && diffSelected.length < 2 && (
+                <p className="text-[10px] text-app-text-tertiary text-center py-2">
+                  {diffSelected.length === 0 ? '请选择两个版本进行对比' : '请再选一个版本进行对比'}
+                </p>
+              )}
+              {diffMode && diffSelected.length === 2 && (() => {
+                const v1 = versions.find(v => v.id === diffSelected[0]);
+                const v2 = versions.find(v => v.id === diffSelected[1]);
                 if (diffLoading) return <p className="text-xs text-app-text-tertiary p-3">加载差异中...</p>;
                 if (!diffLines) return null;
-                const baseVer = versions.find(v => v.id === diffBase)?.version_number;
                 return (
                   <div className="rounded-lg border border-app-border bg-app-surface p-3 mb-2 text-[10px] font-mono max-h-48 overflow-auto">
                     <p className="text-app-text-tertiary mb-1 sticky top-0 bg-app-surface pb-1">
-                      对比 v{baseVer} → v{target.version_number}
+                      对比 v{v1?.version_number} → v{v2?.version_number}
                     </p>
                     {diffLines.map((change, i) => {
                       if (change.type === 'equal') return null;
@@ -697,12 +698,15 @@ export function ContentEditPage() {
                 <div key={version.id}
                   onClick={() => {
                     if (!diffMode) return;
-                    if (diffBase === version.id) { setDiffBase(null); return; }
-                    setDiffBase(version.id);
+                    setDiffSelected(prev => {
+                      if (prev.includes(version.id)) return prev.filter(id => id !== version.id);
+                      if (prev.length >= 2) return [version.id];
+                      return [...prev, version.id];
+                    });
                   }}
                   className={cn(
                     'rounded-lg border bg-app-surface p-3 transition-colors',
-                    diffMode && diffBase === version.id ? 'border-blue-500/50 bg-blue-500/5' : 'border-app-border',
+                    diffMode && diffSelected.includes(version.id) ? 'border-blue-500/50 bg-blue-500/5' : 'border-app-border',
                     diffMode ? 'cursor-pointer hover:border-blue-500/30' : ''
                   )}
                 >
@@ -711,9 +715,9 @@ export function ContentEditPage() {
                       {diffMode && (
                         <div className={cn(
                           'w-3.5 h-3.5 rounded border flex items-center justify-center',
-                          diffMode && diffBase === version.id ? 'border-blue-500 bg-blue-500' : 'border-app-border'
+                          diffSelected.includes(version.id) ? 'border-blue-500 bg-blue-500' : 'border-app-border'
                         )}>
-                          {diffMode && diffBase === version.id && <span className="text-white text-[8px]">✓</span>}
+                          {diffSelected.includes(version.id) && <span className="text-white text-[8px]">✓</span>}
                         </div>
                       )}
                       <Badge variant={idx === 0 ? 'primary' : 'outline'} size="sm">v{version.version_number}</Badge>
@@ -730,11 +734,20 @@ export function ContentEditPage() {
                     <Button
                       variant="ghost"
                       size="xs"
-                      onClick={() => {
-                        setEditContentMd(version.content_md || '');
-                        setIsDirty(true);
-                        setHistoryOpen(false);
-                        showToast(`已恢复到 v${version.version_number}，记得保存`, 'info');
+                      onClick={async () => {
+                        try {
+                          const res = await contentsApi.update(content.id, {
+                            content_md: version.content_md || '',
+                            change_summary: `回滚到 v${version.version_number}`,
+                          });
+                          if (res.data.success) {
+                            showToast(`已恢复到 v${version.version_number}`, 'success');
+                            setHistoryOpen(false);
+                            loadContent(content.id);
+                          }
+                        } catch {
+                          showToast('恢复失败', 'error');
+                        }
                       }}
                       className="text-[10px] text-primary-400 hover:text-primary-300 mb-2"
                     >

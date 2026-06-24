@@ -1,10 +1,15 @@
 import { useState, useEffect, useCallback } from 'react';
+import React from 'react';
 import { motion } from 'framer-motion';
 import {
-  BarChart, Bar, Line, XAxis, YAxis, CartesianGrid,
+  Bar, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, ComposedChart,
 } from 'recharts';
 import { FileText, TrendingUp, Cpu, Clock, AlertTriangle } from 'lucide-react';
+import {
+  Globe, MessageSquare, Video,
+  BookOpen, Share2, Star,
+} from 'lucide-react';
 import { operationsApi } from '../../services/api';
 import { StatCard } from './StatCard';
 import type { ProductionMetrics } from '../../types/operations';
@@ -41,6 +46,17 @@ function PlatformTooltip({ active, payload, label }: any) {
 function formatPct(v: number): string {
   return `${(v * 100).toFixed(1)}%`;
 }
+
+const PLATFORM_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+  wechat: MessageSquare,
+  xiaohongshu: Star,
+  zhihu: BookOpen,
+  bilibili: Video,
+  toutiao: Globe,
+  weibo: Share2,
+  jianshu: FileText,
+  csdn: BookOpen,
+};
 
 export function ProductionTab() {
   const [data, setData] = useState<ProductionMetrics | null>(null);
@@ -176,21 +192,30 @@ export function ProductionTab() {
       {/* 平台产量分布 */}
       <div className="rounded-lg border border-app-border/50 bg-app-surface p-4 shadow-sm">
         <h3 className="text-xs font-medium text-app-text mb-4">平台产量分布</h3>
-        <ResponsiveContainer width="100%" height={Math.max(120, platformData.length * 40)}>
-          <BarChart data={platformData} layout="vertical" margin={{ left: 80, right: 40 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border, #2d2d3d)" horizontal={false} />
-            <XAxis type="number" tick={{ fontSize: 10, fill: '#888' }} />
-            <YAxis type="category" dataKey="platform_name" tick={{ fontSize: 10, fill: '#ccc' }} width={80} />
-            <Tooltip content={<PlatformTooltip />} />
-            <Bar dataKey="count" name="产量" fill="#3b82f6" radius={[0, 3, 3, 0]}
-              label={{ position: 'right', fontSize: 10, fill: '#888',
-                formatter: ((value: any, entry: any) => {
-                  if (!entry) return value;
-                  const d = entry.payload || entry;
-                  return `${d.percentage}% (${d.count})`;
-                }) as any }} />
-          </BarChart>
-        </ResponsiveContainer>
+        <div className="space-y-3">
+          {platformData.map((p) => {
+            const Icon = PLATFORM_ICONS[p.platform_code] || Globe;
+            const maxCount = platformData[0]?.count || 1;
+            const pct = Math.round((p.count / maxCount) * 100);
+            return (
+              <div key={p.platform_code} className="flex items-center gap-3">
+                <Icon className="w-4 h-4 text-app-text-tertiary shrink-0" />
+                <span className="text-xs text-app-text-secondary min-w-[80px]">{p.platform_name}</span>
+                <div className="flex-1 h-2 rounded-full bg-app-border/30 overflow-hidden">
+                  <motion.div
+                    initial={{ width: 0 }}
+                    animate={{ width: `${pct}%` }}
+                    className="h-full rounded-full bg-gradient-to-r from-blue-500 to-purple-500"
+                    transition={{ duration: 0.6, ease: 'easeOut' }}
+                  />
+                </div>
+                <span className="text-[10px] text-app-text-secondary shrink-0">
+                  {p.percentage.toFixed(1)}% ({p.count})
+                </span>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {/* 自动刷新 */}

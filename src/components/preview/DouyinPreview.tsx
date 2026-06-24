@@ -48,19 +48,6 @@ export function DouyinPreview({ content }: PlatformPreviewProps) {
     <div className="max-w-sm mx-auto rounded-3xl border border-white/20 bg-black overflow-hidden shadow-2xl shadow-black/60" style={{ boxShadow: '0 25px 50px -12px rgba(0,0,0,0.8)' }}>
       {/* 手机外框 */}
       <div className="bg-black">
-        {/* 系统状态栏 */}
-        <div className="flex items-center justify-between px-6 pt-2 pb-1 text-white text-[10px]">
-          <span className="font-medium">9:41</span>
-          <div className="flex items-center gap-1">
-            {/* 信号 */}
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3a4.237 4.237 0 0 0-6 0zm-4-4l2 2a7.074 7.074 0 0 1 10 0l2-2C15.14 9.14 8.87 9.14 5 13z"/></svg>
-            {/* WiFi */}
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 18c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm-6.31-4.62l1.41-1.41c2.69-2.69 7.1-2.69 9.79 0l1.41 1.41c-3.34 3.34-8.73 3.34-12.61 0zm11.31 4.62c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zM12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/></svg>
-            {/* 电池 */}
-            <svg width="16" height="12" viewBox="0 0 30 16" fill="none"><rect x="0" y="2" width="26" height="12" rx="3" stroke="currentColor" strokeWidth="1.5" fill="none"/><rect x="26" y="5" width="3" height="6" rx="1" fill="currentColor"/><rect x="2" y="4" width="18" height="8" rx="2" fill="currentColor"/></svg>
-          </div>
-        </div>
-
         {/* 顶部 App 栏 */}
         <div className="flex items-center justify-between px-4 py-2">
           <div className="flex items-center gap-4">

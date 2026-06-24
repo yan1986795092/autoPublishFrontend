@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { contentsApi } from '../../services/api';
 import { PLATFORM_MAP } from '../agent/PlatformSelector';
+import { PlatformIcon } from '../agent/PlatformIcons';
 import { cn } from '../../utils/helpers';
 import { ChevronLeft, ChevronRight, CalendarDays, Clock, CheckCircle2, XCircle } from 'lucide-react';
 
@@ -239,7 +240,7 @@ export function ContentCalendar() {
                         onClick={() => navigate(`/content/${item.content_id}`)}
                         className="flex items-center gap-2 w-full px-2.5 py-1.5 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] transition-colors text-left"
                       >
-                        <span className="text-base shrink-0">{plat?.icon || '📄'}</span>
+                        <PlatformIcon id={item.platform_code} size={18} />
                         <span className="text-[10px] text-app-text-secondary flex-1 truncate">{item.title || '无标题'}</span>
                         <span className={cn(
                           'inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[8px] font-medium border shrink-0',

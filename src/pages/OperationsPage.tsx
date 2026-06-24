@@ -42,57 +42,70 @@ export function OperationsPage() {
   }, []);
 
   return (
-    <div className="max-w-5xl mx-auto p-6 h-full flex flex-col overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
-            <BarChart3 className="w-4 h-4 text-white" />
+    <div className="h-full flex flex-col overflow-hidden">
+      {/* ── Page Header ── */}
+      <div className="shrink-0 border-b border-app-border/60 px-6 py-3.5 bg-app-surface/60 backdrop-blur-sm">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-primary-600/15 border border-primary-500/20 flex items-center justify-center shrink-0">
+              <BarChart3 className="w-4 h-4 text-primary-400" />
+            </div>
+            <div>
+              <h1 className="text-base font-semibold text-app-text leading-none tracking-tight">运维中心</h1>
+              <p className="text-xs text-app-text-tertiary mt-0.5 leading-none">全面掌控产能、发布与成本</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-lg font-semibold text-app-text">运维中心</h1>
-            <p className="text-xs text-app-text-secondary mt-0.5">Overview & Metrics</p>
-          </div>
+          <Button onClick={handleRefresh} variant="outline" size="sm">
+            <RefreshCw className="w-3.5 h-3.5" />
+            刷新数据
+          </Button>
         </div>
-        <Button onClick={handleRefresh} variant="outline" size="sm">
-          <RefreshCw className="w-3.5 h-3.5" />
-          刷新
-        </Button>
       </div>
 
-      {/* Tabs */}
-      <Tabs.Root value={activeTab} onValueChange={handleTabChange} className="flex-1 flex flex-col overflow-hidden mt-6">
-        <Tabs.List className="flex gap-1 border-b border-app-border/50 shrink-0">
-          {TAB_ITEMS.map((tab) => (
-            <Tabs.Trigger
-              key={tab.value}
-              value={tab.value}
-              className={`
-                px-4 py-2 text-xs font-medium transition-all duration-150
-                border-b-2 border-transparent
-                data-[state=active]:border-primary-500 data-[state=active]:text-primary-400
-                data-[state=inactive]:text-app-text-tertiary data-[state=inactive]:hover:text-app-text-secondary
-                data-[state=inactive]:hover:border-app-border/30
-              `}
-            >
-              {tab.label}
-            </Tabs.Trigger>
-          ))}
-        </Tabs.List>
+      {/* ── Tabs ── */}
+      <div className="flex-1 overflow-hidden flex flex-col">
+        <Tabs.Root value={activeTab} onValueChange={handleTabChange} className="flex-1 flex flex-col overflow-hidden">
+          <Tabs.List className="flex items-center gap-0 px-6 border-b border-app-border/60 shrink-0 bg-app-surface/40">
+            {TAB_ITEMS.map((tab) => (
+              <Tabs.Trigger
+                key={tab.value}
+                value={tab.value}
+                className={`
+                  px-4 py-2.5 text-xs font-medium transition-all duration-150 relative
+                  data-[state=active]:text-primary-400
+                  data-[state=inactive]:text-app-text-tertiary data-[state=inactive]:hover:text-app-text-secondary
+                `}
+              >
+                {tab.label}
+                {activeTab === tab.value && (
+                  <span className="absolute bottom-0 left-3 right-3 h-px bg-primary-500 rounded-full" />
+                )}
+              </Tabs.Trigger>
+            ))}
+          </Tabs.List>
 
-        <Tabs.Content value="production" className="flex-1 overflow-y-auto pt-6">
-          <ProductionTab key={`prod-${refreshKey}`} />
-        </Tabs.Content>
-        <Tabs.Content value="publishing" className="flex-1 overflow-y-auto pt-6">
-          <PublishingTab key={`pub-${refreshKey}`} />
-        </Tabs.Content>
-        <Tabs.Content value="cost" className="flex-1 overflow-y-auto pt-6">
-          <CostTab key={`cost-${refreshKey}`} />
-        </Tabs.Content>
-        <Tabs.Content value="system" className="flex-1 overflow-y-auto pt-6">
-          <SystemTab key={`sys-${refreshKey}`} />
-        </Tabs.Content>
-      </Tabs.Root>
+          <Tabs.Content value="production" className="flex-1 overflow-y-auto px-6 py-5">
+            <div className="max-w-[1024px] mx-auto">
+              <ProductionTab key={`prod-${refreshKey}`} />
+            </div>
+          </Tabs.Content>
+          <Tabs.Content value="publishing" className="flex-1 overflow-y-auto px-6 py-5">
+            <div className="max-w-[1024px] mx-auto">
+              <PublishingTab key={`pub-${refreshKey}`} />
+            </div>
+          </Tabs.Content>
+          <Tabs.Content value="cost" className="flex-1 overflow-y-auto px-6 py-5">
+            <div className="max-w-[1024px] mx-auto">
+              <CostTab key={`cost-${refreshKey}`} />
+            </div>
+          </Tabs.Content>
+          <Tabs.Content value="system" className="flex-1 overflow-y-auto px-6 py-5">
+            <div className="max-w-[1024px] mx-auto">
+              <SystemTab key={`sys-${refreshKey}`} />
+            </div>
+          </Tabs.Content>
+        </Tabs.Root>
+      </div>
     </div>
   );
 }

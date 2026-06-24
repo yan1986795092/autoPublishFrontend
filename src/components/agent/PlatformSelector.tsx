@@ -13,10 +13,13 @@ export interface Platform {
 }
 
 export const PLATFORM_GROUPS: { key: Platform['category']; label: string; badge: string; platforms: Platform[] }[] = [
+  // ═══════════════════════════════════════════════════════════════
+  // 🌐 真实发布平台 — 可一键发布到外部渠道，有独立视觉预览
+  // ═══════════════════════════════════════════════════════════════
   {
     key: 'publishable',
     label: '社交平台',
-    badge: '可一键发布',
+    badge: '可发布',
     platforms: [
       { id: 'xiaohongshu', label: '小红书', icon: '📕', category: 'publishable', hint: '种草笔记 · 口语化 · 短段落' },
       { id: 'wechat', label: '公众号', icon: '📱', category: 'publishable', hint: '深度长文 · 专业温暖 · 小标题' },
@@ -25,10 +28,13 @@ export const PLATFORM_GROUPS: { key: Platform['category']; label: string; badge:
       { id: 'bilibili', label: 'B站', icon: '🅱️', category: 'publishable', hint: 'UP主风格 · 弹幕文化 · 专业有趣' },
     ],
   },
+  // ═══════════════════════════════════════════════════════════════
+  // 📄 写作体裁 — AI 按对应结构/语气生成，非发布渠道，无独立预览
+  // ═══════════════════════════════════════════════════════════════
   {
     key: 'content',
-    label: '内容创作',
-    badge: '提供文案',
+    label: '营销体裁',
+    badge: '写作风格',
     platforms: [
       { id: 'copywriting', label: '产品文案', icon: '📝', category: 'content', hint: '卖点清晰 · 价值主张 · CTA' },
       { id: 'brand-story', label: '品牌故事', icon: '💼', category: 'content', hint: '叙事感 · 品牌调性 · 情感共鸣' },
@@ -39,8 +45,8 @@ export const PLATFORM_GROUPS: { key: Platform['category']; label: string; badge:
   },
   {
     key: 'professional',
-    label: '专业写作',
-    badge: '提供文案',
+    label: '专业文体',
+    badge: '写作风格',
     platforms: [
       { id: 'tech-doc', label: '技术文档', icon: '📘', category: 'professional', hint: '结构清晰 · 术语规范 · 示例' },
       { id: 'tutorial', label: '教程指南', icon: '📗', category: 'professional', hint: '循序渐进 · 步骤清晰 · 学练' },
@@ -50,7 +56,15 @@ export const PLATFORM_GROUPS: { key: Platform['category']; label: string; badge:
 ];
 
 export const ALL_PLATFORMS = PLATFORM_GROUPS.flatMap(g => g.platforms);
+export const PUBLISHABLE_PLATFORMS = PLATFORM_GROUPS.find(g => g.key === 'publishable')?.platforms ?? [];
+export const CONTENT_STYLES = PLATFORM_GROUPS.find(g => g.key === 'content')?.platforms ?? [];
+export const PROFESSIONAL_STYLES = PLATFORM_GROUPS.find(g => g.key === 'professional')?.platforms ?? [];
 export const PLATFORM_MAP = new Map(ALL_PLATFORMS.map(p => [p.id, p]));
+
+/** 判断一个 code 是否为可发布平台 */
+export function isPublishable(code: string): boolean {
+  return PUBLISHABLE_PLATFORMS.some(p => p.id === code);
+}
 
 // ── Component ──
 

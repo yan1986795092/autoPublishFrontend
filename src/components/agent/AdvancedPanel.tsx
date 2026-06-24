@@ -1,9 +1,10 @@
+import { useState } from 'react';
 import { ScrollArea } from '../ui/scroll-area';
 import { PANELS } from '../../config/layout';
 import { Eye, Bot } from 'lucide-react';
 import { useAgentStore } from '../../stores/useAgentStore';
 import { ResultPreview } from './ResultPreview';
-import { PLATFORM_MAP, ALL_PLATFORMS } from './PlatformSelector';
+import { PLATFORM_MAP, PLATFORM_GROUPS } from './PlatformSelector';
 import { PlatformIcon } from './PlatformIcons';
 import { cn } from '../../utils/helpers';
 
@@ -47,52 +48,114 @@ interface PlatformTabBarProps {
   hasResult: boolean;
 }
 
-function PlatformTabBar({ selected, onSelect, hasResult }: PlatformTabBarProps) {
-
+function PlatformTabBar({ selected, onSelect }: PlatformTabBarProps) {
+  const [showPicker, setShowPicker] = useState(false);
   const displayPlatform = selected ? PLATFORM_MAP.get(selected) : null;
+
+  // 未选平台 → 始终显示完整选择器
+  if (selected === null) {
+    return (
+      <div className="border-b border-app-border/50 bg-app-surface/40">
+        <div className="space-y-1.5 px-3 py-2">
+          <span className="text-[9px] text-app-text-tertiary font-medium block mb-1">选择预览风格</span>
+          {renderPlatformGroups(selected, onSelect)}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="border-b border-app-border/50 bg-app-surface/40">
-      {/* 平台选择网格 — 显示全部平台 */}
-      <div className="flex flex-wrap gap-1 px-3 py-2">
-        {ALL_PLATFORMS.map(p => {
-          const isSelected = selected === p.id;
-          return (
-            <button
-              key={p.id}
-              onClick={() => onSelect(isSelected ? null : p.id)}
-              className={cn(
-                'flex items-center gap-1 px-2 py-1 rounded-full text-[11px] transition-all duration-150',
-                isSelected
-                  ? 'bg-blue-500/20 text-blue-400 ring-1 ring-blue-500/30 font-medium'
-                  : 'text-app-text-tertiary hover:text-app-text-secondary hover:bg-app-elevated/60'
-              )}
-            >
-            <PlatformIcon id={p.id} size={16} />
-            <span>{p.label}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* 已选平台信息条 */}
-      {displayPlatform && (
-        <div className="flex items-center gap-1.5 px-3 pb-2">
+      {/* 已选平台紧凑条 */}
+      {!showPicker && displayPlatform && (
+        <div className="flex items-center gap-2 px-3 py-2">
           <PlatformIcon id={displayPlatform.id} size={16} />
           <span className="text-xs font-medium text-app-text">{displayPlatform.label}</span>
-          <span className="text-[9px] text-app-text-tertiary bg-app-surface px-1.5 py-0.5 rounded">
-            {displayPlatform.category === 'publishable' ? '可发布' : '文案'}
+          <span className={cn(
+            'text-[9px] px-1.5 py-0.5 rounded font-medium',
+            displayPlatform.category === 'publishable' ? 'bg-green-500/10 text-green-400' : 'bg-blue-500/10 text-blue-400'
+          )}>
+            {displayPlatform.category === 'publishable' ? '可发布' : '写作风格'}
           </span>
           <button
+            onClick={() => setShowPicker(true)}
+            className="ml-auto text-[10px] text-primary-400 hover:text-primary-300 transition-colors"
+          >
+            切换
+          </button>
+          <button
             onClick={() => onSelect(null)}
-            className="ml-auto text-[10px] text-app-text-tertiary hover:text-app-text-secondary transition-colors"
+            className="text-[10px] text-app-text-tertiary hover:text-app-text-secondary transition-colors"
           >
             清除
           </button>
         </div>
       )}
+
+      {/* 展开的选择器 */}
+      {showPicker && (
+        <div className="space-y-1.5 px-3 py-2">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[9px] text-app-text-tertiary font-medium">选择预览风格</span>
+            <button
+              onClick={() => setShowPicker(false)}
+              className="text-[9px] text-primary-400 hover:text-primary-300 transition-colors"
+            >
+              收起
+            </button>
+          </div>
+          {renderPlatformGroups(selected, (id) => { onSelect(id); setShowPicker(false); })}
+        </div>
+      )}
     </div>
   );
+}
+
+/** 渲染全部平台分组按钮网格 */
+function renderPlatformGroups(
+  selected: string | null,
+  onSelect: (id: string | null) => void,
+) {
+  return PLATFORM_GROUPS.map(group => (
+    <div key={group.key}>
+      <div className="flex items-center gap-1.5 mb-1">
+        <span className="text-[9px] font-medium text-app-text-tertiary uppercase tracking-wider">
+          {group.label}
+        </span>
+        <span className={cn(
+          'text-[8px] px-1 py-0.5 rounded-full font-medium',
+          group.key === 'publishable'
+            ? 'bg-green-500/10 text-green-400 border border-green-500/20'
+            : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+        )}>
+          {group.badge}
+        </span>
+      </div>
+      <div className="flex flex-wrap gap-1">
+        {group.platforms.map(p => {
+          const isSel = selected === p.id;
+          return (
+            <button
+              key={p.id}
+              onClick={() => onSelect(isSel ? null : p.id)}
+              className={cn(
+                'flex items-center gap-1 px-2 py-1 rounded-full text-[10px] transition-all duration-150',
+                isSel
+                  ? 'bg-blue-500/20 text-blue-400 ring-1 ring-blue-500/30 font-medium'
+                  : 'text-app-text-tertiary hover:text-app-text-secondary hover:bg-app-elevated/60'
+              )}
+            >
+              <PlatformIcon id={p.id} size={14} />
+              <span>{p.label}</span>
+              {isSel && group.key === 'publishable' && (
+                <span className="text-[8px] text-green-400 ml-0.5">✓</span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  ));
 }
 
 export function AdvancedPanel() {

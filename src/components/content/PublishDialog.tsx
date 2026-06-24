@@ -7,6 +7,7 @@ import { Separator } from '../ui/separator';
 import { useUIStore } from '../../stores/useUIStore';
 import { publishApi, contentsApi } from '../../services/api';
 import { ALL_PLATFORMS } from '../agent/PlatformSelector';
+import { PlatformIcon } from '../agent/PlatformIcons';
 import { cn } from '../../utils/helpers';
 import { Send, CheckCircle2, Loader2 } from 'lucide-react';
 
@@ -158,7 +159,7 @@ export function PublishDialog() {
                         : 'border-app-border text-app-text-secondary hover:border-app-border/50 hover:text-app-text'
                     )}
                   >
-                    <span className="text-base">{p.icon}</span>
+                    <PlatformIcon id={p.id} size={20} colored />
                     <span className="flex-1">{p.label}</span>
                     {isSelected && <CheckCircle2 className="w-4 h-4 text-green-400" />}
                   </button>
@@ -219,7 +220,7 @@ export function PublishDialog() {
                       'border-app-border bg-app-surface'
                     )}
                   >
-                    <span>{platform?.icon || '📄'}</span>
+                    <PlatformIcon id={r.platform} size={16} />
                     <span className="flex-1 text-app-text-secondary">{platform?.label || r.platform}</span>
                     {r.status === 'pending' && <Loader2 className="w-3.5 h-3.5 animate-spin text-app-text-tertiary" />}
                     {r.status === 'success' && <CheckCircle2 className="w-3.5 h-3.5 text-green-400" />}

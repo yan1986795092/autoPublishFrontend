@@ -19,7 +19,10 @@ export interface Content {
   id: string;
   title?: string;
   topic?: string;
+  /** API 返回的 platform_code — 前端将其视为「创作风格」 */
   platform_code?: string;
+  /** 发布目标平台（可发布平台之一，可为 null = 仅草稿） */
+  target_platform?: string;
   content_md?: string;
   content_html?: string;
   content_json?: object;

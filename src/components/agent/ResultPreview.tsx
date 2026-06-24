@@ -11,7 +11,6 @@ interface ResultPreviewProps {
 }
 
 export function ResultPreview({ result, selectedPlatform }: ResultPreviewProps) {
-  // 用 useMemo 缓存组件引用，避免渲染期间调用函数创建组件（React 19 规则）
   const PreviewComponent: ComponentType<PlatformPreviewProps> = useMemo(
     () => getPreviewComponent(selectedPlatform),
     [selectedPlatform]
@@ -32,10 +31,36 @@ export function ResultPreview({ result, selectedPlatform }: ResultPreviewProps) 
     JSON.stringify(result.output, null, 2);
 
   return (
-    <div className="rounded-lg border border-app-border overflow-hidden">
-      <div className="p-4 text-xs text-app-text-secondary leading-relaxed max-h-[600px] overflow-auto">
-        {/* eslint-disable-next-line react-hooks/static-components -- getPreviewComponent 只返回组件类型引用，非实例化 */}
-        <PreviewComponent content={content} />
+    <div className="flex justify-center">
+      {/* 手机底盘 — 模拟真实 iPhone 机身 */}
+      <div className="w-full max-w-[300px] aspect-[9/19] rounded-[2.25rem] bg-neutral-800 p-[7px] shadow-2xl shadow-black/50 relative">
+        {/* 屏幕区域 */}
+        <div className="w-full h-full rounded-[1.875rem] bg-white overflow-hidden relative flex flex-col">
+          {/* 动态岛 (Dynamic Island) — 药丸形 */}
+          <div className="absolute top-[11px] left-1/2 -translate-x-1/2 z-20 w-[100px] h-[26px] bg-black rounded-full flex items-center justify-center">
+            <div className="w-2 h-2 rounded-full bg-neutral-700" />
+          </div>
+
+          {/* 状态栏 */}
+          <div className="shrink-0 flex items-center justify-between px-7 pt-[11px] pb-0.5 bg-white text-[10px] text-black font-semibold tracking-tight relative z-10">
+            <span className="tabular-nums">9:41</span>
+            <div className="flex items-center gap-1">
+              <svg width="13" height="9" viewBox="0 0 17 12" fill="currentColor"><path d="M1 8h2v4H1zm4-3h2v7H5zm4-4h2v11H9zm4-1h2v12h-2z"/></svg>
+              <svg width="13" height="9" viewBox="0 0 15 12" fill="currentColor"><path d="M7.5 10.5a1.5 1.5 0 110 3 1.5 1.5 0 010-3zm3.5-2.5a5 5 0 00-7 0l-1.5-1.5a7 7 0 0110 0L11 8zm3-3a10 10 0 00-13 0L-.5 3.5a12 12 0 0116 0L14 5z"/></svg>
+              <svg width="20" height="10" viewBox="0 0 24 12" fill="none" stroke="currentColor" strokeWidth="1.2"><rect x="0.5" y="0.5" width="18" height="11" rx="2.5"/><path d="M21 4.5v3"/><rect x="2.5" y="2.5" width="12" height="7" rx="1.5" fill="currentColor"/></svg>
+            </div>
+          </div>
+
+          {/* 内容区域 */}
+          <div className="flex-1 overflow-y-auto bg-white">
+            <PreviewComponent content={content} />
+          </div>
+
+          {/* Home Indicator */}
+          <div className="shrink-0 flex justify-center py-1.5 bg-white">
+            <div className="w-[110px] h-[4px] rounded-full bg-neutral-300/70" />
+          </div>
+        </div>
       </div>
     </div>
   );

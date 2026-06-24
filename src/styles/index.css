@@ -111,6 +111,12 @@
 /* Fade-in animation */
 .animate-fade-in { animation: fadeIn 0.3s ease-out forwards; }
 
+/* Accordion animation */
+.animate-accordion-down { animation: fadeInDown 0.2s ease-out; }
+.animate-accordion-up { animation: fadeInUp 0.2s ease-out; }
+@keyframes fadeInDown { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes fadeInUp { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-4px); } }
+
 /* Stagger children animation for lists */
 .animate-stagger-children > * {
   opacity: 0;

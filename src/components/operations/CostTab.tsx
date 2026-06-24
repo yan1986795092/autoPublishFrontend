@@ -14,9 +14,23 @@ const STAGE_COLORS = ['#3b82f6', '#8b5cf6', '#f59e0b', '#10b981'];
 const MODEL_COLORS: Record<string, string> = {
   'GPT-4o': '#3b82f6',
   'GPT-4': '#2563eb',
+  'gpt-4o': '#3b82f6',
+  'gpt-4o-mini': '#60a5fa',
+  'GPT-4o-mini': '#60a5fa',
+  'GLM': '#8b5cf6',
+  'glm': '#8b5cf6',
   '智谱': '#8b5cf6',
+  'Qwen': '#10b981',
+  'qwen': '#10b981',
   '通义千问': '#10b981',
+  'DeepSeek': '#06b6d4',
+  'deepseek': '#06b6d4',
+  'unknown': '#6b7280',
 };
+
+function modelColor(key: string): string {
+  return MODEL_COLORS[key] || MODEL_COLORS['unknown'];
+}
 
 function CostTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
@@ -108,7 +122,8 @@ export function CostTab() {
         ? 'text-orange-400'
         : 'text-red-400';
 
-  const allModelKeys = [...new Set(data.token_trend.flatMap((d) => Object.keys(d.models)))];
+  const allModelKeys = [...new Set(data.token_trend.flatMap((d) => Object.keys(d.models)))].filter((k) => k !== 'unknown');
+  const hasModelData = allModelKeys.length > 0;
   const areaData = data.token_trend.map((d) => {
     const row: Record<string, any> = { date: d.date.slice(5) };
     for (const key of allModelKeys) {
@@ -135,19 +150,25 @@ export function CostTab() {
       {/* Token 消耗趋势 */}
       <div className="rounded-lg border border-app-border/50 bg-app-surface p-4 shadow-sm">
         <h3 className="text-xs font-medium text-app-text mb-4">Token 消耗趋势</h3>
-        <ResponsiveContainer width="100%" height={240}>
-          <AreaChart data={areaData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border, #2d2d3d)" />
-            <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#888' }} />
-            <YAxis tick={{ fontSize: 10, fill: '#888' }}
-              tickFormatter={(v: number) => `${(v / 1000000).toFixed(1)}M`} />
-            <Tooltip content={<CostTooltip />} />
-            {allModelKeys.map((key) => (
-              <Area key={key} type="monotone" dataKey={key} name={key}
-                stackId="1" stroke={MODEL_COLORS[key] || '#888'} fill={MODEL_COLORS[key] || '#888'} fillOpacity={0.6} />
-            ))}
-          </AreaChart>
-        </ResponsiveContainer>
+        {hasModelData ? (
+          <ResponsiveContainer width="100%" height={240}>
+            <AreaChart data={areaData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border, #2d2d3d)" />
+              <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#888' }} />
+              <YAxis tick={{ fontSize: 10, fill: '#888' }}
+                tickFormatter={(v: number) => `${(v / 1000000).toFixed(1)}M`} />
+              <Tooltip content={<CostTooltip />} />
+              {allModelKeys.map((key) => (
+                <Area key={key} type="monotone" dataKey={key} name={key}
+                  stackId="1" stroke={modelColor(key)} fill={modelColor(key)} fillOpacity={0.6} />
+              ))}
+            </AreaChart>
+          </ResponsiveContainer>
+        ) : (
+          <div className="flex items-center justify-center h-48 text-xs text-app-text-tertiary">
+            暂无模型消耗数据
+          </div>
+        )}
       </div>
 
       {/* 成本按环节分布 */}
@@ -195,7 +216,7 @@ export function CostTab() {
                   <th className="text-left py-1.5 pr-2">日期</th>
                   <th className="text-right py-1.5 px-2">调用次数</th>
                   <th className="text-right py-1.5 px-2">总 Token</th>
-                  {allModelKeys.slice(0, 3).map((key) => (
+                  {hasModelData && allModelKeys.slice(0, 3).map((key) => (
                     <th key={key} className="text-right py-1.5 px-2">{key}</th>
                   ))}
                   <th className="text-right py-1.5 pl-2">总计</th>
@@ -210,7 +231,7 @@ export function CostTab() {
                     <td className="text-right py-1.5 px-2 text-app-text-secondary">
                       {(d.total_tokens / 10000).toFixed(1)}万
                     </td>
-                    {allModelKeys.slice(0, 3).map((key) => (
+                    {hasModelData && allModelKeys.slice(0, 3).map((key) => (
                       <td key={key} className="text-right py-1.5 px-2 text-app-text-secondary">
                         {d.model_costs[key] ? `¥${d.model_costs[key].toFixed(2)}` : '—'}
                       </td>

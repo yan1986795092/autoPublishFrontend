@@ -50,12 +50,18 @@ export function PlatformHealthCard(props: PlatformHealthCardProps) {
         </span>
       </div>
       <div className="text-xs text-app-text-secondary space-y-1">
-        <p>今日: {props.today_success}/{props.today_total} 成功 ({successPct})</p>
-        {props.last_failure_time && (
-          <p>
-            最近失败: {formatRelativeTime(props.last_failure_time)}
-            {props.last_failure_reason && <span className="text-app-text-tertiary"> ({props.last_failure_reason})</span>}
-          </p>
+        {props.today_total > 0 ? (
+          <>
+            <p>今日: {props.today_success}/{props.today_total} 成功 ({successPct})</p>
+            {props.last_failure_time && (
+              <p>
+                最近失败: {formatRelativeTime(props.last_failure_time)}
+                {props.last_failure_reason && <span className="text-app-text-tertiary"> ({props.last_failure_reason})</span>}
+              </p>
+            )}
+          </>
+        ) : (
+          <p className="text-app-text-tertiary">今日暂无发布记录</p>
         )}
       </div>
       <div className="mt-2 pt-2 border-t border-app-border/30 flex justify-between text-[10px]">

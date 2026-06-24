@@ -3,8 +3,8 @@ import { PANELS } from '../../config/layout';
 import { Eye, Bot } from 'lucide-react';
 import { useAgentStore } from '../../stores/useAgentStore';
 import { ResultPreview } from './ResultPreview';
-import { PLATFORM_MAP, ALL_PLATFORMS, autoDetectPlatform } from './PlatformSelector';
-import { useEffect } from 'react';
+import { PLATFORM_MAP, ALL_PLATFORMS } from './PlatformSelector';
+import { PlatformIcon } from './PlatformIcons';
 import { cn } from '../../utils/helpers';
 
 /** 空闲状态：无任务、无结果时显示的引导界面 */
@@ -45,17 +45,9 @@ interface PlatformTabBarProps {
   selected: string | null;
   onSelect: (id: string | null) => void;
   hasResult: boolean;
-  prompt?: string;
 }
 
-function PlatformTabBar({ selected, onSelect, hasResult, prompt }: PlatformTabBarProps) {
-  // 当有结果时，根据 prompt 自动检测平台（静默）
-  useEffect(() => {
-    if (!hasResult || selected !== null) return;
-    if (!prompt) return;
-    const detected = autoDetectPlatform(prompt);
-    if (detected) onSelect(detected);
-  }, [hasResult, selected, onSelect, prompt]);
+function PlatformTabBar({ selected, onSelect, hasResult }: PlatformTabBarProps) {
 
   const displayPlatform = selected ? PLATFORM_MAP.get(selected) : null;
 
@@ -76,8 +68,8 @@ function PlatformTabBar({ selected, onSelect, hasResult, prompt }: PlatformTabBa
                   : 'text-app-text-tertiary hover:text-app-text-secondary hover:bg-app-elevated/60'
               )}
             >
-              <span>{p.icon}</span>
-              <span className="hidden sm:inline">{p.label}</span>
+            <PlatformIcon id={p.id} size={16} />
+            <span>{p.label}</span>
             </button>
           );
         })}
@@ -86,7 +78,7 @@ function PlatformTabBar({ selected, onSelect, hasResult, prompt }: PlatformTabBa
       {/* 已选平台信息条 */}
       {displayPlatform && (
         <div className="flex items-center gap-1.5 px-3 pb-2">
-          <span className="text-xs">{displayPlatform.icon}</span>
+          <PlatformIcon id={displayPlatform.id} size={16} />
           <span className="text-xs font-medium text-app-text">{displayPlatform.label}</span>
           <span className="text-[9px] text-app-text-tertiary bg-app-surface px-1.5 py-0.5 rounded">
             {displayPlatform.category === 'publishable' ? '可发布' : '文案'}
@@ -118,10 +110,6 @@ export function AdvancedPanel() {
   const liveContent = messages.find(m => m.role === 'assistant' && m.status === 'running')?.content || '';
   const showLive = isRunning && liveContent;
 
-  // 获取最新一条 user message 的内容用于自动检测平台
-  const lastUserMessage = [...messages].reverse().find(m => m.role === 'user');
-  const prompt = lastUserMessage?.content || '';
-
   return (
     <div
       className="flex-shrink-0 border-l border-app-border overflow-hidden"
@@ -142,7 +130,6 @@ export function AdvancedPanel() {
             selected={previewPlatform}
             onSelect={setPreviewPlatform}
             hasResult={!!currentResult}
-            prompt={prompt}
           />
         )}
 

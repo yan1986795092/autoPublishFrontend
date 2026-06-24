@@ -4,7 +4,6 @@ import type {
   ThinkingStep, StreamEvent, LLMChunk, ReasoningChunk,
   StageInfo, IntentConflict,
 } from '../types';
-import { AGENT_STAGE_MAP } from '../types';
 import { getResultThinkingSteps } from '../utils/agentEvents';
 import { resultToTimelineEvents } from '../utils/agentEventTimeline';
 import { agentApi, chatApi, type ChatConversationSummary } from '../services/api';
@@ -74,10 +73,6 @@ interface AgentState {
   _abortController: AbortController | null;
   clearCurrent: () => void;
 
-  // Content type config (deprecated — kept for store shape compatibility)
-  contentTypeConfig: any;
-  setContentTypeConfig: (config: any) => void;
-
   // Applied Skill
   appliedSkill: import('../types').AppliedSkill | null;
   appliedSkillFull: import('../types').Skill | null;
@@ -112,7 +107,9 @@ const _CHUNK_UPDATE_INTERVAL = 120;
 
 const _MSG_UPDATE_INTERVAL = 50;
 
-function _hasPersistedGenerationResult(result: any): boolean {
+function _hasPersistedGenerationResult(message: Pick<ChatMessage, 'kind' | 'result'>): boolean {
+  if (message.kind === 'generation') return true;
+  const result = message.result as any;
   if (!result || typeof result !== 'object') return false;
 
   if (Array.isArray(result._stages) && result._stages.length > 0) return true;
@@ -124,11 +121,6 @@ function _hasPersistedGenerationResult(result: any): boolean {
   const output = result.output;
   if (!output || typeof output !== 'object') return false;
   return Boolean(output.full_text || output.content || output.draft_content);
-}
-
-function _isTriggerOnlyConversationResult(result: any): boolean {
-  if (!result || typeof result !== 'object') return false;
-  return Boolean(result.trigger) && !_hasPersistedGenerationResult(result);
 }
 
 function _loadConvFromStorage(): Pick<AgentState, 'conversationId' | 'conversationList'> {
@@ -173,7 +165,6 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
   _inflightLoadId: null,
   _abortController: null,
   messages: [],
-  contentTypeConfig: null,
   appliedSkill: null,
   appliedSkillFull: null,
   previewContent: null,
@@ -184,7 +175,6 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
   _streamingProcessor: null,
 
   setAppliedSkill: (applied, full) => set({ appliedSkill: applied, appliedSkillFull: full }),
-  setContentTypeConfig: (config) => set({ contentTypeConfig: config }),
   setPreviewContent: (content) => set({ previewContent: content }),
   setPreviewPlatform: (platform) => set({ previewPlatform: platform }),
 
@@ -305,8 +295,10 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
             result: m.result as AgentResult | undefined,
             taskId: m.task_id,
             plan: m.plan as ExecutionPlan | undefined,
-            isConversationReply: false,
-            isGeneratedMessage: false,
+            kind: m.kind as ChatMessage['kind'],
+            renderMode: m.render_mode as ChatMessage['renderMode'],
+            renderPayload: (m.render_payload || null) as ChatMessage['renderPayload'],
+            generationMeta: (m.generation_meta || null) as ChatMessage['generationMeta'],
           };
           const result = msg.result as any;
           // 旧格式归一化：thinking steps / reasoning 藏在 _stages[].substeps[] 里
@@ -333,16 +325,11 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
               );
             }
           }
-          if (msg.role === 'assistant') {
-            msg.isGeneratedMessage = _hasPersistedGenerationResult(result) || msg.status === 'running';
-            msg.isConversationReply = _isTriggerOnlyConversationResult(result)
-              || (!result && !msg.taskId && !msg.plan);
-          }
           return msg;
         });
         // 同时恢复全局 state 给当前对话的实时展示
         const lastGenerated = [...chatMessages].reverse().find((m) =>
-          m.role === 'assistant' && _hasPersistedGenerationResult(m.result)
+          m.role === 'assistant' && _hasPersistedGenerationResult(m)
         );
         const lastResult = lastGenerated?.result as any;
         const restoredStages: StageInfo[] = (lastResult?._stages || []) as StageInfo[];
@@ -352,7 +339,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
         set({
           // 不要回写 conversationId —— 用户可能已经切换到另一个对话
           messages: chatMessages,
-          currentResult: _hasPersistedGenerationResult(lastResult) ? lastResult as AgentResult : null,
+          currentResult: lastGenerated ? lastResult as AgentResult : null,
           stages: restoredStages,
           currentStage: null,
           thinkingSteps: restoredThinkingSteps,
@@ -616,7 +603,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
 
   runStreaming: async (prompt: string, platform?: string | null, parameters?: Record<string, unknown>, trigger?: Record<string, unknown>) => {
     // 防止重复调用
-    if (get().isRunning) return;
+    if (get().isRunning) { get().stopStreaming(); }
 
     const token = useAuthStore.getState().accessToken;
     const state = get();
@@ -632,7 +619,8 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     if (!state.messages.find(m => m.role === 'assistant' && m.status === 'running')) {
       get().addMessage({
         id: temporaryId, role: 'assistant', content: '', status: 'running',
-        timestamp: Date.now(), isGeneratedMessage: true,
+        timestamp: Date.now(), kind: 'generation', renderMode: 'generation_card',
+        renderPayload: null, generationMeta: null,
       });
     }
 
@@ -665,12 +653,9 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
               conversationList: [optimisticConv, ...s.conversationList],
             }));
             _saveConvToStorage(get());
-            const [asstResp] = await Promise.all([
-              chatApi.addMessage(conversationId, {
-                role: 'assistant', content: '', status: 'running',
-              }),
-              get().loadConversations().catch(() => {}),
-            ]);
+            const asstResp = await chatApi.addMessage(conversationId, {
+              role: 'assistant', content: '', status: 'running',
+            });
             if (asstResp?.data?.success && asstResp.data.data) {
               realAssistantId = asstResp.data.data.id;
             }
@@ -687,7 +672,6 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
           if (asstResp?.data?.success && asstResp.data.data) {
             realAssistantId = asstResp.data.data.id;
           }
-          get().loadConversations().catch(() => {});
         }
       } catch (e) {
         console.error('message creation failed:', e);
@@ -712,15 +696,6 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     let lastStep: ThinkingStep | null = null;
     let errorOccurred = false;
     let accumulated = '';
-    let draftContent = '';
-    let reviewContent = '';
-
-    // Agent 名称中如果包含这些关键词，其输出不进入主正文
-    const REVIEW_AGENT_PATTERNS = [/Review/i, /Judge/i, /Critic/i, /Analyze/i, /审核/i, /检查/i];
-
-    const isReviewAgent = (name: string): boolean =>
-      REVIEW_AGENT_PATTERNS.some(p => p.test(name));
-
     // 节流写 message.content：保留所有 chunk 内容，只控制 set() 频率
     // 旧实现 (50ms 间隔直接丢弃中间的 chunk) 会导致 SSE 高频推送时大段内容被跳过
     let msgUpdateTimer: ReturnType<typeof setTimeout> | null = null;
@@ -856,12 +831,12 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
         if (status === 'started') {
           const existing = state.stages.find(s => `${s.agent}|${s.reviewRound || 0}` === stageKey);
           if (!existing) {
-            const mapEntry = AGENT_STAGE_MAP[agent] || { label: '处理中', icon: '⚙️' };
+            // label/icon 由后端 nodes.py stage_map 提供，前端不再映射
             return {
               stages: [...state.stages, {
                 agent,
-                label: mapEntry.label,
-                icon: mapEntry.icon,
+                label: (data.label as string) || '处理中',
+                icon: (data.icon as string) || '⚙️',
                 status: 'running' as const,
                 substeps: [],
                 conflicts: data.conflicts as IntentConflict[] | undefined,
@@ -898,28 +873,24 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       flushChunks();
       const result = event.data as unknown as AgentResult;
       const timelineEvents = resultToTimelineEvents(result);
-      // 后端 result.output.full_text 已是纯正文，review_content 独立字段
+      // 后端 result.output.full_text 是纯正文，review_content / draft_content 为独立字段
       const fullText = (result.output as any)?.full_text || (result.output as any)?.content || accumulated;
-      // 优先使用后端的 review_content，其次用前端流式收集的 reviewContent
       const backendReview = (result.output as any)?.review_content as string | undefined;
-      const finalReview = backendReview || reviewContent;
+      const backendDraft = (result.output as any)?.draft_content as string | undefined;
       const eventSteps = getResultThinkingSteps(result);
-      // 优先使用前端实时积累的 thinkingSteps，其次才用后端结果中解析出的 steps
       const currentState = useAgentStore.getState();
       const finalSteps = eventSteps.length > 0 ? eventSteps : currentState.thinkingSteps;
-      const resultWithReview = finalReview
-        ? { ...result, _reviewContent: finalReview }
+      const resultWithReview = backendReview
+        ? { ...result, _reviewContent: backendReview }
         : result;
-      // 本地保存含 reasoning 的 stages，供已完成消息的 StageTimeline 渲染
-      // _reasoningChunks = currentState.reasoningChunks（含评审内容），
-      // _llmChunks = currentState.llmChunks（含写作/润色产出）
+      // 本地保存含推理的 stages，供已完成消息的 StageTimeline 渲染
       const resultWithTracking = {
         ...resultWithReview,
         _stages: currentState.stages.map(s => ({ ...s })),
         _thinkingSteps: finalSteps,
         _reasoningChunks: currentState.reasoningChunks,
         _llmChunks: currentState.llmChunks,
-        _draftContent: draftContent || (result.output as any)?.draft_content || undefined,
+        _draftContent: backendDraft,
       };
       get().updateMessage(msgIdRef.current, {
         status: 'completed', content: fullText, result: resultWithTracking,
@@ -940,7 +911,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
             _thinkingSteps: finalSteps,
             _reasoningChunks: currentState.reasoningChunks,
             _llmChunks: currentState.llmChunks,
-            _draftContent: draftContent || (result.output as any)?.draft_content || undefined,
+            _draftContent: backendDraft,
           } as unknown as Record<string, unknown>,
         }).catch(console.error);
       }
@@ -1002,15 +973,17 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     });
 
     processor.on('llm_chunk', (event) => {
-      const agent = (event.data as any).agent as string;
-      const content = (event.data as any).content as string;
+      const data = event.data as any;
+      const agent = data.agent as string;
+      const content = data.content as string;
+      // channel 由后端 nodes.py _CHANNEL_MAP 按 agent_type 映射，前端不再推测
+      const channel = (data.channel as string) || 'body';
+      const reviewRound = (data._review_round as number) || 0;
 
-      // 审核/分析类 agent 的输出不进入主正文，按 round 分别存储
-      if (agent && isReviewAgent(agent)) {
-        reviewContent += content;
+      // review → 审核/评审结论，不走正文 accumulated
+      if (channel === 'review') {
+        const key = `${agent}|${reviewRound}`;
         set((s) => {
-          const reviewRound = (event.data as any)._review_round || 0;
-          const key = `${agent}|${reviewRound}`;
           const existing = s.reasoningChunks[key] || [];
           return {
             reasoningChunks: { ...s.reasoningChunks, [key]: [...existing, { agent, content, timestamp: Date.now() }] },
@@ -1023,9 +996,8 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
         return;
       }
 
-      // 中间 Agent（WebSearch、HotTopicAgent 等）→ 仅 stage 展示，不进正文
-      const _MAIN_CONTENT_AGENTS = ['WritingAgent', 'FixAgent'];
-      if (!_MAIN_CONTENT_AGENTS.includes(agent)) {
+      // search / reasoning → 仅 stage 展示，不进正文
+      if (channel === 'search' || channel === 'reasoning') {
         pendingChunks.push({ agent, content });
         if (!chunkBatchTimer) {
           chunkBatchTimer = setTimeout(() => {
@@ -1036,13 +1008,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
         return;
       }
 
-      // FixAgent 开始生成时，保存上一版内容并清空 accumulated（每轮都执行）
-      if (agent === 'FixAgent' && accumulated) {
-        if (!draftContent) draftContent = accumulated;  // 初稿仅存第一次
-        accumulated = '';
-        updateMsg(accumulated);
-      }
-
+      // body — 主正文（WritingAgent / FixAgent 等），累加到 accumulated
       accumulated += content;
       updateMsg(accumulated);
       pendingChunks.push({ agent, content });
@@ -1084,33 +1050,6 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     if (appliedSkill?.skill_id) bodyPayload.skill_id = appliedSkill.skill_id;
     if (platform) bodyPayload.platform = platform;
     const resolvedParameters = { ...(parameters || {}) };
-    if (resolvedParameters.action === 'revise') {
-      const latestState = useAgentStore.getState();
-      const latestGeneratedMessage = [...latestState.messages]
-        .reverse()
-        .find((message) =>
-          message.role === 'assistant'
-          && message.isConversationReply !== true
-          && (message.content || message.result)
-        );
-      const latestResult = (latestGeneratedMessage?.result || latestState.currentResult) as any;
-      const latestOutput = latestResult?.output || {};
-
-      if (!resolvedParameters.content) {
-        resolvedParameters.content =
-          latestGeneratedMessage?.content
-          || latestOutput.full_text
-          || latestOutput.content
-          || '';
-      }
-
-      if (!resolvedParameters.draft_content) {
-        resolvedParameters.draft_content =
-          latestResult?._draftContent
-          || latestOutput.draft_content
-          || '';
-      }
-    }
     if (Object.keys(resolvedParameters).length > 0) bodyPayload.parameters = resolvedParameters;
     if (trigger && typeof trigger === 'object') bodyPayload.trigger = trigger;
     set({ _streamingProcessor: processor });
@@ -1221,7 +1160,6 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       streamEvents: [],
       // 保留 conversationId，只清除当前界面的 messages
       messages: [],
-      contentTypeConfig: null,
       appliedSkill: null,
       appliedSkillFull: null,
       _abortController: null,

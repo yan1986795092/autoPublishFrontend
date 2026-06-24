@@ -122,6 +122,21 @@ export interface AgentResult {
     events: AgentEvent[];
   };
 }
+export interface RenderPayload {
+  body?: string;
+  draft?: string;
+  review?: string;
+  preview_text?: string;
+  title?: string;
+  platform?: string;
+}
+
+export interface GenerationMeta {
+  action?: 'create' | 'revise' | 'expand';
+  platform?: string;
+  revision_focus?: string;
+  topic?: string;
+}
 
 export interface AsyncTask {
   id: string;
@@ -149,8 +164,10 @@ export interface ChatMessage {
   taskId?: string;
   plan?: ExecutionPlan;
   /** 标记为纯对话回复（非生成结果），渲染时不显示 stages */
-  isConversationReply?: boolean;
-  isGeneratedMessage?: boolean;
+  kind?: 'user' | 'conversation' | 'generation';
+  renderMode?: 'bubble' | 'generation_card';
+  renderPayload?: RenderPayload | null;
+  generationMeta?: GenerationMeta | null;
 }
 
 /** 对话 LLM 触发生成的指令 */

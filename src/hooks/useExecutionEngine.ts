@@ -34,26 +34,6 @@ interface UseExecutionEngineReturn {
   addMessage: ReturnType<typeof useAgentStore.getState>['addMessage'];
 }
 
-// Skill template 替换已移至后端 api.py，前端不再重复处理。
-// 此处仅追加内容类型/风格/篇幅等元信息标签。
-function appendContentMeta(
-  text: string,
-  contentTypeConfig: ReturnType<typeof useAgentStore.getState>['contentTypeConfig'],
-): string {
-  const config = contentTypeConfig;
-  if (config && config.type !== 'auto') {
-    const parts: string[] = [`[内容类型: ${config.type}]`];
-    if (config.style) parts.push(`[写作风格: ${config.style}]`);
-    if (config.length) parts.push(`[篇幅: ${config.length}]`);
-    const enabled = Object.entries(config.features || {})
-      .filter(([, v]) => v)
-      .map(([k]) => k);
-    if (enabled.length > 0) parts.push(`[附加功能: ${enabled.join(', ')}]`);
-    return `${text}\n\n${parts.join('\n')}`;
-  }
-  return text;
-}
-
 export function useExecutionEngine(_mode: WorkspaceMode): UseExecutionEngineReturn {
   void _mode; // reserved for future 'chat'/'create'/'studio' mode routing
 
@@ -92,9 +72,6 @@ export function useExecutionEngine(_mode: WorkspaceMode): UseExecutionEngineRetu
     hasFirstEventReceived: s.hasFirstEventReceived,
   })));
 
-  // contentTypeConfig 是 any 类型，单独订阅以避免触发 useShallow 的浅比较
-  const contentTypeConfig = useAgentStore((s) => s.contentTypeConfig);
-
   const showToast = useUIStore((s) => s.showToast);
 
   const [prompt, setPrompt] = useState('');
@@ -113,7 +90,6 @@ export function useExecutionEngine(_mode: WorkspaceMode): UseExecutionEngineRetu
 
   const handleExecute = useCallback(async (text: string, platform?: string | null, parameters?: Record<string, unknown>) => {
     if (!text.trim() || isRunning) return;
-    const enriched = appendContentMeta(text.trim(), contentTypeConfig);
     const userMsg: ChatMessage = {
       id: crypto.randomUUID(),
       role: 'user',
@@ -122,16 +98,15 @@ export function useExecutionEngine(_mode: WorkspaceMode): UseExecutionEngineRetu
     };
     addMessage(userMsg);
     if (useStreaming) {
-      await runStreaming(enriched, platform, parameters);
+      await runStreaming(text.trim(), platform, parameters);
     } else {
-      const taskId = await runAsync(enriched);
+      const taskId = await runAsync(text.trim());
       if (!taskId) showToast('提交任务失败', 'error');
     }
-  }, [isRunning, useStreaming, runStreaming, runAsync, addMessage, showToast, appliedSkillFull, contentTypeConfig]);
+  }, [isRunning, useStreaming, runStreaming, runAsync, addMessage, showToast, appliedSkillFull]);
 
   const handleDirectExecute = useCallback(async () => {
     if (!prompt.trim()) return;
-    const enriched = appendContentMeta(prompt.trim(), contentTypeConfig);
     const userMsg: ChatMessage = {
       id: crypto.randomUUID(),
       role: 'user',
@@ -140,12 +115,12 @@ export function useExecutionEngine(_mode: WorkspaceMode): UseExecutionEngineRetu
     };
     addMessage(userMsg);
     if (useStreaming) {
-      await runStreaming(enriched);
+      await runStreaming(prompt.trim());
     } else {
-      const taskId = await runAsync(enriched);
+      const taskId = await runAsync(prompt.trim());
       if (!taskId) showToast('提交任务失败', 'error');
     }
-  }, [prompt, useStreaming, runStreaming, runAsync, addMessage, showToast, appliedSkillFull, contentTypeConfig]);
+  }, [prompt, useStreaming, runStreaming, runAsync, addMessage, showToast, appliedSkillFull]);
 
   const handleStop = useCallback(() => {
     stopStreaming();

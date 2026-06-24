@@ -442,25 +442,6 @@ function _fallbackLlmChunks(result: any, content: string): Record<string, LLMChu
   return chunks;
 }
 
-function _hasPersistedGenerationResult(result: any): boolean {
-  if (!result || typeof result !== 'object') return false;
-
-  if (Array.isArray(result._stages) && result._stages.length > 0) return true;
-  if (result._draftContent) return true;
-  if (result._llmChunks && Object.keys(result._llmChunks).length > 0) return true;
-  if (result.usage) return true;
-  if (result.agent_type || result.task_id) return true;
-
-  const output = result.output;
-  if (!output || typeof output !== 'object') return false;
-  return Boolean(output.full_text || output.content || output.draft_content);
-}
-
-function _isTriggerOnlyConversationResult(result: any): boolean {
-  if (!result || typeof result !== 'object') return false;
-  return Boolean(result.trigger) && !_hasPersistedGenerationResult(result);
-}
-
 function _synthesizeStages(result: any, content: string): StageInfo[] {
   const llmChunks = result?._llmChunks as Record<string, LLMChunk[]> | undefined;
   const generatedAgents = ['WritingAgent', 'FixAgent'].filter((agent) =>
@@ -499,7 +480,7 @@ function MessageBubble({
   runningTime,
   stages, currentStage, llmChunks, reasoningChunks, thinkingSteps,
 }: {
-  message: { id: string; role: string; content: string; timestamp: number; status?: string; result?: any; isConversationReply?: boolean; isGeneratedMessage?: boolean };
+  message: { id: string; role: string; content: string; timestamp: number; status?: string; result?: any; kind?: string; renderMode?: string; renderPayload?: any };
   copiedId: string | null;
   onCopy: (id: string, text: string) => void;
   thinkingSteps?: any[];
@@ -511,7 +492,11 @@ function MessageBubble({
 }) {
   const handlePreview = useCallback(() => {
     if (!message.content) return;
-    useAgentStore.getState().setPreviewContent(message.content);
+    const store = useAgentStore.getState();
+    store.setPreviewContent(message.content);
+    // 根据后端字段同步平台格式，让右侧预览组件渲染正确的样式
+    const platform = (message as any).renderPayload?.platform || (message as any).generationMeta?.platform || null;
+    if (platform) store.setPreviewPlatform(platform);
   }, [message.content]);
 
   // 「最终产物」面板的展开状态：流式过程中默认折叠，避免撑高视口；完成后默认展开
@@ -544,16 +529,10 @@ function MessageBubble({
     //   2. status === 'running' 且 非对话回复 → 正在生成（展示 StageTimeline）
     //   3. result._stages 存在 → 已完成生成结果
     //   4. 其他（如后端 reload 的数据，无 result）→ 聊天气泡兜底
-    const _isConvReply = message.isConversationReply === true;
-    const _isGeneratedMessage = message.isGeneratedMessage === true;
-    const _msgResult = message.result as any | null;
-    const _hasGeneratedResult = _hasPersistedGenerationResult(_msgResult);
-    const _isTriggerOnlyReply = _isTriggerOnlyConversationResult(_msgResult);
-    const _isRunningGen = (message.status === 'running' && !_isConvReply) || _isGeneratedMessage;
-
-    const _isChatBubble = (_isConvReply && !_isGeneratedMessage)
-      || _isTriggerOnlyReply
-      || (!_isRunningGen && !_hasGeneratedResult);
+    const _isGeneration = message.kind === 'generation'
+      || message.renderMode === 'generation_card'
+      || (message.status === 'running' && message.kind !== 'conversation');
+    const _isChatBubble = !_isGeneration;
     if (_isChatBubble) {
       const isRunning = message.status === 'running';
       const isFailed = message.status === 'failed';
@@ -591,7 +570,7 @@ function MessageBubble({
 
     const isRunning = message.status === 'running';
     const isFailed = message.status === 'failed';
-    const displayContent = message.content || '';
+    const displayContent = message.renderPayload?.body || message.content || '';
 
     // Per-message stages/chunks: completed messages use stored data, not global state.
     // This prevents all messages from showing the same (latest) stages/chunks.

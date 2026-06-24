@@ -50,7 +50,10 @@ export function useConversationChat(): UseConversationChatReturn {
       content: '',
       status: 'running',
       timestamp: Date.now(),
-      isConversationReply: true,
+      kind: 'conversation',
+      renderMode: 'bubble',
+      renderPayload: null,
+      generationMeta: null,
     });
 
     // 3. 连接对话 SSE
@@ -95,15 +98,6 @@ export function useConversationChat(): UseConversationChatReturn {
         try {
           // 从 store 实时取最新 messages，避免闭包过期
           // （sendChatMessage 不再依赖 messages，回调里拿到的就是最新值）
-          const latestMessages = useAgentStore.getState().messages;
-          const latestGeneratedMessage = [...latestMessages]
-            .reverse()
-            .find((message) =>
-              message.role === 'assistant'
-              && message.isConversationReply !== true
-              && (message.content || message.result)
-            );
-
           await runStreaming(
             triggerData._prompt || triggerData.topic || '',
             triggerData.platform,
@@ -117,7 +111,6 @@ export function useConversationChat(): UseConversationChatReturn {
               keywords: triggerData.keywords,
               length: triggerData.length,
               revision_focus: triggerData.revision_focus,
-              content: latestGeneratedMessage?.content || '',
             },
             triggerData,
           );

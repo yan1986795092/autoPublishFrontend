@@ -18,6 +18,8 @@ import type {
   ExecutionPlan,
   AsyncTask,
   HotTopic,
+  RenderPayload,
+  GenerationMeta,
 } from '../types';
 import { useAuthStore } from '../stores/useAuthStore';
 import { handleUnauthorizedRetry } from './auth-refresh';
@@ -552,6 +554,12 @@ export interface ChatMessageRecord {
   result?: AgentResult;
   task_id?: string;
   plan?: ExecutionPlan;
+  kind?: 'user' | 'conversation' | 'generation';
+  render_mode?: 'bubble' | 'generation_card';
+  render_payload?: RenderPayload | null;
+  is_generation?: boolean;
+  is_conversation?: boolean;
+  generation_meta?: GenerationMeta | null;
   created_at: string;
 }
 

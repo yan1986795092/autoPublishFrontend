@@ -1,4 +1,5 @@
 import { cn } from '../../utils/helpers';
+import { PlatformIcon } from './PlatformIcons';
 
 // ── Platform data ──
 
@@ -51,47 +52,6 @@ export const PLATFORM_GROUPS: { key: Platform['category']; label: string; badge:
 export const ALL_PLATFORMS = PLATFORM_GROUPS.flatMap(g => g.platforms);
 export const PLATFORM_MAP = new Map(ALL_PLATFORMS.map(p => [p.id, p]));
 
-// ── Auto-detection ──
-
-const DETECTION_KEYWORDS: [string, string][] = [
-  ['小红书', 'xiaohongshu'],
-  ['种草', 'xiaohongshu'],
-  ['小红書', 'xiaohongshu'],
-  ['公众号', 'wechat'],
-  ['微信文章', 'wechat'],
-  ['微信公众号', 'wechat'],
-  ['微博', 'weibo'],
-  ['微博文章', 'weibo'],
-  ['抖音', 'douyin'],
-  ['TikTok', 'douyin'],
-  ['B站', 'bilibili'],
-  ['bilibili', 'bilibili'],
-  ['BILIBILI', 'bilibili'],
-  ['产品文案', 'copywriting'],
-  ['推广文案', 'copywriting'],
-  ['品牌故事', 'brand-story'],
-  ['广告文案', 'ad-copy'],
-  ['小说', 'fiction'],
-  ['故事', 'fiction'],
-  ['剧本', 'script'],
-  ['脚本', 'script'],
-  ['技术文档', 'tech-doc'],
-  ['API 文档', 'tech-doc'],
-  ['教程', 'tutorial'],
-  ['SEO', 'seo'],
-  ['邮件营销', 'email'],
-  ['营销邮件', 'email'],
-];
-
-/** 根据 prompt 关键词静默检测目标平台，检测不到返回 null */
-export function autoDetectPlatform(prompt: string): string | null {
-  const lower = prompt.toLowerCase();
-  for (const [keyword, platformId] of DETECTION_KEYWORDS) {
-    if (lower.includes(keyword.toLowerCase())) return platformId;
-  }
-  return null;
-}
-
 // ── Component ──
 
 interface PlatformSelectorProps {
@@ -138,12 +98,7 @@ export function PlatformSelector({ selected, onSelect }: PlatformSelectorProps) 
                   )}
                 >
                   <div className="flex items-center gap-2 w-full">
-                    <span className={cn(
-                      'text-lg flex-shrink-0',
-                      isSelected ? 'scale-110' : ''
-                    )}>
-                      {p.icon}
-                    </span>
+                    <PlatformIcon id={p.id} size={20} />
                     <span className={cn(
                       'text-sm font-semibold',
                       isSelected ? 'text-primary-300' : 'text-app-text'

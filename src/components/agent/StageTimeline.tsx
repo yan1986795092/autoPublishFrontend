@@ -2,7 +2,6 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../../utils/helpers';
 import type { StageInfo, LLMChunk, ReasoningChunk } from '../../types';
-import { AGENT_STAGE_MAP } from '../../types';
 
 interface StageTimelineProps {
   stages: StageInfo[];
@@ -151,12 +150,6 @@ function StageRow({ stage, index, totalStages, expanded, onToggle, chunks, hasDe
                       <p className="text-xs text-app-text-secondary leading-relaxed whitespace-pre-wrap">
                         {(() => {
                           const full = chunks.map(c => c.content).join('');
-                          const isSearch = stage.agent === 'WebSearch' || stage.agent === 'HotTopicAgent';
-                          if (isSearch && full.length > 300) {
-                            const trimmed = full.slice(0, 300);
-                            const lastBreak = trimmed.lastIndexOf('\n');
-                            return (lastBreak > 100 ? trimmed.slice(0, lastBreak) : trimmed) + '\n...（共 ' + full.length + ' 字）';
-                          }
                           return full;
                         })()}
                         {isCurrent && (
@@ -230,16 +223,9 @@ export function StageTimeline({ stages, isRunning, llmChunks, reasoningChunks }:
     <div className="my-3">
       {stages.map((stage, i) => {
         const uniqueKey = `${stage.agent}|${stage.reviewRound || 0}`;
-        const rawChunks = llmChunks?.[stage.agent] || reasoningChunks?.[uniqueKey];
-        // ReviewAgent 的 chunks 拼接后去掉评分明细，只保留结论+问题+建议
-        const isReview = stage.agent.includes('Review');
-        const cleanContent = isReview
-          ? (rawChunks || []).map(c => c.content).join('').replace(/\*\*各维度评分[\s\S]*?(?=\*\*审核结论：)/, '')
-          : undefined;
-        const chunks = isReview && cleanContent
-          ? [{ agent: stage.agent, content: cleanContent, timestamp: Date.now() }]
-          : (rawChunks || []);
-        const hasDetail = !!(chunks && chunks.length > 0);
+        const stageChunks = llmChunks?.[stage.agent] || reasoningChunks?.[uniqueKey];
+        const chunks = stageChunks || [];
+        const hasDetail = chunks.length > 0;
         const isCurrent = stage.status === 'running';
         const expanded = expandedKeys.has(uniqueKey);
 

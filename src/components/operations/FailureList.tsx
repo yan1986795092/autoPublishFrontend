@@ -15,13 +15,11 @@ function truncate(s: string, max: number): string {
 }
 
 const statusIcon: Record<string, string> = {
-  retrying: '⏳',
   manual: '❌',
   auto_fixed: '🔧',
 };
 
 const statusLabel: Record<string, string> = {
-  retrying: '重试中',
   manual: '需人工',
   auto_fixed: '自动修复',
 };

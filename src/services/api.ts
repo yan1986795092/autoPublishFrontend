@@ -144,6 +144,9 @@ export const aiEditApi = {
   checkBannedWords: (text: string, platform?: string) =>
     apiClient.post<ApiResponse<{ words: Array<{ word: string; position: number; platform: string; suggestion: string }>; total: number }>>('/api/v1/contents/ai-edit/check-banned-words', { text, platform: platform || 'xiaohongshu' }),
 
+  checkBannedWordsAi: (text: string, platform?: string) =>
+    apiClient.post<ApiResponse<{ words: Array<{ word: string; reason: string; suggestion: string; severity: string }>; total: number }>>('/api/v1/contents/ai-edit/check-banned-words-ai', { text, platform: platform || 'xiaohongshu' }),
+
   suggestTags: (text: string) =>
     apiClient.post<ApiResponse<{ tags: string[] }>>('/api/v1/contents/ai-edit/suggest-tags', { text }),
 

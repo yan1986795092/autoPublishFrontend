@@ -38,7 +38,6 @@ import {
   Send,
   FileEdit,
   Globe,
-  Archive,
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -66,7 +65,6 @@ export function ContentManagementPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<string>('all');
-  const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [view, setView] = useState<'list' | 'calendar' | 'card'>('card');
 
   // Search
@@ -120,7 +118,6 @@ export function ContentManagementPage() {
         };
         if (filter !== 'all') params.status = filter;
         if (searchQuery) params.search = searchQuery;
-        if (tagFilter) params.tag = tagFilter;
         const res = await contentsApi.list(params);
         if (res.data.success && res.data.data) {
           setContents(res.data.data.items || []);
@@ -133,7 +130,7 @@ export function ContentManagementPage() {
         setLoading(false);
       }
     },
-    [filter, pageSize, searchQuery, tagFilter],
+    [filter, pageSize, searchQuery],
   );
 
   useEffect(() => {
@@ -252,7 +249,6 @@ export function ContentManagementPage() {
                   { icon: FileText, label: '总数', value: stats.total, color: 'text-blue-400' },
                   { icon: FileEdit, label: '草稿', value: stats.draft, color: 'text-yellow-400' },
                   { icon: Globe, label: '已发布', value: stats.published, color: 'text-green-400' },
-                  { icon: Archive, label: '标签', value: allTags.length, color: 'text-purple-400' },
                 ].map(({ icon: Icon, label, value, color }) => (
                   <div key={label} className="rounded-lg border border-app-border/50 bg-app-elevated p-3 flex items-center gap-3">
                     <Icon className={`w-4 h-4 ${color}`} />
@@ -361,26 +357,6 @@ export function ContentManagementPage() {
                   {f.label}
                 </Button>
               ))}
-              {allTags.length > 0 && (
-                <>
-                  <span className="w-px h-4 bg-app-border mx-1" />
-                  {allTags.map((tag) => (
-                    <Button
-                      key={tag}
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setTagFilter(tag)}
-                      className={cn(
-                        tagFilter === tag
-                          ? 'bg-primary-600/15 text-primary-400 hover:bg-primary-600/20'
-                          : 'text-app-text-tertiary hover:text-app-text-secondary',
-                      )}
-                    >
-                      {tag}
-                    </Button>
-                  ))}
-                </>
-              )}
             </div>
 
             {/* ── Bulk Action Bar ── */}

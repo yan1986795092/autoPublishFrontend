@@ -7,8 +7,8 @@ import { authApi } from '../services/api';
 import { useAuthStore } from '../stores/useAuthStore';
 import { useUIStore } from '../stores/useUIStore';
 import {
-  LogIn, UserPlus, Loader2, Sparkles, Mail, Lock, User,
-  Wand2, Globe, BarChart3, Zap, ArrowRight, Check,
+  Loader2, Sparkles, Mail, Lock, User,
+  Wand2, Globe, BarChart3, Zap, ArrowRight,
 } from 'lucide-react';
 import { Switch } from '../components/ui/switch';
 
@@ -420,114 +420,6 @@ export function LoginPage() {
           和
           <button className="text-app-text-secondary hover:text-app-text transition-colors mx-0.5">隐私政策</button>
         </motion.p>
-      </div>
-
-      {/* ═══════════════════════════════════════════════════
-          RIGHT — Product showcase (hidden on mobile)
-         ═══════════════════════════════════════════════════ */}
-      <div className="hidden lg:flex flex-1 relative overflow-hidden">
-
-        {/* Deep gradient background */}
-        <div className="absolute inset-0 bg-gradient-to-br from-primary-950/40 via-app-bg to-purple-950/20" />
-
-        {/* Animated mesh orbs */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <motion.div
-            className="absolute top-[-15%] left-[10%] w-[600px] h-[600px] rounded-full"
-            style={{ background: 'radial-gradient(circle, rgba(59,130,246,0.18) 0%, transparent 65%)' }}
-            animate={{ x: [0, 80, -40, 0], y: [0, -50, 60, 0] }}
-            transition={{ duration: 20, repeat: Infinity, ease: 'easeInOut' }}
-          />
-          <motion.div
-            className="absolute bottom-[-15%] right-[5%] w-[500px] h-[500px] rounded-full"
-            style={{ background: 'radial-gradient(circle, rgba(139,92,246,0.15) 0%, transparent 65%)' }}
-            animate={{ x: [0, -60, 50, 0], y: [0, 60, -40, 0] }}
-            transition={{ duration: 18, repeat: Infinity, ease: 'easeInOut' }}
-          />
-          <motion.div
-            className="absolute top-[30%] left-[40%] w-[350px] h-[350px] rounded-full"
-            style={{ background: 'radial-gradient(circle, rgba(245,158,11,0.08) 0%, transparent 65%)' }}
-            animate={{ x: [0, -40, 30, 0], y: [0, 30, -20, 0] }}
-            transition={{ duration: 15, repeat: Infinity, ease: 'easeInOut' }}
-          />
-
-          {/* Subtle grid pattern */}
-          <div
-            className="absolute inset-0 opacity-[0.03]"
-            style={{
-              backgroundImage: 'linear-gradient(rgba(255,255,255,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.5) 1px, transparent 1px)',
-              backgroundSize: '48px 48px',
-            }}
-          />
-        </div>
-
-        {/* Content */}
-        <div className="relative z-10 flex flex-col justify-center px-16 xl:px-24 py-12 w-full">
-
-          {/* Heading */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.2 }}
-            className="mb-12"
-          >
-            <h2 className="text-[28px] xl:text-[32px] font-bold text-app-text leading-tight">
-              AI 驱动的内容创作平台
-            </h2>
-            <p className="text-sm text-app-text-secondary mt-3 leading-relaxed max-w-[400px]">
-              从创意到发布，AutoPublish 让你的内容创作效率提升 10 倍。
-              告别重复劳动，专注真正重要的事。
-            </p>
-          </motion.div>
-
-          {/* Feature list */}
-          <div className="space-y-5">
-            {FEATURES.map((f, i) => (
-              <motion.div
-                key={f.title}
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ duration: 0.4, delay: 0.35 + i * 0.1 }}
-                className="flex items-start gap-4"
-              >
-                <div
-                  className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 mt-0.5"
-                  style={{ background: `${f.color}18`, border: `1px solid ${f.color}30` }}
-                >
-                  <f.icon className="w-4.5 h-4.5" style={{ color: f.color }} />
-                </div>
-                <div>
-                  <h3 className="text-sm font-semibold text-app-text leading-tight">{f.title}</h3>
-                  <p className="text-xs text-app-text-secondary mt-0.5 leading-relaxed">{f.desc}</p>
-                </div>
-              </motion.div>
-            ))}
-          </div>
-
-          {/* Stats strip */}
-          <motion.div
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.8 }}
-            className="mt-12 pt-8 border-t border-white/[0.06]"
-          >
-            <div className="grid grid-cols-3 gap-6">
-              {[
-                { value: '50,000+', label: '创作者' },
-                { value: '200万+', label: '已发布内容' },
-                { value: '99.9%', label: '服务可用性' },
-              ].map((s) => (
-                <div key={s.label}>
-                  <p className="text-lg font-bold text-app-text">{s.value}</p>
-                  <p className="text-[11px] text-app-text-tertiary mt-0.5">{s.label}</p>
-                </div>
-              ))}
-            </div>
-          </motion.div>
-        </div>
-
-        {/* Edge fade — form side fades from left into dark */}
-        <div className="absolute left-0 top-0 bottom-0 w-24 bg-gradient-to-r from-app-bg to-transparent" />
       </div>
     </div>
   );

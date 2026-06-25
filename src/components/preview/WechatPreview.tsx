@@ -28,9 +28,9 @@ function parseWechatContent(content: string) {
   if (current.body.length) sections.push(current);
 
   return {
-    title: lines[0] || '公众号文章',
-    sections: sections.length > 0 ? sections : [{ body: lines.slice(1) }],
-    allBody: lines.slice(1).join('\n\n'),
+    title: '',
+    sections: sections.length > 0 ? sections : [{ body: lines }],
+    allBody: lines.join('\n\n'),
   };
 }
 

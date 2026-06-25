@@ -31,9 +31,9 @@ function parseXHSContent(content: string) {
   }
 
   return {
-    title: tagLines[0] || bodyLines[1] || '种草笔记',
+    title: tagLines[0] || '',
     tags: tagLines.slice(1),
-    body: bodyLines.slice(1).join('\n\n'),
+    body: bodyLines.join('\n\n'),
   };
 }
 

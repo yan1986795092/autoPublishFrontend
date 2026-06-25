@@ -92,11 +92,11 @@ export const contentsApi = {
   get: (id: string, config?: { signal?: AbortSignal }) =>
     apiClient.get<ApiResponse<Content>>(`/api/v1/contents/${id}`, config),
 
-  update: (id: string, data: { title?: string; content_md?: string; content_html?: string; status?: string; change_summary?: string }) =>
+  update: (id: string, data: { title?: string; content_md?: string; content_html?: string; tags?: string; status?: string; change_summary?: string }) =>
     apiClient.put<ApiResponse<Content>>(`/api/v1/contents/${id}`, data),
 
-  autosave: (id: string, content_md: string) =>
-    apiClient.put<ApiResponse<{ id: string; updated_at: string }>>(`/api/v1/contents/${id}/autosave`, { content_md }),
+  autosave: (id: string, content_md: string, extra?: { title?: string; tags?: string }) =>
+    apiClient.put<ApiResponse<{ id: string; updated_at: string }>>(`/api/v1/contents/${id}/autosave`, { content_md, ...extra }),
 
   checkBannedWords: (id: string) =>
     apiClient.post<ApiResponse<{ words: Array<{ word: string; position: number; platform: string }>; total: number; platform: string }>>(`/api/v1/contents/${id}/check-banned-words`),

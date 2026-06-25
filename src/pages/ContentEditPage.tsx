@@ -217,16 +217,18 @@ export function ContentEditPage() {
     autoSaveTimer.current = setTimeout(async () => {
       setAutoSaveStatus('saving');
       try {
-        await contentsApi.autosave(id, editContentMd);
+        await contentsApi.autosave(id, editContentMd, {
+          title: editTitle,
+          tags: editTags.join(','),
+        });
         setAutoSaveStatus('saved');
         setTimeout(() => setAutoSaveStatus('idle'), 2000);
       } catch {
-        // silent — autosave failures are non-critical
         setAutoSaveStatus('idle');
       }
     }, 10_000);
     return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
-  }, [id, editContentMd, isDirty]);
+  }, [id, editContentMd, editTitle, editTags, isDirty]);
 
   // ── AI Editing ──
   const [aiLoading, setAiLoading] = useState(false);
@@ -301,6 +303,7 @@ export function ContentEditPage() {
             const data = res.data.data as { tags: string[] };
             const newTags = [...new Set([...editTags, ...(data.tags || [])])];
             setEditTags(newTags);
+            setIsDirty(true);
             showToast(`已添加 ${data.tags?.length || 0} 个推荐标签`, 'success');
           }
           setAiLoading(false);
@@ -383,7 +386,11 @@ export function ContentEditPage() {
     if (!id) return;
     setSaving(true);
     try {
-      await contentsApi.update(id, { title: editTitle, content_md: editContentMd });
+      await contentsApi.update(id, {
+        title: editTitle,
+        content_md: editContentMd,
+        tags: editTags.join(','),
+      });
       showToast('保存成功', 'success');
       setIsDirty(false);
       loadContent(id);
@@ -392,7 +399,7 @@ export function ContentEditPage() {
     } finally {
       setSaving(false);
     }
-  }, [id, editTitle, editContentMd, showToast, loadContent]);
+  }, [id, editTitle, editContentMd, editTags, showToast, loadContent]);
 
   // Keyboard shortcut: Ctrl+S
   const handleSaveRef = useRef(handleSave);
@@ -1129,6 +1136,14 @@ export function ContentEditPage() {
             </span>
           )}
         </div>
+        {/* 标题 — 独立于正文 */}
+        {editTitle && (
+          <div className="shrink-0 mb-2 px-1">
+            <div className="text-sm font-semibold text-app-text leading-snug line-clamp-2 border-l-2 border-primary-400 pl-2">
+              {editTitle}
+            </div>
+          </div>
+        )}
         <div className="flex-1 flex justify-center min-h-0">
           <div className="self-center w-full max-w-[300px] aspect-[9/19] rounded-[2.25rem] bg-neutral-800 p-[7px] shadow-2xl shadow-black/50 relative">
             <div className="w-full h-full rounded-[1.875rem] bg-white overflow-hidden relative flex flex-col">
@@ -1147,22 +1162,10 @@ export function ContentEditPage() {
                 {(() => {
                   const platformCode = content?.platform_code || 'xiaohongshu';
                   const PreviewComponent = getPreviewComponent(platformCode);
-                  // 标题在上 → 正文中间 → 底部统一放标签
-                  // 先从正文中剥离所有 #标签，避免重复
-                  const bodyWithoutTags = (editContentMd || '').replace(/#[^#\s]+/g, '').replace(/\n{3,}/g, '\n\n').trim();
-                  const allTags = [...new Set([
-                    ...((editContentMd || '').match(/#[^#\s]+/g) || []).map(t => t.replace('#', '')),
-                    ...editTags,
-                  ])];
-                  const injectedContent = [
-                    editTitle || '',
-                    '',
-                    bodyWithoutTags,
-                    allTags.length > 0 ? `\n${allTags.map(t => `#${t}`).join(' ')}` : '',
-                  ].filter(Boolean).join('\n');
+                  // body 就是 body，不注入任何别的字段
                   return (
                     <div className="[&>*]:m-0">
-                      <PreviewComponent content={injectedContent} />
+                      <PreviewComponent content={editContentMd || ''} />
                     </div>
                   );
                 })()}
@@ -1173,6 +1176,16 @@ export function ContentEditPage() {
             </div>
           </div>
         </div>
+        {/* 标签 — 独立于正文 */}
+        {editTags.length > 0 && (
+          <div className="shrink-0 mt-2 px-1 flex flex-wrap gap-1">
+            {editTags.map((tag, i) => (
+              <span key={i} className="text-[10px] px-1.5 py-0.5 rounded-full bg-app-surface border border-app-border/40 text-app-text-tertiary">
+                #{tag}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
     </div>
     </div>

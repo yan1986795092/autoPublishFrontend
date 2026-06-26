@@ -26,7 +26,7 @@ function parseCopywriting(content: string) {
   return sections;
 }
 
-export function CopywritingPreview({ content }: PlatformPreviewProps) {
+export function CopywritingPreview({ content, contentType }: PlatformPreviewProps) {
   const sections = parseCopywriting(content);
   const headline = sections.find(s => s.type === 'headline')?.text || sections[0]?.text || '商品名称';
   const subheadline = sections.find(s => s.type === 'sub')?.text;

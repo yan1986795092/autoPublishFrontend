@@ -12,7 +12,7 @@ function extractMeta(content: string) {
   return body.slice(0, 160);
 }
 
-export function SEOPreview({ content }: PlatformPreviewProps) {
+export function SEOPreview({ content, contentType }: PlatformPreviewProps) {
   const title = extractTitle(content);
   const metaDesc = extractMeta(content);
 

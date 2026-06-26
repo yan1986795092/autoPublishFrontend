@@ -42,7 +42,10 @@ export function PlatformHealthCard(props: PlatformHealthCardProps) {
     >
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
-          <span className={`w-2.5 h-2.5 rounded-full ${cfg.dot}`} />
+          <span
+            className={`w-2.5 h-2.5 rounded-full ${cfg.dot}`}
+            aria-label={cfg.label}
+          />
           <span className="text-sm font-medium text-app-text">{props.platform_name}</span>
         </div>
         <span className={`text-[10px] font-medium ${cfg.dot.replace('bg-', 'text-')}`}>

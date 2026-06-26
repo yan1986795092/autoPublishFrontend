@@ -55,6 +55,7 @@ function AccordionItem({ value, trigger, children, className }: AccordionItemPro
       <button
         type="button"
         onClick={() => onToggle(value)}
+        aria-expanded={isOpen}
         className={cn(
           'flex flex-1 items-center justify-between w-full py-4 text-sm font-medium text-app-text-secondary',
           'hover:text-app-text transition-colors duration-150',

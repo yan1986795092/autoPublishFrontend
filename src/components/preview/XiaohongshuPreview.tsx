@@ -1,6 +1,7 @@
 /** 小红书预览 — 真实手机端笔记卡片，完整模拟 App 内笔记样式 */
 
 import type { PlatformPreviewProps } from './index';
+import { ContentRenderer } from './ContentRenderer';
 
 function seedRand(seed: number) {
   return (n: number) => Math.floor(((seed * 9301 + 49297) % 233280) / 233280 * n);
@@ -37,7 +38,7 @@ function parseXHSContent(content: string) {
   };
 }
 
-export function XiaohongshuPreview({ content }: PlatformPreviewProps) {
+export function XiaohongshuPreview({ content, contentType }: PlatformPreviewProps) {
   const rand = seedRand(content.length);
   const likes = rand(30000) + 1000;
   const comments = rand(2000) + 100;
@@ -111,9 +112,7 @@ export function XiaohongshuPreview({ content }: PlatformPreviewProps) {
             ))}
           </div>
         )}
-        <p className="text-[13px] text-gray-700 leading-6 whitespace-pre-wrap">
-          {displayBody}
-        </p>
+        <ContentRenderer content={displayBody} contentType={contentType} />
       </div>
 
       {/* 商品/打卡地点标签 */}

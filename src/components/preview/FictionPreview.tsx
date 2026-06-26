@@ -2,7 +2,7 @@
 
 import type { PlatformPreviewProps } from './index';
 
-export function FictionPreview({ content }: PlatformPreviewProps) {
+export function FictionPreview({ content, contentType }: PlatformPreviewProps) {
   const paragraphs = content.split('\n').filter(Boolean);
   const estimatedPages = Math.max(1, Math.ceil(content.length / 600));
 

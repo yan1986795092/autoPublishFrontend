@@ -1,4 +1,4 @@
-import { Download, ClipboardCopy, HistoryIcon, Send, Trash2, MoreVertical } from 'lucide-react';
+import { Download, ClipboardCopy, History, Send, Trash2, MoreVertical } from 'lucide-react';
 import { Button } from '../../../components/ui/button';
 import {
   DropdownMenu,
@@ -25,7 +25,7 @@ export function MoreMenu({ onExportMd, onCopyContent, onHistory, onPublishHistor
           <ClipboardCopy className="w-3.5 h-3.5" /> 复制内容
         </DropdownMenuItem>
         <DropdownMenuItem onClick={onHistory}>
-          <HistoryIcon className="w-3.5 h-3.5" /> 版本历史
+          <History className="w-3.5 h-3.5" /> 版本历史
         </DropdownMenuItem>
         <DropdownMenuItem onClick={onPublishHistory}>
           <Send className="w-3.5 h-3.5" /> 发布记录

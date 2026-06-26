@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { HistoryIcon, RotateCcw, GitCompare } from 'lucide-react';
+import { History, RotateCcw, GitCompareArrows } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { ContentVersion } from '../../../types';
@@ -90,7 +90,7 @@ export function HistoryDialog({ open, onOpenChange, versions, currentContent, co
       <DialogContent className="max-w-4xl max-h-[70vh] overflow-hidden flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-sm">
-            <HistoryIcon className="w-4 h-4 text-primary-400" />
+            <History className="w-4 h-4 text-primary-400" />
             版本历史
             {selectedVersion && (
               <span className="text-[10px] text-blue-400 font-normal ml-2">
@@ -158,7 +158,7 @@ export function HistoryDialog({ open, onOpenChange, versions, currentContent, co
               {selectedVersion && diffLines ? (
                 <div>
                   <div className="flex items-center gap-2 mb-3 text-[11px] text-app-text-secondary">
-                    <GitCompare className="w-3.5 h-3.5" />
+                    <GitCompareArrows className="w-3.5 h-3.5" />
                     当前版本 vs <span className="font-medium text-blue-400">v{selectedVersion.version_number}</span>
                   </div>
                   <DiffView
@@ -179,7 +179,7 @@ export function HistoryDialog({ open, onOpenChange, versions, currentContent, co
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center h-full text-app-text-tertiary">
-                  <GitCompare className="w-8 h-8 mb-2 opacity-30" />
+                  <GitCompareArrows className="w-8 h-8 mb-2 opacity-30" />
                   <p className="text-xs">点击左侧版本查看差异</p>
                 </div>
               )}

@@ -26,6 +26,11 @@ export function TopNav() {
 
   const currentPath = location.pathname;
 
+  const checkActive = (itemPath: string) => {
+    if (itemPath === '/') return currentPath === '/';
+    return currentPath.startsWith(itemPath);
+  };
+
   return (
     <header
       className="flex items-center justify-between px-4 border-b border-app-border bg-app-bg flex-shrink-0"
@@ -48,7 +53,7 @@ export function TopNav() {
         <nav className="flex items-center gap-1">
           {navItems.map((item) => {
             const Icon = item.icon;
-            const isActive = currentPath === item.path;
+            const isActive = checkActive(item.path);
             return (
               <button
                 key={item.id}
@@ -59,6 +64,7 @@ export function TopNav() {
                     ? 'bg-primary-600/15 text-primary-400'
                     : 'text-app-text-secondary hover:text-app-text hover:bg-app-hover'
                 )}
+                aria-current={isActive ? 'page' : undefined}
               >
                 <Icon className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">{item.label}</span>

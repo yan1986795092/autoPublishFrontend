@@ -7,7 +7,7 @@ function parseBrandStory(content: string) {
   return paragraphs;
 }
 
-export function BrandStoryPreview({ content }: PlatformPreviewProps) {
+export function BrandStoryPreview({ content, contentType }: PlatformPreviewProps) {
   const paragraphs = parseBrandStory(content);
   const tagline = paragraphs[0] || '';
   const rest = paragraphs.slice(1);

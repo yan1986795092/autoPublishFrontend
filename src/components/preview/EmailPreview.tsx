@@ -1,6 +1,7 @@
 /** 邮件预览 — HTML 邮件模板样式，含 Hero 图 / CTA 按钮 / Footer */
 
 import type { PlatformPreviewProps } from './index';
+import { ContentRenderer } from './ContentRenderer';
 
 function parseEmail(content: string) {
   let subject = '';
@@ -21,7 +22,7 @@ function parseEmail(content: string) {
   return { subject, preheader, body };
 }
 
-export function EmailPreview({ content }: PlatformPreviewProps) {
+export function EmailPreview({ content, contentType }: PlatformPreviewProps) {
   const { subject, preheader, body } = parseEmail(content);
   const senderName = '品牌官方';
   const senderDomain = 'brand.com';
@@ -87,9 +88,7 @@ export function EmailPreview({ content }: PlatformPreviewProps) {
 
           {/* 正文内容 */}
           <div style={{ padding: '0 24px 24px' }}>
-            <div style={{ color: '#374151', fontSize: '15px', lineHeight: 1.8, whiteSpace: 'pre-wrap' }}>
-              {body}
-            </div>
+            <ContentRenderer content={content} contentType={contentType} />
           </div>
 
           {/* CTA 按钮区 */}

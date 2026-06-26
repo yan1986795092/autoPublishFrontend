@@ -1,22 +1,8 @@
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../../utils/helpers';
+import { formatDurationPrecise } from '../../utils/format';
 import type { StageInfo, LLMChunk, ReasoningChunk } from '../../types';
-
-interface StageTimelineProps {
-  stages: StageInfo[];
-  currentStage: string | null;
-  isRunning: boolean;
-  llmChunks?: Record<string, LLMChunk[]>;
-  reasoningChunks?: Record<string, ReasoningChunk[]>;
-  planTasks?: string[];  // 计划中的 agent 类型列表，用于预渲染未开始的步骤
-}
-
-function formatDuration(seconds?: number): string {
-  if (seconds == null) return '';
-  if (seconds < 60) return `${seconds.toFixed(1)}s`;
-  return `${Math.floor(seconds / 60)}m${Math.round(seconds % 60)}s`;
-}
 
 /** 旋转的 Chevron 图标 */
 function Chevron({ open }: { open: boolean }) {
@@ -95,11 +81,20 @@ function StageRow({ stage, index, totalStages, expanded, onToggle, chunks, hasDe
         <div className="flex-1 min-w-0">
           {/* 标题行 */}
           <div
+            role={hasDetail ? 'button' : undefined}
+            tabIndex={hasDetail ? 0 : undefined}
+            aria-expanded={hasDetail ? expanded : undefined}
             className={cn(
               'flex items-center gap-1.5 min-h-[26px]',
               hasDetail && 'cursor-pointer',
             )}
             onClick={onToggle}
+            onKeyDown={hasDetail ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onToggle();
+              }
+            } : undefined}
           >
             <span className="text-xs text-app-text-tertiary flex-shrink-0">{stage.icon}</span>
             <span className={cn(
@@ -114,7 +109,7 @@ function StageRow({ stage, index, totalStages, expanded, onToggle, chunks, hasDe
             {/* 状态标签 */}
             {isCompleted && (
               <span className="text-[10px] text-green-400/60 ml-auto flex-shrink-0">
-                {formatDuration(stage.duration!)}
+                {formatDurationPrecise(stage.duration!)}
               </span>
             )}
             {isCurrent && (
@@ -146,12 +141,9 @@ function StageRow({ stage, index, totalStages, expanded, onToggle, chunks, hasDe
                 <div className="mt-1.5 space-y-1.5">
                   {/* 阶段产出内容 */}
                   {chunks && chunks.length > 0 && (
-                    <div className="rounded-lg px-3 py-2.5 bg-white/[0.03] border border-white/[0.06]">
+                    <div className="rounded-lg px-3 py-2.5 bg-app-surface/30 border border-app-border/30">
                       <p className="text-xs text-app-text-secondary leading-relaxed whitespace-pre-wrap">
-                        {(() => {
-                          const full = chunks.map(c => c.content).join('');
-                          return full;
-                        })()}
+                        {chunks.map(c => c.content).join('')}
                         {isCurrent && (
                           <span className="inline-block w-[2px] h-[13px] bg-blue-400 ml-0.5 animate-pulse align-text-bottom" />
                         )}
@@ -219,8 +211,24 @@ export function StageTimeline({ stages, isRunning, llmChunks, reasoningChunks }:
 
   const completedCount = stages.filter(s => s.status === 'completed').length;
 
+  // Memoize click handlers so StageRow re-renders only when data actually changes
+  const rowClickHandlers = useMemo(() => {
+    const handlers: Record<string, () => void> = {};
+    for (const stage of stages) {
+      const uniqueKey = `${stage.agent}|${stage.reviewRound || 0}`;
+      const stageChunks = llmChunks?.[stage.agent] || reasoningChunks?.[uniqueKey];
+      const hasDetail = (stageChunks || []).length > 0;
+      const isCurrent = stage.status === 'running';
+      handlers[uniqueKey] = () => {
+        if (!hasDetail || isCurrent) return;
+        toggleExpanded(uniqueKey);
+      };
+    }
+    return handlers;
+  }, [stages, llmChunks, reasoningChunks, toggleExpanded]);
+
   return (
-    <div className="my-3">
+    <div className="my-3" aria-label="创作阶段进度">
       {stages.map((stage, i) => {
         const uniqueKey = `${stage.agent}|${stage.reviewRound || 0}`;
         const stageChunks = llmChunks?.[stage.agent] || reasoningChunks?.[uniqueKey];
@@ -229,11 +237,6 @@ export function StageTimeline({ stages, isRunning, llmChunks, reasoningChunks }:
         const isCurrent = stage.status === 'running';
         const expanded = expandedKeys.has(uniqueKey);
 
-        const handleRowClick = () => {
-          if (!hasDetail || isCurrent) return;
-          toggleExpanded(uniqueKey);
-        };
-
         return (
           <StageRow
             key={uniqueKey}
@@ -241,7 +244,7 @@ export function StageTimeline({ stages, isRunning, llmChunks, reasoningChunks }:
             index={i}
             totalStages={stages.length}
             expanded={expanded}
-            onToggle={handleRowClick}
+            onToggle={rowClickHandlers[uniqueKey]}
             chunks={chunks}
             hasDetail={hasDetail}
           />

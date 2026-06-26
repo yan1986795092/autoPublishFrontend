@@ -5,7 +5,7 @@ import type { Content, ContentVersion } from '../types';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Input } from '../components/ui/input';
-import { SkeletonList } from '../components/ui/Skeleton';
+import { Skeleton, SkeletonList } from '../components/ui/skeleton';
 import { Pagination } from '../components/ui/pagination';
 import { EmptyState } from '../components/ui/empty-state';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
@@ -345,7 +345,6 @@ export function ContentManagementPage() {
                   onClick={() => {
                     setFilter(f.value);
                     setPage(1);
-                    setTagFilter(null);
                   }}
                   className={cn(
                     filter === f.value

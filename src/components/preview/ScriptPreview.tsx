@@ -28,7 +28,7 @@ function parseScript(content: string) {
   return elements;
 }
 
-export function ScriptPreview({ content }: PlatformPreviewProps) {
+export function ScriptPreview({ content, contentType }: PlatformPreviewProps) {
   const elements = parseScript(content);
 
   return (

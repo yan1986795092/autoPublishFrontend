@@ -1,6 +1,7 @@
 /** 抖音预览 — 真实竖屏手机短视频界面，模拟完整 App 体验 */
 
 import type { PlatformPreviewProps } from './index';
+import { ContentRenderer } from './ContentRenderer';
 
 function parseDouyinScript(content: string) {
   const lines = content.split('\n').filter(Boolean);
@@ -40,7 +41,7 @@ function parseDouyinScript(content: string) {
   return sections;
 }
 
-export function DouyinPreview({ content }: PlatformPreviewProps) {
+export function DouyinPreview({ content, contentType }: PlatformPreviewProps) {
   const sections = parseDouyinScript(content);
   const firstText = sections[0]?.text?.slice(0, 100) || '视频描述文字...';
 
@@ -182,7 +183,7 @@ export function DouyinPreview({ content }: PlatformPreviewProps) {
                       <span className="text-xs">{section.badge}</span>
                       <span className="text-[11px] font-semibold text-white/60 uppercase tracking-wider">{section.label}</span>
                     </div>
-                    <p className="text-xs text-white/85 leading-relaxed whitespace-pre-wrap">{section.text}</p>
+                    <ContentRenderer content={section.text} contentType={contentType} />
                   </div>
                 ))}
               </div>

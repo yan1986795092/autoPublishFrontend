@@ -1,7 +1,6 @@
-import { Loader2, Save, RotateCcw, CheckCircle2 } from 'lucide-react';
+import { Loader2, Save, RotateCcw, CheckCircle2, BookOpen, Clock, Type } from 'lucide-react';
 import { Button } from '../../ui/button';
 import { ShortcutHint } from '../../ui/shortcut-hint';
-import { ContentStatsBar } from './ContentStatsBar';
 import type { ContentStats } from '../../../types/content-editor';
 
 export interface EditorFooterProps {
@@ -15,15 +14,54 @@ export interface EditorFooterProps {
 
 export function EditorFooter({ stats, autoSaveStatus, isDirty, saving, onSave, onUndo }: EditorFooterProps) {
   return (
-    <div className="flex items-center justify-between px-4 py-2.5 rounded-lg border border-app-border bg-app-elevated">
+    <div className="flex items-center justify-between px-4 py-2.5 bg-app-elevated rounded-lg border border-app-border">
+      {/* Stats */}
       <div className="flex items-center gap-3">
-        <ContentStatsBar stats={stats} />
-        <span className="text-[10px] text-app-text-tertiary flex items-center gap-1">
-          {autoSaveStatus === 'saving' && <Loader2 className="w-3 h-3 animate-spin" />}
-          {autoSaveStatus === 'saved' && <CheckCircle2 className="w-3 h-3 text-green-400" />}
-          {autoSaveStatus === 'saving' ? '自动保存中…' : autoSaveStatus === 'saved' ? '已保存' : ''}
-        </span>
+        <div className="flex items-center gap-1.5 text-[10px] text-app-text-tertiary">
+          <Type className="w-3 h-3 text-primary-400 shrink-0" />
+          <span className="whitespace-nowrap tabular-nums">{stats.charCount.toLocaleString()} 字</span>
+        </div>
+        <span className="w-px h-3 bg-app-border shrink-0" />
+        <div className="flex items-center gap-1.5 text-[10px] text-app-text-tertiary">
+          <Clock className="w-3 h-3 shrink-0" />
+          <span className="whitespace-nowrap">~{stats.readingTime} 分钟</span>
+        </div>
+        <span className="w-px h-3 bg-app-border shrink-0" />
+        <div className="flex items-center gap-1.5 text-[10px] text-app-text-tertiary">
+          <BookOpen className="w-3 h-3 shrink-0" />
+          <span className="whitespace-nowrap">{stats.paragraphs} 段落</span>
+        </div>
+        {stats.headings > 0 && (
+          <>
+            <span className="w-px h-3 bg-app-border shrink-0" />
+            <span className="text-[10px] text-app-text-tertiary whitespace-nowrap">{stats.headings} 标题</span>
+          </>
+        )}
+        {stats.links > 0 && (
+          <>
+            <span className="w-px h-3 bg-app-border shrink-0" />
+            <span className="text-[10px] text-app-text-tertiary whitespace-nowrap">{stats.links} 链接</span>
+          </>
+        )}
       </div>
+
+      {/* Auto-save status */}
+      <div className="flex items-center gap-1.5 mr-2">
+        {autoSaveStatus === 'saving' && (
+          <>
+            <Loader2 className="w-3 h-3 animate-spin text-app-text-tertiary" />
+            <span className="text-[10px] text-app-text-tertiary">保存中…</span>
+          </>
+        )}
+        {autoSaveStatus === 'saved' && (
+          <>
+            <CheckCircle2 className="w-3 h-3 text-green-400" />
+            <span className="text-[10px] text-green-400">已保存</span>
+          </>
+        )}
+      </div>
+
+      {/* Actions */}
       <div className="flex items-center gap-2 shrink-0">
         {isDirty && <span className="text-[10px] text-amber-400">未保存</span>}
         <ShortcutHint keys={['Ctrl', 'S']} />

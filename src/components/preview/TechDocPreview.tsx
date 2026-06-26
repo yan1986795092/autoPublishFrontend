@@ -1,8 +1,9 @@
 /** 技术文档预览 — 开发者文档风格，左侧导航 + 右侧内容 + 代码高亮 */
 
 import type { PlatformPreviewProps } from './index';
+import { ContentRenderer } from './ContentRenderer';
 
-export function TechDocPreview({ content }: PlatformPreviewProps) {
+export function TechDocPreview({ content, contentType }: PlatformPreviewProps) {
   const hasCode = content.includes('```') || content.includes('`');
   const parts = content.split(/(```[\s\S]*?```)/g);
 
@@ -53,36 +54,7 @@ export function TechDocPreview({ content }: PlatformPreviewProps) {
 
         {/* 右侧内容 */}
         <div className="flex-1 py-5 px-6 overflow-auto max-h-[500px]">
-          <div className="mb-4">
-            <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-3">文档 · Getting Started</p>
-            <div className="space-y-4">
-              {parts.map((part, idx) => {
-                if (part.startsWith('```')) {
-                  const code = part.replace(/```(\w*)\n?/, '').replace(/```$/, '').trim();
-                  const lang = part.match(/```(\w*)/)?.[1] || 'code';
-                  return (
-                    <pre key={idx} className="rounded-lg bg-[#0D1117] border border-gray-800 p-4 overflow-x-auto">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-[10px] text-gray-500">{lang}</span>
-                        <button className="text-[10px] text-gray-500 hover:text-gray-300">copy</button>
-                      </div>
-                      <code className="text-[12px] text-gray-300 font-mono leading-relaxed whitespace-pre">
-                        {code}
-                      </code>
-                    </pre>
-                  );
-                }
-                if (part.trim()) {
-                  return (
-                    <div key={idx} className="prose prose-invert max-w-none text-sm leading-relaxed text-gray-300 whitespace-pre-wrap font-mono">
-                      {part.trim()}
-                    </div>
-                  );
-                }
-                return null;
-              })}
-            </div>
-          </div>
+          <ContentRenderer content={content} contentType={contentType} />
         </div>
       </div>
 

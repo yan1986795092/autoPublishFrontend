@@ -49,13 +49,12 @@ export function EditorToolbar({
   };
 
   return (
-    <div className="rounded-lg border border-app-border bg-app-elevated overflow-hidden flex flex-col">
-      <div className="relative flex flex-wrap items-center gap-1.5 px-3 py-2.5 border-b border-app-border/30 bg-gradient-to-r from-primary-600/5 to-transparent">
-        <Badge variant="primary" size="sm" className="mr-0.5 shrink-0">✨ AI</Badge>
+    <div className="border-y border-app-border bg-app-elevated">
+      <div className="relative flex flex-wrap items-center gap-1 px-3 py-2.5">
+        <Badge variant="primary" size="sm" className="mr-1 shrink-0">AI</Badge>
 
         {/* Group 1: 写作 */}
-        <div className="flex items-center gap-0.5 px-1.5 py-1 rounded-lg bg-primary-500/[0.04] border border-primary-500/10">
-          <span className="text-[9px] text-primary-400/40 mr-0.5 font-medium tracking-wider">写</span>
+        <div className="flex items-center gap-0.5">
           <Button
             variant="ghost-glow"
             size="xs"
@@ -71,9 +70,11 @@ export function EditorToolbar({
           </Button>
         </div>
 
+        {/* Divider */}
+        <span className="w-px h-5 bg-app-border/50 mx-1" />
+
         {/* Group 2: 风格 */}
-        <div className="flex items-center gap-0.5 px-1.5 py-1 rounded-lg bg-amber-500/[0.04] border border-amber-500/10">
-          <span className="text-[9px] text-amber-400/40 mr-0.5 font-medium tracking-wider">风</span>
+        <div className="flex items-center gap-0.5">
           <DropdownMenu open={translateOpen} onOpenChange={setTranslateOpen}>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost-glow" size="xs" disabled={aiLoading} className="gap-1">
@@ -103,9 +104,11 @@ export function EditorToolbar({
           </DropdownMenu>
         </div>
 
+        {/* Divider */}
+        <span className="w-px h-5 bg-app-border/50 mx-1" />
+
         {/* Group 3: 分析 */}
-        <div className="flex items-center gap-0.5 px-1.5 py-1 rounded-lg bg-sky-500/[0.04] border border-sky-500/10">
-          <span className="text-[9px] text-sky-400/40 mr-0.5 font-medium tracking-wider">析</span>
+        <div className="flex items-center gap-0.5">
           <Button variant="ghost-glow" size="xs" onClick={onSeo} disabled={aiLoading} title="SEO 分析" className="gap-1">
             <SearchIcon className="w-3 h-3" /><span className="text-[10px]">SEO</span>
           </Button>
@@ -116,15 +119,17 @@ export function EditorToolbar({
 
         {/* Loading indicator */}
         {aiLoading && (
-          <>
-            <div className="flex items-center gap-1.5 ml-auto shrink-0 bg-primary-500/10 px-2 py-1 rounded-full border border-primary-500/20">
-              <Loader2 className="w-3 h-3 animate-spin text-primary-400" />
-              <span className="text-[11px] font-medium text-primary-400 whitespace-nowrap">AI 处理中...</span>
-            </div>
-            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary-500/10 overflow-hidden">
-              <div className="h-full w-full bg-gradient-to-r from-transparent via-primary-400 to-transparent animate-pulse rounded-full" />
-            </div>
-          </>
+          <div className="flex items-center gap-1.5 ml-auto shrink-0 bg-primary-500/10 px-2 py-1 rounded-full border border-primary-500/20">
+            <Loader2 className="w-3 h-3 animate-spin text-primary-400" />
+            <span className="text-[11px] font-medium text-primary-400 whitespace-nowrap">AI 处理中...</span>
+          </div>
+        )}
+
+        {/* Progress line */}
+        {aiLoading && (
+          <div className="absolute bottom-0 left-0 right-0 h-px bg-primary-500/10 overflow-hidden">
+            <div className="h-full w-1/3 bg-gradient-to-r from-transparent via-primary-400 to-transparent animate-shimmer rounded-full" />
+          </div>
         )}
       </div>
 

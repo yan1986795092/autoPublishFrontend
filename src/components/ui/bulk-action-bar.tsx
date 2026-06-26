@@ -22,7 +22,7 @@ export function BulkActionBar({
       initial={{ opacity: 0, y: -8 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -8 }}
-      className="flex items-center gap-3 mb-2 px-4 py-2 rounded-lg bg-primary-600/10 border border-primary-500/20"
+      className="flex items-center gap-3 mb-2 px-4 py-2 rounded-lg bg-primary-500/10 border border-primary-500/20"
     >
       <span className="text-xs text-primary-400 font-medium">
         已选择 {selectedCount} 项

@@ -1,8 +1,14 @@
 import { motion } from 'framer-motion';
 import type { PublishFailure } from '../../types/operations';
+import { cn } from '../../utils/helpers';
+import { AlertCircle, Wrench } from 'lucide-react';
 
 interface FailureListProps {
   failures: PublishFailure[];
+}
+
+function truncate(s: string, max: number): string {
+  return s.length > max ? s.slice(0, max) + '...' : s;
 }
 
 function formatTime(iso: string): string {
@@ -10,18 +16,9 @@ function formatTime(iso: string): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
-function truncate(s: string, max: number): string {
-  return s.length > max ? s.slice(0, max) + '...' : s;
-}
-
-const statusIcon: Record<string, string> = {
-  manual: '❌',
-  auto_fixed: '🔧',
-};
-
-const statusLabel: Record<string, string> = {
-  manual: '需人工',
-  auto_fixed: '自动修复',
+const STATUS_CONFIG: Record<string, { Icon: React.ElementType; color: string; label: string }> = {
+  manual: { Icon: AlertCircle, color: 'text-red-400', label: '需人工' },
+  auto_fixed: { Icon: Wrench, color: 'text-amber-400', label: '自动修复' },
 };
 
 export function FailureList({ failures }: FailureListProps) {
@@ -64,7 +61,15 @@ export function FailureList({ failures }: FailureListProps) {
                   {truncate(f.reason, 40)}
                 </td>
                 <td className="py-2 px-3 whitespace-nowrap">
-                  <span className="text-xs">{statusIcon[f.status]} {statusLabel[f.status]}</span>
+                  {(() => {
+                    const cfg = STATUS_CONFIG[f.status] || STATUS_CONFIG.manual;
+                    return (
+                      <span className={cn('inline-flex items-center gap-1 text-xs', cfg.color)}>
+                        <cfg.Icon className="w-3 h-3" />
+                        {cfg.label}
+                      </span>
+                    );
+                  })()}
                 </td>
               </motion.tr>
             ))}

@@ -1,6 +1,7 @@
 /** B站预览 — 真实 B站 App 视频卡片，完整模拟播放界面 */
 
 import type { PlatformPreviewProps } from './index';
+import { ContentRenderer } from './ContentRenderer';
 
 function parseBiliScript(content: string) {
   const lines = content.split('\n').filter(Boolean);
@@ -38,7 +39,7 @@ const DANMAKU_POOL = [
   { text: '弹幕护体', color: '#AED581' },
 ];
 
-export function BilibiliPreview({ content }: PlatformPreviewProps) {
+export function BilibiliPreview({ content, contentType }: PlatformPreviewProps) {
   const scenes = parseBiliScript(content);
   const videoTitle = scenes[0]?.audio?.slice(0, 80) || 'B站视频标题';
 
@@ -154,18 +155,14 @@ export function BilibiliPreview({ content }: PlatformPreviewProps) {
             <div key={idx} className="grid grid-cols-2 min-h-[60px]">
               <div className="px-4 py-3 border-r border-gray-100 bg-gradient-to-r from-pink-50/50 to-white">
                 {scene.visual ? (
-                  <p className="text-[12px] text-gray-600 leading-relaxed whitespace-pre-wrap font-mono">
-                    {scene.visual}
-                  </p>
+                  <ContentRenderer content={scene.visual} contentType={contentType} />
                 ) : (
                   <p className="text-[11px] text-pink-300 italic">（画面描述）</p>
                 )}
               </div>
               <div className="px-4 py-3 bg-gradient-to-l from-blue-50/50 to-white">
                 {scene.audio ? (
-                  <p className="text-[12px] text-gray-700 leading-relaxed whitespace-pre-wrap">
-                    {scene.audio}
-                  </p>
+                  <ContentRenderer content={scene.audio} contentType={contentType} />
                 ) : (
                   <p className="text-[11px] text-blue-300 italic">（旁白内容）</p>
                 )}

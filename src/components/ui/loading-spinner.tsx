@@ -39,6 +39,8 @@ export function LoadingSpinner({ size = 'md', className }: LoadingSpinnerProps) 
         sizeMap[size],
         className
       )}
+      role="status"
+      aria-label="加载中"
     />
   );
 }

@@ -12,7 +12,7 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: 'bg-gray-800 text-white hover:bg-gray-700 active:bg-gray-900',
+        default: 'bg-app-elevated text-app-text border border-app-border hover:bg-app-hover hover:border-app-border-light active:bg-app-surface',
         primary: 'bg-primary-600 text-white hover:bg-primary-500 active:bg-primary-700',
         destructive: 'bg-red-600 text-white hover:bg-red-500 active:bg-red-700',
         gradient: 'bg-gradient-primary text-white hover:shadow-[0_0_16px_rgba(59,130,246,0.3)] active:opacity-90',

@@ -1,6 +1,7 @@
 /** 教程指南预览 — 完整课程卡片，含进度条、章节导航、练习框 */
 
 import type { PlatformPreviewProps } from './index';
+import { ContentRenderer } from './ContentRenderer';
 
 function parseSteps(content: string) {
   const lines = content.split('\n').filter(Boolean);
@@ -50,7 +51,7 @@ function parseSteps(content: string) {
   return steps.length > 0 ? steps : [{ title: '', body: content, type: 'step', num: 1 }];
 }
 
-export function TutorialPreview({ content }: PlatformPreviewProps) {
+export function TutorialPreview({ content, contentType }: PlatformPreviewProps) {
   const steps = parseSteps(content);
   const progress = Math.round((steps.filter(s => s.type === 'step').length / Math.max(steps.length, 1)) * 60);
 
@@ -103,56 +104,7 @@ export function TutorialPreview({ content }: PlatformPreviewProps) {
 
       {/* 步骤内容 */}
       <div className="px-5 py-4 space-y-4">
-        {steps.map((step, idx) => {
-          if (step.type === 'warning') {
-            return (
-              <div key={idx} className="rounded-xl border border-yellow-500/30 bg-yellow-500/5 p-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="#F59E0B"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
-                  <p className="text-sm font-bold text-yellow-500">注意</p>
-                </div>
-                <p className="text-[13px] text-yellow-400/80 leading-relaxed whitespace-pre-wrap">{step.body}</p>
-              </div>
-            );
-          }
-          if (step.type === 'tip') {
-            return (
-              <div key={idx} className="rounded-xl border border-blue-500/30 bg-blue-500/5 p-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="#3B82F6"><path d="M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7z"/></svg>
-                  <p className="text-sm font-bold text-blue-500">提示</p>
-                </div>
-                <p className="text-[13px] text-blue-400/80 leading-relaxed whitespace-pre-wrap">{step.body}</p>
-              </div>
-            );
-          }
-          if (step.type === 'exercise') {
-            return (
-              <div key={idx} className="rounded-xl border border-purple-500/30 bg-purple-500/5 p-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="#8B5CF6"><path d="M21 5h-2.64l1.14 1.14L18.14 8l-1.14-1.14L15 8.86 13.86 7.72 12 9.58 9.14 6.72 7.72 7.86 9.58 9.72 7.72 11.86 9.14 13 12 10.14 14.86 13 13.72 14.86 15 13.72 17.14 15.58z"/></svg>
-                  <p className="text-sm font-bold text-purple-500">动手练习</p>
-                </div>
-                <p className="text-[13px] text-purple-400/80 leading-relaxed whitespace-pre-wrap">{step.body}</p>
-              </div>
-            );
-          }
-          return (
-            <div key={idx}>
-              {step.title && (
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-8 h-8 rounded-full bg-emerald-50 border-2 border-emerald-200 flex items-center justify-center flex-shrink-0">
-                    <span className="text-emerald-600 text-xs font-bold">{step.num || idx + 1}</span>
-                  </div>
-                  <h3 className="text-[14px] font-bold text-gray-800 leading-snug">{step.title}</h3>
-                </div>
-              )}
-              <div className="ml-11 pl-4 border-l-2 border-emerald-100">
-                <p className="text-[13px] text-gray-600 leading-relaxed whitespace-pre-wrap">{step.body}</p>
-              </div>
-            </div>
-          );
-        })}
+        <ContentRenderer content={content} contentType={contentType} />
       </div>
 
       {/* 底部：完成 + 下一步 */}

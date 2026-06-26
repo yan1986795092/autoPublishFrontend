@@ -1,12 +1,14 @@
 import { useEffect, useState, useMemo } from 'react';
 import { cn } from '../../utils/helpers';
 import { useAgentStore } from '../../stores/useAgentStore';
-import { Search, Plus, MessageSquare } from 'lucide-react';
+import { Search, Plus, MessageSquare, PanelLeftClose, PanelLeft } from 'lucide-react';
 import type { ChatConversationSummary } from '../../services/api';
 
 interface ConversationHistoryProps {
   onSelectSession: (id: string) => void;
   onNewSession: () => void;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
 function groupByDate(conversations: ChatConversationSummary[]) {
@@ -44,12 +46,13 @@ function groupByDate(conversations: ChatConversationSummary[]) {
 export function ConversationHistory({
   onSelectSession,
   onNewSession,
+  collapsed = false,
+  onToggleCollapse,
 }: ConversationHistoryProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const conversationList = useAgentStore((s) => s.conversationList);
   const conversationId = useAgentStore((s) => s.conversationId);
   const loadConversations = useAgentStore((s) => s.loadConversations);
-  // Load conversations from backend on mount (localStorage cache shown immediately)
   useEffect(() => {
     loadConversations();
   }, []);
@@ -64,36 +67,64 @@ export function ConversationHistory({
 
   const handleSelect = (id: string) => {
     onSelectSession(id);
-    // 不再重复调用 switchConversation —— HomePage.handleSelectSession 已经做了
   };
 
   const handleNewConversation = () => {
-    // 委托给父组件 HomePage 处理创建和切换，避免重复调用 createConversation
     onNewSession();
   };
 
+  if (collapsed) {
+    return (
+      <aside className="flex flex-col h-full overflow-hidden border-r border-app-border bg-app-surface items-center py-3 gap-2">
+        <button
+          onClick={handleNewConversation}
+          className="w-10 h-10 rounded-xl bg-primary-500/10 border border-primary-500/20 flex items-center justify-center hover:bg-primary-500/20 transition-colors"
+          title="新对话"
+        >
+          <Plus className="w-4 h-4 text-primary-400" />
+        </button>
+        {onToggleCollapse && (
+          <button
+            onClick={onToggleCollapse}
+            className="w-10 h-10 rounded-xl flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover transition-colors"
+            title="展开侧边栏"
+          >
+            <PanelLeft className="w-4 h-4" />
+          </button>
+        )}
+      </aside>
+    );
+  }
+
   return (
     <aside className="flex flex-col h-full overflow-hidden border-r border-app-border bg-app-surface">
-      {/* Search + New */}
-      <div className="flex-shrink-0 p-3 border-b border-app-border">
-        <div className="flex items-center gap-2">
-          <div className="relative flex-1">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-app-text-tertiary pointer-events-none" />
-            <input
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="搜索对话"
-              className="w-full h-8 rounded-lg border border-app-border bg-app-elevated pl-8 pr-3 text-xs text-app-text placeholder:text-app-text-tertiary outline-none focus:border-primary-500/50 transition-colors"
-            />
-          </div>
+      {/* Header */}
+      <div className="flex-shrink-0 flex items-center gap-2 px-3 py-2.5 border-b border-app-border">
+        {onToggleCollapse && (
           <button
-            onClick={handleNewConversation}
-            className="flex-shrink-0 w-8 h-8 rounded-lg bg-primary-600 hover:bg-primary-500 flex items-center justify-center transition-colors"
-            title="新对话"
+            onClick={onToggleCollapse}
+            className="w-7 h-7 rounded-md flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover transition-colors flex-shrink-0"
+            title="收起侧边栏"
           >
-            <Plus className="w-4 h-4 text-white" />
+            <PanelLeftClose className="w-3.5 h-3.5" />
           </button>
+        )}
+        <div className="relative flex-1">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-app-text-tertiary pointer-events-none" />
+          <input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="搜索对话"
+            className="w-full h-8 rounded-lg border border-app-border bg-app-elevated pl-8 pr-3 text-xs text-app-text placeholder:text-app-text-tertiary outline-none focus:border-primary-500/50 transition-colors"
+          />
         </div>
+        <button
+          onClick={handleNewConversation}
+          className="flex-shrink-0 w-8 h-8 rounded-lg bg-primary-500 hover:bg-primary-400 flex items-center justify-center transition-colors"
+          title="新对话"
+        >
+          <Plus className="w-4 h-4 text-white" />
+        </button>
       </div>
 
       {/* Conversation list */}
@@ -123,7 +154,7 @@ export function ConversationHistory({
                   className={cn(
                     'w-full text-left px-4 py-2 transition-colors border-l-2',
                     conv.id === conversationId
-                      ? 'bg-primary-600/10 border-l-primary-500'
+                      ? 'bg-primary-500/10 border-l-primary-500'
                       : 'border-l-transparent hover:bg-app-hover'
                   )}
                 >

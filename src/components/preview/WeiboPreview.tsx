@@ -1,6 +1,7 @@
 /** 微博预览 — 真实微博 App 信息流卡片样式 */
 
 import type { PlatformPreviewProps } from './index';
+import { ContentRenderer } from './ContentRenderer';
 
 function seedRand(seed: number) {
   return (n: number) => Math.floor(((seed * 9301 + 49297) % 233280) / 233280 * n);
@@ -17,7 +18,7 @@ function parseWeiboContent(content: string) {
   return { topics, mentions, mainText, replies };
 }
 
-export function WeiboPreview({ content }: PlatformPreviewProps) {
+export function WeiboPreview({ content, contentType }: PlatformPreviewProps) {
   const rand = seedRand(content.length);
   const forwards = rand(5000) + 100;
   const comments = rand(3000) + 50;
@@ -55,8 +56,8 @@ export function WeiboPreview({ content }: PlatformPreviewProps) {
         </div>
 
         {/* 正文 */}
-        <div className="text-sm text-gray-800 leading-6 whitespace-pre-wrap mb-2">
-          {mainText}
+        <div className="mb-2">
+          <ContentRenderer content={mainText} contentType={contentType} />
           {mentions.length > 0 && (
             <span className="text-blue-500 ml-1">
               {mentions.join(' ')}

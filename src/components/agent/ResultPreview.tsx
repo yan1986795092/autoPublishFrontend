@@ -8,12 +8,15 @@ import type { ComponentType } from 'react';
 interface ResultPreviewProps {
   result: AgentResult | null;
   selectedPlatform: string | null;
+  selectedContentType?: string | null;
 }
 
-export function ResultPreview({ result, selectedPlatform }: ResultPreviewProps) {
+export function ResultPreview({ result, selectedPlatform, selectedContentType }: ResultPreviewProps) {
+  // 组合预览：优先用平台的外壳，传 content_type 给内部渲染
+  const previewKey = selectedPlatform || selectedContentType || null;
   const PreviewComponent: ComponentType<PlatformPreviewProps> = useMemo(
-    () => getPreviewComponent(selectedPlatform),
-    [selectedPlatform]
+    () => getPreviewComponent(previewKey),
+    [previewKey]
   );
 
   if (!result) {
@@ -33,7 +36,7 @@ export function ResultPreview({ result, selectedPlatform }: ResultPreviewProps) 
   return (
     <div className="flex justify-center">
       {/* 手机底盘 — 模拟真实 iPhone 机身 */}
-      <div className="w-full max-w-[300px] aspect-[9/19] rounded-[2.25rem] bg-neutral-800 p-[7px] shadow-2xl shadow-black/50 relative">
+        <div className="w-full max-w-[300px] aspect-[9/19] rounded-[2.25rem] bg-neutral-900 p-[7px] shadow-2xl shadow-black/50 relative border border-white/5">
         {/* 屏幕区域 */}
         <div className="w-full h-full rounded-[1.875rem] bg-white overflow-hidden relative flex flex-col">
           {/* 动态岛 (Dynamic Island) — 药丸形 */}
@@ -53,7 +56,7 @@ export function ResultPreview({ result, selectedPlatform }: ResultPreviewProps) 
 
           {/* 内容区域 */}
           <div className="flex-1 overflow-y-auto bg-white">
-            <PreviewComponent content={content} />
+            <PreviewComponent content={content} contentType={selectedContentType || undefined} />
           </div>
 
           {/* Home Indicator */}

@@ -1,6 +1,7 @@
 /** 公众号预览 — 真实微信文章样式，模拟手机端阅读体验 */
 
 import type { PlatformPreviewProps } from './index';
+import { ContentRenderer } from './ContentRenderer';
 
 function seedRand(seed: number) {
   return (n: number) => Math.floor(((seed * 9301 + 49297) % 233280) / 233280 * n);
@@ -34,7 +35,7 @@ function parseWechatContent(content: string) {
   };
 }
 
-export function WechatPreview({ content }: PlatformPreviewProps) {
+export function WechatPreview({ content, contentType }: PlatformPreviewProps) {
   const rand = seedRand(content.length);
   const views = rand(80000) + 5000;
   const likes = rand(800) + 100;
@@ -122,15 +123,11 @@ export function WechatPreview({ content }: PlatformPreviewProps) {
                 <h2 className="text-base font-bold text-gray-800">{section.heading}</h2>
               </div>
             )}
-            <div className="text-[15px] text-gray-700 leading-8 tracking-wide whitespace-pre-wrap font-serif">
-              {section.body.join('\n\n')}
-            </div>
+            <ContentRenderer content={section.body.join('\n\n')} contentType={contentType} />
           </div>
         ))}
         {sections.length === 0 && (
-          <div className="text-[15px] text-gray-700 leading-8 tracking-wide whitespace-pre-wrap font-serif">
-            {allBody}
-          </div>
+          <ContentRenderer content={allBody} contentType={contentType} />
         )}
       </div>
 

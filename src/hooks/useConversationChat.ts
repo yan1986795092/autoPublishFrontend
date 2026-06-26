@@ -8,7 +8,7 @@ import type { ConversationTrigger } from '../types';
 
 interface UseConversationChatReturn {
   isChatting: boolean;
-  sendChatMessage: (text: string) => Promise<void>;
+  sendChatMessage: (text: string, platform?: string, contentType?: string) => Promise<void>;
 }
 
 /**
@@ -16,6 +16,9 @@ interface UseConversationChatReturn {
  *
  * 发消息给对话 LLM，流式接收回复文本。
  * 如果收到 trigger 事件，自动调用 Agent 的 runStreaming 进入生成流程。
+ * platform/contentType 由前端 PlatformSelector 传入，让 LLM 跳过已确认信息。
+ *
+ * 消息添加统一由本 hook 处理，调用方只负责调用 sendChatMessage()。
  */
 export function useConversationChat(): UseConversationChatReturn {
   const [isChatting, setIsChatting] = useState(false);
@@ -29,11 +32,11 @@ export function useConversationChat(): UseConversationChatReturn {
   const runStreaming = useAgentStore((s) => s.runStreaming);
   const showToast = useUIStore((s) => s.showToast);
 
-  const sendChatMessage = useCallback(async (text: string) => {
+  const sendChatMessage = useCallback(async (text: string, platform?: string, contentType?: string) => {
     if (isChatting) return;
     setIsChatting(true);
 
-    // 1. 先插入用户消息（调用方已在 Workspace 中做了，但为了 hook 独立，这里也做）
+    // 1. 插入用户消息（本 hook 统一处理消息添加）
     const userMsgId = crypto.randomUUID();
     addMessage({
       id: userMsgId,
@@ -141,6 +144,8 @@ export function useConversationChat(): UseConversationChatReturn {
         body: JSON.stringify({
           message: text,
           conversation_id: conversationId || undefined,
+          platform: platform || undefined,
+          content_type: contentType || undefined,
         }),
       }, {
         onError(errorMsg) {

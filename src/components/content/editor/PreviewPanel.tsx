@@ -13,7 +13,7 @@ export function PreviewPanel({ platformCode, title, contentMd, tags }: PreviewPa
   const platformLabel = platformCode ? PLATFORM_MAP.get(platformCode)?.label || platformCode : '';
 
   return (
-    <div className="w-[380px] shrink-0 border-l border-app-border/30 bg-app-surface/20 p-4 hidden lg:block sticky top-0 self-start max-h-screen overflow-y-auto">
+    <div className="w-[380px] shrink-0 border-l border-app-border bg-app-elevated p-4 hidden lg:block sticky top-0 self-start max-h-screen overflow-y-auto">
       <div className="flex flex-col h-full">
         <div className="flex items-center gap-2 mb-3 shrink-0">
           <Eye className="w-4 h-4 text-primary-400" />

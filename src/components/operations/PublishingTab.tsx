@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { SendHorizonal, CheckCircle2, XCircle, Timer, AlertTriangle } from 'lucide-react';
+import { Send, CheckCircle2, XCircle, Timer, AlertTriangle } from 'lucide-react';
 import { operationsApi } from '../../services/api';
 import { StatCard } from './StatCard';
 import { PlatformHealthCard } from './PlatformHealthCard';
@@ -69,7 +69,7 @@ export function PublishingTab() {
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
       {/* KPI 横幅 */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <StatCard icon={SendHorizonal} label="今日发布总数" value={summary.total_today} color="text-blue-400" />
+        <StatCard icon={Send} label="今日发布总数" value={summary.total_today} color="text-blue-400" />
         <StatCard icon={CheckCircle2} label="成功率" value={`${(summary.success_rate * 100).toFixed(1)}%`} color={rateColor} />
         <StatCard icon={XCircle} label="失败数" value={summary.fail_count} color={failColor}
           sub={summary.fail_count > 0 ? '需关注' : undefined} />

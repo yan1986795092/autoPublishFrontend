@@ -6,7 +6,7 @@ function seedRand(seed: number) {
   return (n: number) => Math.floor(((seed * 9301 + 49297) % 233280) / 233280 * n);
 }
 
-export function AdCopyPreview({ content }: PlatformPreviewProps) {
+export function AdCopyPreview({ content, contentType }: PlatformPreviewProps) {
   const rand = seedRand(content.length);
   const likes = rand(2300) + 100;
   const comments = rand(156) + 20;

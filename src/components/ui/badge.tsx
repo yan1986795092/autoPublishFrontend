@@ -7,12 +7,12 @@ const badgeVariants = cva(
   {
     variants: {
       variant: {
-        default: 'bg-gray-800 text-gray-200',
+        default: 'bg-app-elevated text-app-text-secondary',
         primary: 'bg-primary-600/20 text-primary-400',
-        secondary: 'bg-gray-800 text-gray-400',
-        accent: 'bg-amber-600/20 text-amber-400',
+        secondary: 'bg-app-surface text-app-text-tertiary',
+        accent: 'bg-amber-600/20 text-amber-500',
         success: 'bg-green-600/20 text-green-400',
-        warning: 'bg-amber-600/20 text-amber-400',
+        warning: 'bg-amber-600/20 text-amber-500',
         error: 'bg-red-600/20 text-red-400',
         info: 'bg-blue-600/20 text-blue-400',
         outline: 'border border-app-border text-app-text-secondary bg-transparent',
@@ -24,7 +24,7 @@ const badgeVariants = cva(
       },
       size: {
         default: 'h-5 px-2 py-0 text-xs',
-        xs: 'h-3.5 px-1 py-0 text-[9px]',
+        xs: 'h-3.5 px-1 py-0 text-[10px]',
         sm: 'h-4 px-1.5 py-0 text-[10px]',
         lg: 'h-6 px-3 py-1 text-sm',
       },
@@ -37,9 +37,9 @@ const badgeVariants = cva(
 );
 
 const dotColors = {
-  default: 'bg-gray-400',
+  default: 'bg-app-text-tertiary',
   primary: 'bg-primary-400',
-  secondary: 'bg-gray-400',
+  secondary: 'bg-app-text-tertiary',
   accent: 'bg-amber-400',
   success: 'bg-green-400',
   warning: 'bg-amber-400',

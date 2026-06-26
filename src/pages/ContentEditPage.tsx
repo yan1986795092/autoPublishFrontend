@@ -1,12 +1,12 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { FileText } from 'lucide-react';
 import { Button } from '../components/ui/button';
-import { SkeletonCard, SkeletonText } from '../components/ui/Skeleton';
+import { SkeletonCard, SkeletonText } from '../components/ui/skeleton';
 import { useUIStore } from '../stores/useUIStore';
 import { useContentEditor } from '../hooks/useContentEditor';
+import { EditorShell } from '../components/content/editor/EditorShell';
 import { EditorHeader } from '../components/content/editor/EditorHeader';
-import { TitleEditor } from '../components/content/editor/TitleEditor';
-import { TagEditor } from '../components/content/editor/TagEditor';
+import { EditorMetaRow } from '../components/content/editor/EditorMetaRow';
 import { EditorToolbar } from '../components/content/editor/EditorToolbar';
 import { EditorContent } from '../components/content/editor/EditorContent';
 import { EditorFooter } from '../components/content/editor/EditorFooter';
@@ -46,56 +46,58 @@ export function ContentEditPage() {
 
   // ── Main editor ──
   return (
-    <div className="flex gap-0 items-start">
+    <div className="flex gap-4 items-start p-4 lg:p-6">
       {/* 左侧：主内容 */}
-      <div className="flex-1 min-w-0 space-y-5 p-6">
-        <EditorHeader
-          contentId={editor.content.id}
-          onBack={() => navigate(-1)}
-          onPublish={async () => {
-            const safe = await editor.checkBannedBeforePublish();
-            if (safe) openPublishDialog(editor.content!.id);
-          }}
-          onExportMd={editor.handleExportMd}
-          onCopyContent={editor.handleCopyContent}
-          onHistory={() => editor.setHistoryOpen(true)}
-          onPublishHistory={() => editor.loadPublishHistory(editor.content!.id)}
-          onDelete={() => editor.setDeleteConfirmOpen(true)}
-        />
-        <TitleEditor
-          title={editor.editTitle}
-          onChange={editor.handleTitleChange}
-          onAiHeadlines={() => editor.runAiEdit('headlines')}
-          aiLoading={editor.aiLoading}
-          status={editor.content.status}
-        />
-        <TagEditor
-          tags={editor.editTags}
-          onChange={editor.handleTagsChange}
-          onAiTags={() => editor.runAiEdit('tags')}
-          aiLoading={editor.aiLoading}
-        />
-        <EditorToolbar
-          aiLoading={editor.aiLoading}
-          onRewrite={(instruction) => editor.runAiEdit('rewrite', { instruction })}
-          onExpand={() => editor.runAiEdit('expand')}
-          onTranslate={(lang) => editor.runAiEdit('translate', { lang })}
-          onTone={(tone) => editor.runAiEdit('tone', { tone })}
-          onSeo={() => editor.runAiEdit('seo')}
-          onBanned={() => editor.runAiEdit('banned')}
-        />
-        <EditorContent
-          value={editor.editContentMd}
-          onChange={editor.handleContentChange}
-        />
-        <EditorFooter
-          stats={editor.contentStats}
-          autoSaveStatus={editor.autoSaveStatus}
-          isDirty={editor.isDirty}
-          saving={editor.saving}
-          onSave={editor.handleSave}
-          onUndo={editor.handleUndo}
-        />
+      <div className="flex-1 min-w-0 space-y-4">
+        <EditorShell>
+          <EditorHeader
+            contentId={editor.content.id}
+            onBack={() => navigate(-1)}
+            onPublish={async () => {
+              const safe = await editor.checkBannedBeforePublish();
+              if (safe) openPublishDialog(editor.content!.id);
+            }}
+            onExportMd={editor.handleExportMd}
+            onCopyContent={editor.handleCopyContent}
+            onHistory={() => editor.setHistoryOpen(true)}
+            onPublishHistory={() => editor.loadPublishHistory(editor.content!.id)}
+            onDelete={() => editor.setDeleteConfirmOpen(true)}
+          />
+          <EditorMetaRow
+            title={editor.editTitle}
+            onTitleChange={editor.handleTitleChange}
+            tags={editor.editTags}
+            onTagsChange={editor.handleTagsChange}
+            onAiHeadlines={() => editor.runAiEdit('headlines')}
+            onAiTags={() => editor.runAiEdit('tags')}
+            aiLoading={editor.aiLoading}
+            status={editor.content.status}
+            stats={editor.contentStats}
+          />
+          <EditorToolbar
+            aiLoading={editor.aiLoading}
+            onRewrite={(instruction) => editor.runAiEdit('rewrite', { instruction })}
+            onExpand={() => editor.runAiEdit('expand')}
+            onTranslate={(lang) => editor.runAiEdit('translate', { lang })}
+            onTone={(tone) => editor.runAiEdit('tone', { tone })}
+            onSeo={() => editor.runAiEdit('seo')}
+            onBanned={() => editor.runAiEdit('banned')}
+          />
+          <EditorContent
+            value={editor.editContentMd}
+            onChange={editor.handleContentChange}
+          />
+          <div className="px-4 pb-4">
+            <EditorFooter
+              stats={editor.contentStats}
+              autoSaveStatus={editor.autoSaveStatus}
+              isDirty={editor.isDirty}
+              saving={editor.saving}
+              onSave={editor.handleSave}
+              onUndo={editor.handleUndo}
+            />
+          </div>
+        </EditorShell>
         <EditorDialogs editor={editor} />
       </div>
       <PreviewPanel

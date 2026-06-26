@@ -86,6 +86,10 @@ interface AgentState {
   previewPlatform: string | null;
   setPreviewPlatform: (platform: string | null) => void;
 
+  // 预览面板体裁选择（product copy, tech-doc 等）
+  previewContentType: string | null;
+  setPreviewContentType: (contentType: string | null) => void;
+
   // Stream events
   addStreamEvent: (event: StreamEvent) => void;
 
@@ -169,6 +173,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
   appliedSkillFull: null,
   previewContent: null,
   previewPlatform: null,
+  previewContentType: null,
   conversationId: _initFromStorage.conversationId,
   conversationList: _initFromStorage.conversationList,
   conversationListTotal: 0,
@@ -177,6 +182,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
   setAppliedSkill: (applied, full) => set({ appliedSkill: applied, appliedSkillFull: full }),
   setPreviewContent: (content) => set({ previewContent: content }),
   setPreviewPlatform: (platform) => set({ previewPlatform: platform }),
+  setPreviewContentType: (contentType) => set({ previewContentType: contentType }),
 
   addMessage: (msg) => set((state) => ({ messages: [...state.messages, msg] })),
   updateMessage: (id, updates) => set((state) => ({
@@ -626,6 +632,17 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
 
     // ── Start streaming state ──
     set({ isRunning: true, error: null, thinkingSteps: [], currentResult: null, llmChunks: {}, reasoningChunks: {}, stages: [], currentStage: null, intentConflicts: [], streamEvents: [], hasFirstEventReceived: false });
+    // ── 立即添加"准备中"阶段，让 StageTimeline 提前出现 ──
+    set({
+      stages: [{
+        agent: 'preparing',
+        label: '🧠 准备中',
+        icon: '🧠',
+        status: 'running' as const,
+        substeps: [],
+      }],
+      currentStage: 'preparing',
+    });
     const controller = new AbortController();
     set({ _abortController: controller });
 
@@ -830,10 +847,12 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       set((state) => {
         if (status === 'started') {
           const existing = state.stages.find(s => `${s.agent}|${s.reviewRound || 0}` === stageKey);
+          // 移除合成阶段"preparing"，替换为真实阶段
+          const baseStages = state.stages.filter(s => s.agent !== 'preparing');
           if (!existing) {
             // label/icon 由后端 nodes.py stage_map 提供，前端不再映射
             return {
-              stages: [...state.stages, {
+              stages: [...baseStages, {
                 agent,
                 label: (data.label as string) || '处理中',
                 icon: (data.icon as string) || '⚙️',

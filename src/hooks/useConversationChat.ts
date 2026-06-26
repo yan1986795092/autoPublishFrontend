@@ -1,10 +1,12 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
+import { useConversationStore } from '../stores/useConversationStore';
 import { useAgentStore } from '../stores/useAgentStore';
 import { useUIStore } from '../stores/useUIStore';
 import { conversationApi } from '../services/api';
 import { SSEProcessor } from '../services/sse-processor';
 import { useAuthStore } from '../stores/useAuthStore';
 import type { ConversationTrigger } from '../types';
+import type { ChatMessage } from '../types/agent';
 
 interface UseConversationChatReturn {
   isChatting: boolean;
@@ -23,12 +25,14 @@ interface UseConversationChatReturn {
 export function useConversationChat(): UseConversationChatReturn {
   const [isChatting, setIsChatting] = useState(false);
   const processorRef = useRef<SSEProcessor | null>(null);
-  // 持有当前请求的 AbortController，组件卸载或新一轮请求时调用 abort()
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  const addMessage = useAgentStore((s) => s.addMessage);
-  const updateMessage = useAgentStore((s) => s.updateMessage);
-  const conversationId = useAgentStore((s) => s.conversationId);
+  // 使用 ConversationStore 管理消息
+  const addMessage = useConversationStore((s) => s.addMessage);
+  const updateMessage = useConversationStore((s) => s.updateMessage);
+  const conversationId = useConversationStore((s) => s.conversationId);
+
+  // Agent Store
   const runStreaming = useAgentStore((s) => s.runStreaming);
   const showToast = useUIStore((s) => s.showToast);
 
@@ -36,14 +40,14 @@ export function useConversationChat(): UseConversationChatReturn {
     if (isChatting) return;
     setIsChatting(true);
 
-    // 1. 插入用户消息（本 hook 统一处理消息添加）
+    // 1. 插入用户消息
     const userMsgId = crypto.randomUUID();
     addMessage({
       id: userMsgId,
       role: 'user',
       content: text,
       timestamp: Date.now(),
-    });
+    } as ChatMessage);
 
     // 2. 插入 assistant 占位
     const assistantId = crypto.randomUUID();
@@ -57,7 +61,7 @@ export function useConversationChat(): UseConversationChatReturn {
       renderMode: 'bubble',
       renderPayload: null,
       generationMeta: null,
-    });
+    } as ChatMessage);
 
     // 3. 连接对话 SSE
     let accumulatedText = '';
@@ -65,7 +69,6 @@ export function useConversationChat(): UseConversationChatReturn {
     const processor = new SSEProcessor();
     processorRef.current = processor;
 
-    // 持有可中止的 controller，卸载/重复触发时可主动 abort
     const abortController = new AbortController();
     abortControllerRef.current?.abort();
     abortControllerRef.current = abortController;
@@ -88,19 +91,15 @@ export function useConversationChat(): UseConversationChatReturn {
     });
 
     processor.on('done', async () => {
-      // 标记对话回复完成
       updateMessage(assistantId, {
         status: 'completed',
         content: accumulatedText,
       });
       setIsChatting(false);
 
-      // 如果有 trigger，走生成流程
       if (triggerData && triggerData._prompt) {
         showToast('开始创作...', 'info');
         try {
-          // 从 store 实时取最新 messages，避免闭包过期
-          // （sendChatMessage 不再依赖 messages，回调里拿到的就是最新值）
           await runStreaming(
             triggerData._prompt || triggerData.topic || '',
             triggerData.platform,
@@ -169,7 +168,6 @@ export function useConversationChat(): UseConversationChatReturn {
     }
   }, [isChatting, addMessage, updateMessage, conversationId, runStreaming, showToast]);
 
-  // 组件卸载时中止未完成的 SSE 请求，避免 setState on unmounted
   useEffect(() => {
     return () => {
       abortControllerRef.current?.abort();

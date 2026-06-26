@@ -1,14 +1,14 @@
 import { useState, useCallback } from 'react';
-import { useAgentStore } from '../stores/useAgentStore';
+import { useConversationStore } from '../stores/useConversationStore';
 import { ConversationHistory } from '../components/layout/ConversationHistory';
 import { Workspace } from '../components/agent/Workspace';
 import { cn } from '../utils/helpers';
 
 export function HomePage() {
-  const conversationId = useAgentStore((s) => s.conversationId);
-  const switchConversation = useAgentStore((s) => s.switchConversation);
-  const createConversation = useAgentStore((s) => s.createConversation);
-  const clearCurrent = useAgentStore((s) => s.clearCurrent);
+  const conversationId = useConversationStore((s) => s.conversationId);
+  const switchConversation = useConversationStore((s) => s.switchConversation);
+  const createConversation = useConversationStore((s) => s.createConversation);
+  const clearMessages = useConversationStore((s) => s.clearMessages);
 
   // 三档布局状态
   // < 768px: 左栏隐藏（单栏）
@@ -28,9 +28,9 @@ export function HomePage() {
     if (newId) {
       await switchConversation(newId);
     } else {
-      clearCurrent();
+      clearMessages();
     }
-  }, [createConversation, switchConversation, clearCurrent]);
+  }, [createConversation, switchConversation, clearMessages]);
 
   return (
     <div className="flex h-full overflow-hidden">
@@ -40,9 +40,9 @@ export function HomePage() {
         className={cn(
           'relative z-10 transition-all duration-200 ease-smooth',
           // Mobile: always hidden (shown via mobile nav)
-          'hidden md:flex',
-          // 768-1279px: icon-only by default
-          leftCollapsed ? 'w-0 overflow-hidden' : 'w-[260px] flex-shrink-0',
+          'hidden md:flex flex-shrink-0',
+          // 折叠时 icon-only (64px)，展开时全宽 (260px)
+          leftCollapsed ? 'w-[64px]' : 'w-[260px]',
         )}
       >
         <ConversationHistory

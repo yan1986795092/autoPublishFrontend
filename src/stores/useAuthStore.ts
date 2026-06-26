@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { User } from '../types';
+import { clearAllUserStores } from './clearAllUserStores';
 
 interface AuthState {
   user: User | null;
@@ -36,14 +37,18 @@ export const useAuthStore = create<AuthState>()(
 
       setLoading: (isLoading) => set({ isLoading }),
 
-      logout: () =>
+      logout: () => {
+        // 1. 清理所有业务 store + localStorage（防止会话残留）
+        clearAllUserStores();
+        // 2. 清 auth 自己的状态
         set({
           user: null,
           accessToken: null,
           refreshToken: null,
           isAuthenticated: false,
           isLoading: false,
-        }),
+        });
+      },
     }),
     {
       name: 'autopublish-auth',

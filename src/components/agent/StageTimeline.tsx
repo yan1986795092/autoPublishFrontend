@@ -127,6 +127,13 @@ function StageRow({ stage, index, totalStages, expanded, onToggle, chunks, hasDe
             )}
           </div>
 
+          {/* 未展开时的推理预览 — 折叠状态下也能看到 LLM 反馈 */}
+          {!expanded && (chunks.length > 0 || stage.reasoning) && (
+            <p className="mt-1 text-[11px] text-app-text-tertiary leading-relaxed line-clamp-2">
+              {((stage.reasoning as string) || chunks.map(c => c.content).join('')).slice(0, 120)}...
+            </p>
+          )}
+
           {/* 展开区域 */}
           <AnimatePresence initial={false}>
             {expanded && (
@@ -139,11 +146,11 @@ function StageRow({ stage, index, totalStages, expanded, onToggle, chunks, hasDe
                 className="overflow-hidden"
               >
                 <div className="mt-1.5 space-y-1.5">
-                  {/* 阶段产出内容 */}
-                  {chunks && chunks.length > 0 && (
+                  {/* 阶段产出内容 — 从 stage.reasoning 或 reasoningChunks 取 */}
+                  {(stageReasoning || (chunks && chunks.length > 0)) && (
                     <div className="rounded-lg px-3 py-2.5 bg-app-surface/30 border border-app-border/30">
                       <p className="text-xs text-app-text-secondary leading-relaxed whitespace-pre-wrap">
-                        {chunks.map(c => c.content).join('')}
+                        {stageReasoning}
                         {isCurrent && (
                           <span className="inline-block w-[2px] h-[13px] bg-blue-400 ml-0.5 animate-pulse align-text-bottom" />
                         )}
@@ -166,7 +173,8 @@ export function StageTimeline({ stages, isRunning, llmChunks, reasoningChunks }:
   // 避免在父级任何无关渲染（例如新流触发时其它消息的 StageTimeline 重渲染）误清空。
   const prevIsRunningRef = useRef<boolean>(isRunning);
 
-  // 运行中自动展开 running stage、完成后自动折叠；仅在 isRunning=true 期间生效
+  // 运行中自动展开 running stage；完成后保持展开状态（让用户看完推理内容）
+  // 用户可手动折叠已完成的阶段，但不再自动折叠
   useEffect(() => {
     if (!isRunning) return;
     setExpandedKeys((prev) => {
@@ -176,9 +184,6 @@ export function StageTimeline({ stages, isRunning, llmChunks, reasoningChunks }:
         const key = `${s.agent}|${s.reviewRound || 0}`;
         if (s.status === 'running' && !next.has(key)) {
           next.add(key);
-          changed = true;
-        } else if (s.status === 'completed' && next.has(key)) {
-          next.delete(key);
           changed = true;
         }
       }
@@ -233,7 +238,10 @@ export function StageTimeline({ stages, isRunning, llmChunks, reasoningChunks }:
         const uniqueKey = `${stage.agent}|${stage.reviewRound || 0}`;
         const stageChunks = llmChunks?.[stage.agent] || reasoningChunks?.[uniqueKey];
         const chunks = stageChunks || [];
-        const hasDetail = chunks.length > 0;
+        // 推理内容：优先用 stage.reasoning（随 stage:completed 事件绑定），
+        // 没有则用 reasoningChunks 里查找
+        const stageReasoning = (stage.reasoning as string) || (chunks.length > 0 ? chunks.map(c => c.content).join('') : '');
+        const hasDetail = !!(chunks.length > 0 || stageReasoning);
         const isCurrent = stage.status === 'running';
         const expanded = expandedKeys.has(uniqueKey);
 

@@ -294,24 +294,26 @@ export const agentApi = {
 };
 
 // ===================== Operations Center API =====================
+// 路径从 /api/v1/admin/metrics/* 迁移到 /api/v1/metrics/*
+// 旧路径仍可访问（307 重定向），建议 2026-07-31 前完成切换
 
 export const operationsApi = {
   /** 获取产能看板数据 */
   getProductionMetrics: () =>
     apiClient.get<{ success: boolean; data: import('../types/operations').ProductionMetrics }>(
-      '/api/v1/admin/metrics/production'
+      '/api/v1/metrics/production'
     ),
 
   /** 获取发布监控数据 */
   getPublishingMetrics: () =>
     apiClient.get<{ success: boolean; data: import('../types/operations').PublishingMetrics }>(
-      '/api/v1/admin/metrics/publishing'
+      '/api/v1/metrics/publishing'
     ),
 
   /** 获取成本分析数据 */
   getCostMetrics: () =>
     apiClient.get<{ success: boolean; data: import('../types/operations').CostMetrics }>(
-      '/api/v1/admin/metrics/cost'
+      '/api/v1/metrics/cost'
     ),
 };
 
@@ -569,6 +571,7 @@ export interface ChatMessageRecord {
 export interface ChatConversationSummary {
   id: string;
   title: string;
+  is_pinned: boolean;
   created_at: string;
   updated_at: string;
   message_count: number;
@@ -722,6 +725,12 @@ export const chatApi = {
       success: boolean;
       data: ChatConversationSummary;
     }>(`/api/v1/chat/conversations/${conversationId}`, data),
+
+  pinConversation: (conversationId: string, isPinned: boolean) =>
+    apiClient.patch<{
+      success: boolean;
+      data: ChatConversationSummary;
+    }>(`/api/v1/chat/conversations/${conversationId}/pin`, { is_pinned: isPinned }),
 
   deleteConversation: (conversationId: string) =>
     apiClient.delete<{

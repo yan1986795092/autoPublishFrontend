@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useAgentStore } from '../stores/useAgentStore';
+import { useConversationStore } from '../stores/useConversationStore';
 import { useUIStore } from '../stores/useUIStore';
-import type { ChatMessage } from '../types';
+import type { ChatMessage } from '../types/agent';
 
 export type WorkspaceMode = 'chat' | 'create' | 'studio';
 
@@ -19,7 +20,7 @@ interface UseExecutionEngineReturn {
   llmChunks: ReturnType<typeof useAgentStore.getState>['llmChunks'];
   stages: ReturnType<typeof useAgentStore.getState>['stages'];
   currentStage: ReturnType<typeof useAgentStore.getState>['currentStage'];
-  messages: ReturnType<typeof useAgentStore.getState>['messages'];
+  messages: ReturnType<typeof useConversationStore.getState>['messages'];
   appliedSkill: ReturnType<typeof useAgentStore.getState>['appliedSkill'];
   appliedSkillFull: ReturnType<typeof useAgentStore.getState>['appliedSkillFull'];
   wsConnectionState: ReturnType<typeof useAgentStore.getState>['wsConnectionState'];
@@ -31,23 +32,14 @@ interface UseExecutionEngineReturn {
   handleDirectExecute: () => Promise<void>;
   handleClearCurrent: () => void;
   handleSetAppliedSkill: ReturnType<typeof useAgentStore.getState>['setAppliedSkill'];
-  addMessage: ReturnType<typeof useAgentStore.getState>['addMessage'];
+  addMessage: ReturnType<typeof useConversationStore.getState>['addMessage'];
 }
 
 export function useExecutionEngine(_mode: WorkspaceMode): UseExecutionEngineReturn {
   void _mode; // reserved for future 'chat'/'create'/'studio' mode routing
 
-  // 合并订阅：用 useShallow 把多个独立 selector 合并到一个订阅里，
-  // 只有当其中任一字段实际变化时才返回新引用，避免每次 store 变化都触发重渲染。
-  const {
-    isRunning, currentResult, currentPlan, currentTask, currentTaskId,
-    thinkingSteps, llmChunks, reasoningChunks, stages, currentStage,
-    messages,
-    appliedSkill, appliedSkillFull, wsConnectionState,
-    runStreaming, runAsync, stopStreaming, disconnectWebSocket,
-    clearCurrent, setAppliedSkill, addMessage,
-    hasFirstEventReceived,
-  } = useAgentStore(useShallow((s) => ({
+  // Agent Store 状态订阅
+  const agentState = useAgentStore(useShallow((s) => ({
     isRunning: s.isRunning,
     currentResult: s.currentResult,
     currentPlan: s.currentPlan,
@@ -58,7 +50,6 @@ export function useExecutionEngine(_mode: WorkspaceMode): UseExecutionEngineRetu
     reasoningChunks: s.reasoningChunks,
     stages: s.stages,
     currentStage: s.currentStage,
-    messages: s.messages,
     appliedSkill: s.appliedSkill,
     appliedSkillFull: s.appliedSkillFull,
     wsConnectionState: s.wsConnectionState,
@@ -68,8 +59,13 @@ export function useExecutionEngine(_mode: WorkspaceMode): UseExecutionEngineRetu
     disconnectWebSocket: s.disconnectWebSocket,
     clearCurrent: s.clearCurrent,
     setAppliedSkill: s.setAppliedSkill,
-    addMessage: s.addMessage,
     hasFirstEventReceived: s.hasFirstEventReceived,
+  })));
+
+  // Conversation Store 状态订阅
+  const conversationState = useConversationStore(useShallow((s) => ({
+    messages: s.messages,
+    addMessage: s.addMessage,
   })));
 
   const showToast = useUIStore((s) => s.showToast);
@@ -79,31 +75,31 @@ export function useExecutionEngine(_mode: WorkspaceMode): UseExecutionEngineRetu
   const [useStreaming, setUseStreaming] = useState(true);
 
   useEffect(() => {
-    if (!isRunning) {
+    if (!agentState.isRunning) {
       setRunningTime(0);
       return;
     }
     const start = Date.now();
     const timer = setInterval(() => setRunningTime(Math.round((Date.now() - start) / 1000)), 1000);
     return () => clearInterval(timer);
-  }, [isRunning]);
+  }, [agentState.isRunning]);
 
   const handleExecute = useCallback(async (text: string, platform?: string | null, parameters?: Record<string, unknown>) => {
-    if (!text.trim() || isRunning) return;
+    if (!text.trim() || agentState.isRunning) return;
     const userMsg: ChatMessage = {
       id: crypto.randomUUID(),
       role: 'user',
       content: text.trim(),
       timestamp: Date.now(),
     };
-    addMessage(userMsg);
+    conversationState.addMessage(userMsg);
     if (useStreaming) {
-      await runStreaming(text.trim(), platform, parameters);
+      await agentState.runStreaming(text.trim(), platform, parameters);
     } else {
-      const taskId = await runAsync(text.trim());
+      const taskId = await agentState.runAsync(text.trim());
       if (!taskId) showToast('提交任务失败', 'error');
     }
-  }, [isRunning, useStreaming, runStreaming, runAsync, addMessage, showToast, appliedSkillFull]);
+  }, [agentState.isRunning, useStreaming, agentState.runStreaming, agentState.runAsync, conversationState.addMessage, showToast]);
 
   const handleDirectExecute = useCallback(async () => {
     if (!prompt.trim()) return;
@@ -113,41 +109,51 @@ export function useExecutionEngine(_mode: WorkspaceMode): UseExecutionEngineRetu
       content: prompt.trim(),
       timestamp: Date.now(),
     };
-    addMessage(userMsg);
+    conversationState.addMessage(userMsg);
     if (useStreaming) {
-      await runStreaming(prompt.trim());
+      await agentState.runStreaming(prompt.trim());
     } else {
-      const taskId = await runAsync(prompt.trim());
+      const taskId = await agentState.runAsync(prompt.trim());
       if (!taskId) showToast('提交任务失败', 'error');
     }
-  }, [prompt, useStreaming, runStreaming, runAsync, addMessage, showToast, appliedSkillFull]);
+  }, [prompt, useStreaming, agentState.runStreaming, agentState.runAsync, conversationState.addMessage, showToast]);
 
   const handleStop = useCallback(() => {
-    stopStreaming();
-    disconnectWebSocket();
+    agentState.stopStreaming();
+    agentState.disconnectWebSocket();
     showToast('任务已终止', 'info');
-  }, [stopStreaming, disconnectWebSocket, showToast]);
+  }, [agentState.stopStreaming, agentState.disconnectWebSocket, showToast]);
 
   return useMemo(() => ({
     prompt, setPrompt,
-    runningTime, isRunning,
-    currentResult, currentPlan, currentTask, currentTaskId,
-    thinkingSteps, llmChunks, reasoningChunks, stages, currentStage, messages,
-    appliedSkill, appliedSkillFull,
-    wsConnectionState,
+    runningTime,
+    isRunning: agentState.isRunning,
+    currentResult: agentState.currentResult,
+    currentPlan: agentState.currentPlan,
+    currentTask: agentState.currentTask,
+    currentTaskId: agentState.currentTaskId,
+    thinkingSteps: agentState.thinkingSteps,
+    llmChunks: agentState.llmChunks,
+    stages: agentState.stages,
+    currentStage: agentState.currentStage,
+    messages: conversationState.messages,
+    appliedSkill: agentState.appliedSkill,
+    appliedSkillFull: agentState.appliedSkillFull,
+    wsConnectionState: agentState.wsConnectionState,
     useStreaming, setUseStreaming,
-    hasFirstEventReceived,
+    hasFirstEventReceived: agentState.hasFirstEventReceived,
     handleExecute, handleStop, handleDirectExecute,
-    handleClearCurrent: clearCurrent,
-    handleSetAppliedSkill: setAppliedSkill,
-    addMessage,
+    handleClearCurrent: agentState.clearCurrent,
+    handleSetAppliedSkill: agentState.setAppliedSkill,
+    addMessage: conversationState.addMessage,
   }), [
-    prompt, isRunning, currentResult, currentPlan, currentTask, currentTaskId,
-    thinkingSteps, llmChunks, reasoningChunks, stages, currentStage, messages,
-    appliedSkill, appliedSkillFull, wsConnectionState,
+    prompt, agentState.isRunning, agentState.currentResult, agentState.currentPlan, agentState.currentTask, agentState.currentTaskId,
+    agentState.thinkingSteps, agentState.llmChunks, agentState.stages, agentState.currentStage,
+    conversationState.messages,
+    agentState.appliedSkill, agentState.appliedSkillFull, agentState.wsConnectionState,
     useStreaming,
-    hasFirstEventReceived,
+    agentState.hasFirstEventReceived,
     handleExecute, handleStop, handleDirectExecute,
-    clearCurrent, setAppliedSkill, addMessage,
+    agentState.clearCurrent, agentState.setAppliedSkill, conversationState.addMessage,
   ]);
 }

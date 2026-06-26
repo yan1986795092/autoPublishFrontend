@@ -23,7 +23,7 @@ export interface UIState {
   closePublishDialog: () => void;
   openTopicDialog: () => void;
   closeTopicDialog: () => void;
-  showToast: (message: string, type: 'success' | 'error' | 'info', action?: ToastAction, duration?: number) => void;
+  showToast: (message: string, type?: 'success' | 'error' | 'info', action?: ToastAction | null, duration?: number) => void;
   clearToast: () => void;
   setViewDensity: (density: Density) => void;
 }
@@ -44,7 +44,12 @@ export const useUIStore = create<UIState>()((set) => ({
   closePublishDialog: () => set({ publishDialogOpen: false, publishDialogContentId: null }),
   openTopicDialog: () => set({ topicDialogOpen: true }),
   closeTopicDialog: () => set({ topicDialogOpen: false }),
-  showToast: (message, type, action, duration = 3000) => set({ toastMessage: message, toastType: type, toastAction: action || null, toastDuration: duration }),
+  showToast: (message, type = 'info', action = null, duration = 3000) => set({
+    toastMessage: message,
+    toastType: type,
+    toastAction: action,
+    toastDuration: duration
+  }),
   clearToast: () => set({ toastMessage: null, toastType: null, toastAction: null }),
   setViewDensity: (viewDensity) => set({ viewDensity }),
 }));

@@ -19,6 +19,7 @@ import {
 import { AdvancedPanel } from './AdvancedPanel';
 import { EmptyWorkspace } from './EmptyWorkspace';
 import { MessageBubbleMemo } from './MessageBubble';
+import { PUBLISHABLE_PLATFORMS, CONTENT_STYLES, PROFESSIONAL_STYLES } from './PlatformSelector';
 
 
 // ── Component ──
@@ -41,6 +42,10 @@ export function Workspace({ rightPanelOpen = true, onToggleRightPanel }: Workspa
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const createConversation = useAgentStore((s) => s.createConversation);
+
+  // ── 选中平台/文体（左侧引导页 + 右侧预览画廊共享） ──
+  const [selectedPlatform, setSelectedPlatform] = useState<string | null>(null);
+  const allPlatforms = [...PUBLISHABLE_PLATFORMS, ...CONTENT_STYLES, ...PROFESSIONAL_STYLES];
 
   // ── Params dialog ──
   const [paramsOpen, setParamsOpen] = useState(false);
@@ -176,6 +181,8 @@ export function Workspace({ rightPanelOpen = true, onToggleRightPanel }: Workspa
               <div className="max-w-3xl mx-auto space-y-4 relative">
                 {isIdle ? (
                   <EmptyWorkspace
+                    selectedPlatform={selectedPlatform}
+                    onSelectPlatform={setSelectedPlatform}
                     onSelect={(s) => { setPrompt(s); inputRef.current?.focus(); }}
                   />
                 ) : (
@@ -316,7 +323,12 @@ export function Workspace({ rightPanelOpen = true, onToggleRightPanel }: Workspa
       </div>
 
       {/* 右侧：预览面板 */}
-      {rightPanelOpen && <AdvancedPanel onCollapse={onToggleRightPanel} />}
+      {rightPanelOpen && (
+        <AdvancedPanel
+          selectedPlatform={selectedPlatform}
+          onCollapse={onToggleRightPanel}
+        />
+      )}
       {!rightPanelOpen && onToggleRightPanel && (
         <button
           onClick={onToggleRightPanel}

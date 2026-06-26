@@ -23,6 +23,11 @@ const queryClient = new QueryClient({
   },
 });
 
+// 暴露给外部清理（多租户隔离：用户切换/登出时清空所有缓存）
+if (typeof window !== 'undefined') {
+  (window as unknown as { __queryClient?: QueryClient }).__queryClient = queryClient;
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>

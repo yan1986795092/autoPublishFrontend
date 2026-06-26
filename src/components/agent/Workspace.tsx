@@ -5,7 +5,7 @@ import { ScrollArea } from '../ui/scroll-area';
 import { Separator } from '../ui/separator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { LoadingDots } from '../ui/loading-dots';
-import { MessageBubbleSkeleton, ChatBubbleSkeleton } from '../ui/skeleton';
+import { MessageBubbleSkeleton, ChatBubbleSkeleton } from '../components/ui/skeleton';
 import { useExecutionEngine } from '../../hooks/useExecutionEngine';
 import { useConversationChat } from '../../hooks/useConversationChat';
 import { useAgentStore } from '../../stores/useAgentStore';

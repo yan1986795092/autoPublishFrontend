@@ -9,17 +9,18 @@ import { MessageBubbleSkeleton, ChatBubbleSkeleton } from '../ui/skeleton';
 import { useExecutionEngine } from '../../hooks/useExecutionEngine';
 import { useConversationChat } from '../../hooks/useConversationChat';
 import { useAgentStore } from '../../stores/useAgentStore';
-import { type LLMChunk, type ReasoningChunk } from '../../types';
+import { useConversationStore } from '../../stores/useConversationStore';
+import { useUIStore } from '../../stores/useUIStore';
 import { formatDuration } from '../../utils/format';
 import { cn } from '../../utils/helpers';
 import {
-  Send, Square, Bot, Sparkles,
-  SlidersHorizontal, Eye, ArrowDown, Loader2, PanelRight,
+  Send, Square, Bot,
+  SlidersHorizontal, ArrowDown, PanelRight, Menu, X,
 } from 'lucide-react';
 import { AdvancedPanel } from './AdvancedPanel';
 import { EmptyWorkspace } from './EmptyWorkspace';
 import { MessageBubbleMemo } from './MessageBubble';
-import { PUBLISHABLE_PLATFORMS, CONTENT_STYLES, PROFESSIONAL_STYLES } from './PlatformSelector';
+import { isPublishable, PLATFORM_MAP } from './PlatformSelector';
 
 
 // ── Component ──
@@ -27,25 +28,63 @@ import { PUBLISHABLE_PLATFORMS, CONTENT_STYLES, PROFESSIONAL_STYLES } from './Pl
 export interface WorkspaceProps {
   rightPanelOpen?: boolean;
   onToggleRightPanel?: () => void;
+  mobileSidebarOpen?: boolean;
+  onToggleMobileSidebar?: () => void;
 }
 
-export function Workspace({ rightPanelOpen = true, onToggleRightPanel }: WorkspaceProps) {
+export function Workspace({
+  rightPanelOpen = true,
+  onToggleRightPanel,
+  mobileSidebarOpen = false,
+  onToggleMobileSidebar,
+}: WorkspaceProps) {
   const engine = useExecutionEngine('create');
-  const { sendChatMessage, isChatting } = useConversationChat();
+  // 修复 BUG-25：解构 abort 用于在 handleStop 中停掉对话 SSE
+  const { sendChatMessage, isChatting, abort: abortChat } = useConversationChat();
   const {
     prompt, setPrompt, isRunning, runningTime,
     messages, currentResult, thinkingSteps, llmChunks, reasoningChunks,
     stages, currentStage, hasFirstEventReceived,
-    handleStop,
+    handleStop: engineHandleStop,
   } = engine;
 
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const createConversation = useAgentStore((s) => s.createConversation);
+
+  // 修复 BUG-10：此前误用 useAgentStore.createConversation，
+  // 实际会话列表由 useConversationStore 管理，导致点击"新对话"后列表 active 项不更新。
+  // 这里正确使用对话 store 创建。
+  const createConversation = useConversationStore((s) => s.createConversation);
+  const showToast = useUIStore((s) => s.showToast);
+  // 修复 BUG-15：避免用户连点"新对话"导致并发创建
+  const [isCreating, setIsCreating] = useState(false);
+
+  const handleNewConversation = useCallback(async () => {
+    if (isCreating) return;
+    setIsCreating(true);
+    setPrompt('');
+    void engine.handleClearCurrent();
+    try {
+      const newId = await createConversation();
+      if (!newId) {
+        showToast('创建对话失败，请检查网络', 'error');
+      }
+    } catch (e) {
+      showToast('创建对话失败', 'error');
+      console.error('new conversation failed:', e);
+    } finally {
+      setIsCreating(false);
+    }
+  }, [isCreating, createConversation, engine, showToast, setPrompt]);
+
+  // 修复 BUG-25：stop 按钮需要同时停掉 agent 流和对话流
+  const handleStop = useCallback(() => {
+    engineHandleStop();
+    abortChat();
+  }, [engineHandleStop, abortChat]);
 
   // ── 选中平台/文体（左侧引导页 + 右侧预览画廊共享） ──
   const [selectedPlatform, setSelectedPlatform] = useState<string | null>(null);
-  const allPlatforms = [...PUBLISHABLE_PLATFORMS, ...CONTENT_STYLES, ...PROFESSIONAL_STYLES];
 
   // ── Params dialog ──
   const [paramsOpen, setParamsOpen] = useState(false);
@@ -108,6 +147,7 @@ export function Workspace({ rightPanelOpen = true, onToggleRightPanel }: Workspa
   useLayoutEffect(() => {
     if (!isRunning) return;
     if (isUserPinned) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setUnreadCount((c) => c + 1);
       return;
     }
@@ -132,6 +172,7 @@ export function Workspace({ rightPanelOpen = true, onToggleRightPanel }: Workspa
 
   useEffect(() => {
     if (isRunning) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setIsUserPinned(false);
       setUnreadCount(0);
     }
@@ -141,16 +182,35 @@ export function Workspace({ rightPanelOpen = true, onToggleRightPanel }: Workspa
     if (!prompt.trim() || isRunning || isChatting) return;
     const text = prompt.trim();
     setPrompt('');
-    const state = useAgentStore.getState();
-    await sendChatMessage(text, state.previewPlatform || undefined, state.previewContentType || undefined);
-  }, [prompt, isRunning, isChatting, setPrompt, sendChatMessage]);
+    // 非发布类文体（如 tutorial/seo）作为 contentType 传给对话 LLM，让 trigger 阶段少问文体。
+    const contentType = selectedPlatform && !isPublishable(selectedPlatform) ? selectedPlatform : undefined;
+    useAgentStore.getState().setPreviewPlatform(selectedPlatform);
+    useAgentStore.getState().setPreviewContentType(contentType || null);
+    // ── P0-2: 当用户已选平台时，把平台强约束追加到 message 头部，
+    //   这样即使对话 LLM 在 trigger 阶段漏掉 platform 透传，
+    //   后续 stream 端也能从 trigger._prompt 里恢复平台 DNA。──
+    const platformHint = selectedPlatform
+      ? PLATFORM_MAP.get(selectedPlatform)?.label || selectedPlatform
+      : '';
+    const enrichedText = platformHint
+      ? `[目标平台：${platformHint}]\n${text}`
+      : text;
+    // 修复 BUG-4：把生成参数一并发送，让对话 LLM 在决定 trigger 时把这些当作用户偏好
+    await sendChatMessage(enrichedText, selectedPlatform || undefined, contentType, {
+      creativity,
+      length: contentLength,
+      tone,
+      audience,
+    });
+  }, [prompt, isRunning, isChatting, setPrompt, sendChatMessage, selectedPlatform, creativity, contentLength, tone, audience]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    // 修复 BUG-14：第二个 if 缺少 !e.shiftKey 防御，
+    // 导致 Cmd/Ctrl+Shift+Enter 也会意外提交。统一用 !e.shiftKey 区分"换行 vs 提交"。
+    if (e.key === 'Enter' && !e.shiftKey && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       handleSubmit();
-    }
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+    } else if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSubmit();
     }
@@ -169,6 +229,33 @@ export function Workspace({ rightPanelOpen = true, onToggleRightPanel }: Workspa
     <div className="flex h-full">
       {/* 左侧：消息区 + 输入区 */}
       <div className="flex-1 flex flex-col min-w-0">
+
+        {/* 修复 BUG-11：mobile (<md) 顶部工具栏 — 打开对话历史侧栏 + 切换右栏 */}
+        {onToggleMobileSidebar && (
+          <div className="md:hidden flex items-center gap-1 px-3 py-2 border-b border-app-border bg-app-surface flex-shrink-0">
+            <button
+              onClick={onToggleMobileSidebar}
+              className="w-8 h-8 rounded-md flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover transition-colors"
+              title={mobileSidebarOpen ? '关闭对话列表' : '打开对话列表'}
+              aria-label="对话列表"
+              aria-expanded={mobileSidebarOpen}
+            >
+              {mobileSidebarOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
+            </button>
+            <span className="text-xs font-medium text-app-text-secondary truncate">对话</span>
+            <div className="ml-auto flex items-center gap-1">
+              {onToggleRightPanel && (
+                <button
+                  onClick={onToggleRightPanel}
+                  className="w-8 h-8 rounded-md flex items-center justify-center text-app-text-tertiary hover:text-app-text hover:bg-app-hover transition-colors"
+                  title={rightPanelOpen ? '隐藏预览' : '显示预览'}
+                >
+                  <PanelRight className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* 消息容器 — 统一背景 */}
         <div className="flex-1 min-h-0 flex flex-col px-6 py-4">
@@ -260,14 +347,11 @@ export function Workspace({ rightPanelOpen = true, onToggleRightPanel }: Workspa
           </button>
           {hasEvents && !isRunning && (
             <button
-              onClick={async () => {
-                setPrompt('');
-                engine.handleClearCurrent();
-                await createConversation();
-              }}
-              className="ml-auto text-[10px] text-app-text-tertiary hover:text-app-text-secondary transition-colors"
+              onClick={handleNewConversation}
+              disabled={isCreating}
+              className="ml-auto text-[10px] text-app-text-tertiary hover:text-app-text-secondary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              新对话
+              {isCreating ? '创建中...' : '新对话'}
             </button>
           )}
         </div>

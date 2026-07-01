@@ -30,4 +30,5 @@ export const SIDEBAR = {
 export const PANELS = {
   LEFT_WIDTH: 360,
   RIGHT_WIDTH: 420,
+  RIGHT_WIDTH_MD: 360,         // 768-1023 区段压缩宽度（保持三栏可读）
 } as const;

@@ -29,6 +29,16 @@ function Chevron({ open }: { open: boolean }) {
   );
 }
 
+/** Props for the exported StageTimeline component */
+interface StageTimelineProps {
+  stages: StageInfo[];
+  isRunning: boolean;
+  llmChunks?: Record<string, LLMChunk[]>;
+  reasoningChunks?: Record<string, ReasoningChunk[]>;
+  currentStage?: string | null;
+  thinkingSteps?: unknown[];
+}
+
 interface StageRowProps {
   stage: StageInfo;
   index: number;
@@ -37,9 +47,10 @@ interface StageRowProps {
   onToggle: () => void;
   chunks?: LLMChunk[] | ReasoningChunk[];
   hasDetail: boolean;
+  stageReasoning: string;
 }
 
-function StageRow({ stage, index, totalStages, expanded, onToggle, chunks, hasDetail }: StageRowProps) {
+function StageRow({ stage, index, totalStages, expanded, onToggle, chunks, hasDetail, stageReasoning }: StageRowProps) {
   const isCurrent = stage.status === 'running';
   const isCompleted = stage.status === 'completed';
 
@@ -167,16 +178,28 @@ function StageRow({ stage, index, totalStages, expanded, onToggle, chunks, hasDe
   );
 }
 
-export function StageTimeline({ stages, isRunning, llmChunks, reasoningChunks }: StageTimelineProps) {
+export function StageTimeline({ stages, isRunning, llmChunks, reasoningChunks, currentStage, thinkingSteps }: StageTimelineProps) {
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(() => new Set());
   // 记录上一次的 isRunning，仅在 true→false 翻转时才清空 expandedKeys，
   // 避免在父级任何无关渲染（例如新流触发时其它消息的 StageTimeline 重渲染）误清空。
   const prevIsRunningRef = useRef<boolean>(isRunning);
+  // 修复 BUG-18：缓存上一次的 stages 指纹，避免 store 中 stages 数组引用变化
+  // （比如推理 chunk 累积触发的不可变更新）就触发 expandedKeys 重算。
+  // 真实情况下 stages 引用变化非常频繁（每个 SSE 事件都会生成新数组），
+  // 用浅序列化指纹判断"内容是否真变"后再决定是否执行展开逻辑。
+  const prevStagesFingerprintRef = useRef<string>('');
 
   // 运行中自动展开 running stage；完成后保持展开状态（让用户看完推理内容）
   // 用户可手动折叠已完成的阶段，但不再自动折叠
   useEffect(() => {
     if (!isRunning) return;
+    // 用 stages 的关键字段（agent|status|reviewRound）做指纹
+    const fingerprint = stages
+      .map((s) => `${s.agent}|${s.reviewRound || 0}|${s.status}`)
+      .join(';');
+    if (fingerprint === prevStagesFingerprintRef.current) return;
+    prevStagesFingerprintRef.current = fingerprint;
+
     setExpandedKeys((prev) => {
       const next = new Set(prev);
       let changed = false;
@@ -255,6 +278,7 @@ export function StageTimeline({ stages, isRunning, llmChunks, reasoningChunks }:
             onToggle={rowClickHandlers[uniqueKey]}
             chunks={chunks}
             hasDetail={hasDetail}
+            stageReasoning={stageReasoning}
           />
         );
       })}

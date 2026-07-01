@@ -88,6 +88,13 @@ export function EmptyWorkspace({ selectedPlatform, onSelectPlatform, onSelect }:
     onSelectPlatform(platformId);
   };
 
+  // 修复 BUG-26：把 staggered children 控制权放在每个 section 自己的父容器
+  // （而非依赖一个全局父容器传播 variants），这样任意顺序渲染都不会丢 stagger。
+  const sectionVariants = {
+    hidden: {},
+    show: { transition: { staggerChildren: 0.04, delayChildren: 0.05 } },
+  };
+
   return (
     <div className="flex flex-col items-center py-6 text-center">
       {/* ── 标题 ── */}
@@ -108,16 +115,15 @@ export function EmptyWorkspace({ selectedPlatform, onSelectPlatform, onSelect }:
 
       {/* ── 社媒平台（5 卡横排，可滚动） ── */}
       <motion.div
-        variants={fadeUp}
+        variants={sectionVariants}
         initial="hidden"
         animate="show"
-        custom={2}
         className="w-full max-w-3xl mb-3"
       >
-        <div className="flex items-center gap-2 mb-2">
+        <motion.div variants={fadeUp} className="flex items-center gap-2 mb-2">
           <span className="text-[10px] font-semibold text-green-400 uppercase tracking-wider">社交平台</span>
           <span className="text-[10px] text-app-text-tertiary">可一键发布</span>
-        </div>
+        </motion.div>
         <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-hide">
           {PUBLISHABLE_PLATFORMS.map((p) => (
             <TemplateCard key={p.id} platform={p} isSelected={selectedPlatform === p.id} onSelect={handleSelect} />
@@ -127,18 +133,15 @@ export function EmptyWorkspace({ selectedPlatform, onSelectPlatform, onSelect }:
 
       {/* ── 文体卡片（7 卡网格） ── */}
       <motion.div
+        variants={sectionVariants}
         initial="hidden"
         animate="show"
-        variants={{
-          hidden: {},
-          show: { transition: { staggerChildren: 0.05, delayChildren: 3 } },
-        }}
         className="w-full max-w-3xl mb-5"
       >
-        <div className="flex items-center gap-2 mb-2">
+        <motion.div variants={fadeUp} className="flex items-center gap-2 mb-2">
           <span className="text-[10px] font-semibold text-blue-400 uppercase tracking-wider">写作文体</span>
           <span className="text-[10px] text-app-text-tertiary">多场景创作</span>
-        </div>
+        </motion.div>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
           {[...CONTENT_STYLES, ...PROFESSIONAL_STYLES].map((p) => (
             <TemplateCard key={p.id} platform={p} isSelected={selectedPlatform === p.id} onSelect={handleSelect} />

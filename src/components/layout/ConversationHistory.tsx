@@ -4,7 +4,7 @@ import { useConversationStore } from '../../stores/useConversationStore';
 import { useAuthStore } from '../../stores/useAuthStore';
 import {
   Search, Plus, MessageSquare, PanelLeftClose, PanelLeft,
-  Pin, PinOff, Trash2, ChevronDown, Loader2, Undo2
+  Pin, PinOff, Trash2, ChevronDown, Loader2
 } from 'lucide-react';
 import type { ChatConversationSummary } from '../../services/api';
 import { useUIStore } from '../../stores/useUIStore';
@@ -76,14 +76,11 @@ export function ConversationHistory({
   const isLoadingMore = useConversationStore((s) => s.isLoadingMore);
   const hasMore = useConversationStore((s) => s.hasMore);
   const searchQuery = useConversationStore((s) => s.searchQuery);
-  const lastDeleted = useConversationStore((s) => s.lastDeleted);
   const loadConversations = useConversationStore((s) => s.loadConversations);
   const loadMoreConversations = useConversationStore((s) => s.loadMoreConversations);
   const deleteConversation = useConversationStore((s) => s.deleteConversation);
   const pinConversation = useConversationStore((s) => s.pinConversation);
   const setSearchQuery = useConversationStore((s) => s.setSearchQuery);
-  const undoDelete = useConversationStore((s) => s.undoDelete);
-  const clearUndoTimer = useConversationStore((s) => s.clearUndoTimer);
 
   const showToast = useUIStore((s) => s.showToast);
 
@@ -91,6 +88,9 @@ export function ConversationHistory({
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 修复 BUG-19：见下方无限滚动 useEffect 中的说明
+  const loadMoreConversationsRef = useRef(loadMoreConversations);
+  useEffect(() => { loadMoreConversationsRef.current = loadMoreConversations; }, [loadMoreConversations]);
 
   // 初始加载 + 监听用户切换重新加载（防止切换账号后看到上一个用户的对话列表）
   const currentUserId = useAuthStore((s) => s.user?.id ?? null);
@@ -126,13 +126,16 @@ export function ConversationHistory({
     const handleScroll = () => {
       const { scrollTop, scrollHeight, clientHeight } = list;
       if (scrollHeight - scrollTop - clientHeight < 100) {
-        loadMoreConversations();
+        // 修复 BUG-19：loadMoreConversations 来自 zustand selector，
+        // 每次 store 更新都会返回新引用（无 useShallow），导致外层 useEffect
+        // 重跑重绑监听。用 ref 持有稳定引用。
+        loadMoreConversationsRef.current();
       }
     };
 
     list.addEventListener('scroll', handleScroll);
     return () => list.removeEventListener('scroll', handleScroll);
-  }, [hasMore, isLoadingMore, loadMoreConversations]);
+  }, [hasMore, isLoadingMore]);
 
   const filtered = useMemo(() => {
     if (!localSearchQuery.trim()) return conversations;
@@ -157,28 +160,16 @@ export function ConversationHistory({
     });
   }, [pinConversation, showToast]);
 
-  const handleDelete = useCallback(async (e: React.MouseEvent, id: string) => {
+  const handleDelete = useCallback(async (e: React.MouseEvent, id: string, title?: string) => {
     e.stopPropagation();
-    await deleteConversation(id, {
+    const ok = await deleteConversation(id, {
       showErrorToast: (msg) => showToast(msg, 'error'),
-      showUndoToast: (deleted, undo) => {
-        showToast(
-          `"${deleted.conversation.title}" 已删除`,
-          'info',
-          { label: '撤销', onClick: undo },
-          5000
-        );
-      },
     });
-  }, [deleteConversation, showToast]);
-
-  const handleUndo = useCallback(async () => {
-    clearUndoTimer();
-    const success = await undoDelete();
-    if (success) {
-      showToast('已恢复对话', 'success');
+    if (ok) {
+      // 删除成功：给用户一个明确反馈。不再提供撤销按钮。
+      showToast(`"${title || '对话'}" 已删除`, 'info');
     }
-  }, [undoDelete, clearUndoTimer, showToast]);
+  }, [deleteConversation, showToast]);
 
   // 折叠状态
   if (collapsed) {
@@ -191,15 +182,6 @@ export function ConversationHistory({
         >
           <Plus className="w-4 h-4 text-primary-400" />
         </button>
-        {lastDeleted && (
-          <button
-            onClick={handleUndo}
-            className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center hover:bg-amber-500/20 transition-colors"
-            title="撤销删除"
-          >
-            <Undo2 className="w-4 h-4 text-amber-400" />
-          </button>
-        )}
         {onToggleCollapse && (
           <button
             onClick={onToggleCollapse}
@@ -243,24 +225,6 @@ export function ConversationHistory({
           <Plus className="w-4 h-4 text-white" />
         </button>
       </div>
-
-      {/* 撤销提示 */}
-      {lastDeleted && (
-        <div className="flex-shrink-0 px-3 py-2 bg-amber-500/10 border-b border-amber-500/20">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-xs text-amber-400 truncate flex-1">
-              "{lastDeleted.conversation.title}" 已删除
-            </span>
-            <button
-              onClick={handleUndo}
-              className="flex items-center gap-1 px-2 py-1 text-xs text-amber-400 hover:text-amber-300 hover:bg-amber-500/20 rounded transition-colors"
-            >
-              <Undo2 className="w-3 h-3" />
-              撤销
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Conversation list */}
       <div ref={listRef} className="flex-1 overflow-y-auto py-2">

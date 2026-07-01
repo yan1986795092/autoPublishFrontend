@@ -225,7 +225,7 @@ export type {
   AppliedSkill,
 } from './skill';
 
-// ===================== Operations Center Types =====================
+// ===================== Monitor Center Types =====================
 
 export type {
   ProductionMetrics,
@@ -233,11 +233,13 @@ export type {
   PlatformProduction,
   PublishingMetrics,
   PlatformHealth,
-  PublishFailure,
+  RecentPublishRecord,
   CostMetrics,
-  TokenDailyTrend,
-  CostStage,
+  CostDailyTrend,
+  CostModel,
   CostDailyDetail,
+  SystemMetrics,
+  RecentFailure,
 } from './operations';
 
 // ===================== Chat/Conversation Types =====================

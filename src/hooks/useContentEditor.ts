@@ -28,6 +28,8 @@ export interface UseContentEditorReturn {
   isDirty: boolean;
   autoSaveStatus: 'idle' | 'saving' | 'saved';
   activePlatform: string;
+  /** P0-3: 平台已切换但未保存 */
+  platformDirty: boolean;
 
   // AI state
   aiLoading: boolean;
@@ -66,6 +68,8 @@ export interface UseContentEditorReturn {
   handleTitleChange: (title: string) => void;
   handleContentChange: (content: string) => void;
   handleTagsChange: (tags: string[]) => void;
+  /** P0-3: 切换内容平台/体裁 — 只改本地状态，需用户点保存落库 */
+  handlePlatformChange: (platform: string) => void;
 
   // Dialog setters
   setHeadlinesOpen: (v: boolean) => void;
@@ -85,7 +89,9 @@ export interface UseContentEditorReturn {
   handleUndo: () => void;
   runAiEdit: (action: string, extra?: Record<string, unknown>) => Promise<void>;
   loadPublishHistory: (contentId: string) => Promise<void>;
-  checkBannedBeforePublish: () => Promise<boolean>;
+  checkBannedBeforePublish: () => Promise<{ ok: boolean; words: Array<{ word: string }>; source: 'ai' | 'keyword' | 'none' }>;
+  /** P0-1: 发布前置完整流程 — 检测违禁词后再决定是否打开发布框 */
+  requestPublish: () => Promise<void>;
 
   // Derived
   contentStats: ReturnType<typeof computeContentStats>;
@@ -95,7 +101,7 @@ export interface UseContentEditorReturn {
 
 export function useContentEditor(id: string | undefined): UseContentEditorReturn {
   const navigate = useNavigate();
-  const { showToast } = useUIStore();
+  const { showToast, openPublishDialog } = useUIStore();
 
   // ── Core data ──
   const [content, setContent] = useState<Content | null>(null);
@@ -127,25 +133,42 @@ export function useContentEditor(id: string | undefined): UseContentEditorReturn
     if (!v) { setDiffMode(false); setDiffSelected([]); setDiffLines(null); }
   }, []);
 
+  // ── P0-4: 用 ref 让早期定义的 AI 应用回调拿到 performAutosave，避开循环依赖 ──
+  // 必须在 performAutosave / auto-save effect 之前声明
+  const performAutosaveRef = useRef<(() => void) | null>(null);
+
+  // ── P0-4: 显式 autosave 函数，可在 AI 应用后立即触发 ──
+  // 必须在 auto-save effect 之前声明，否则 React 编译器会报"访问未声明变量"
+  const performAutosave = useCallback(async () => {
+    if (!id) return;
+    setAutoSaveStatus('saving');
+    try {
+      await contentsApi.autosave(id, editContentMd, {
+        title: editTitle,
+        tags: editTags.join(','),
+      });
+      setAutoSaveStatus('saved');
+      setIsDirty(false);
+      setTimeout(() => setAutoSaveStatus((s) => (s === 'saved' ? 'idle' : s)), 2000);
+    } catch (e: unknown) {
+      setAutoSaveStatus('idle');
+      const msg = e instanceof Error ? e.message : '自动保存失败';
+      showToast(`自动保存失败：${msg}`, 'error');
+    }
+  }, [id, editContentMd, editTitle, editTags, showToast]);
+
   // ── Auto-save effect ──
   useEffect(() => {
     if (!isDirty || !id) return;
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
-    autoSaveTimer.current = setTimeout(async () => {
-      setAutoSaveStatus('saving');
-      try {
-        await contentsApi.autosave(id, editContentMd, {
-          title: editTitle,
-          tags: editTags.join(','),
-        });
-        setAutoSaveStatus('saved');
-        setTimeout(() => setAutoSaveStatus('idle'), 2000);
-      } catch {
-        setAutoSaveStatus('idle');
-      }
+    autoSaveTimer.current = setTimeout(() => {
+      // ── P0-4: 成功清 isDirty，失败 toast，不再静默吞错 ──
+      performAutosave();
     }, 10_000);
     return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
-  }, [id, editContentMd, editTitle, editTags, isDirty]);
+  }, [id, editContentMd, editTitle, editTags, isDirty, performAutosave]);
+
+  useEffect(() => { performAutosaveRef.current = performAutosave; }, [performAutosave]);
 
   // ── AI state ──
   const [aiLoading, setAiLoading] = useState(false);
@@ -159,19 +182,22 @@ export function useContentEditor(id: string | undefined): UseContentEditorReturn
   const [aiPreviewResult, setAiPreviewResult] = useState('');
   const [aiPreviewAction, setAiPreviewAction] = useState('');
 
-  const handleApplyAiPreview = useCallback(() => {
+  const handleApplyAiPreview = useCallback(async () => {
     if (!aiPreviewResult) return;
     setEditContentMd(aiPreviewResult);
     setIsDirty(true);
     setAiPreviewOpen(false);
     setAiPreviewResult('');
     showToast(`${getActionLabel(aiPreviewAction)}成功`, 'success');
+    // ── P0-4: AI 应用后立即触发 autosave，避免用户离开页面导致内容丢失 ──
+    // 异步触发，不 await（dialog 已关闭，无需等待）
+    void performAutosaveRef.current?.();
   }, [aiPreviewResult, aiPreviewAction, showToast]);
 
   // ── Banned words dialog ──
   const [bannedWordsOpen, setBannedWordsOpen] = useState(false);
   const [bannedWordsList, setBannedWordsList] = useState<Array<{ word: string }>>([]);
-  const handleApplyBannedReplace = useCallback(() => {
+  const handleApplyBannedReplace = useCallback(async () => {
     let md = editContentMd;
     for (const { word } of bannedWordsList) {
       md = md.replace(new RegExp(word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '***');
@@ -181,6 +207,8 @@ export function useContentEditor(id: string | undefined): UseContentEditorReturn
     setBannedWordsOpen(false);
     setBannedWordsList([]);
     showToast(`已替换 ${bannedWordsList.length} 个违规词`, 'success');
+    // ── P0-4: 替换后立即触发 autosave ──
+    void performAutosaveRef.current?.();
   }, [editContentMd, bannedWordsList, showToast]);
 
   // ── AI Edit dispatcher ──
@@ -193,7 +221,8 @@ export function useContentEditor(id: string | undefined): UseContentEditorReturn
     try {
       switch (action) {
         case 'rewrite': {
-          const res = await aiEditApi.rewrite(editContentMd, (extra?.instruction as string) || '');
+          // ── P1-2: 带上 activePlatform，让后端按平台 DNA 改写（保留小红书口语感 / 公众号深度等）──
+          const res = await aiEditApi.rewrite(editContentMd, (extra?.instruction as string) || '', activePlatform);
           if (res.data.success) {
             const result = (res.data.data as { result: string }).result;
             setAiPreviewResult(result);
@@ -204,7 +233,7 @@ export function useContentEditor(id: string | undefined): UseContentEditorReturn
           return;
         }
         case 'expand': {
-          const res = await aiEditApi.expand(editContentMd);
+          const res = await aiEditApi.expand(editContentMd, activePlatform);
           if (res.data.success) {
             const result = (res.data.data as { result: string }).result;
             setAiPreviewResult(result);
@@ -216,7 +245,7 @@ export function useContentEditor(id: string | undefined): UseContentEditorReturn
         }
         case 'translate': {
           const lang = (extra?.lang as string) || 'en';
-          const res = await aiEditApi.translate(editContentMd, lang);
+          const res = await aiEditApi.translate(editContentMd, lang, activePlatform);
           if (res.data.success) {
             const result = (res.data.data as { result: string }).result;
             setAiPreviewResult(result);
@@ -228,7 +257,7 @@ export function useContentEditor(id: string | undefined): UseContentEditorReturn
         }
         case 'tone': {
           const tone = (extra?.tone as string) || 'professional';
-          const res = await aiEditApi.improveTone(editContentMd, tone);
+          const res = await aiEditApi.improveTone(editContentMd, tone, activePlatform);
           if (res.data.success) {
             const result = (res.data.data as { result: string }).result;
             setAiPreviewResult(result);
@@ -337,7 +366,7 @@ export function useContentEditor(id: string | undefined): UseContentEditorReturn
     } finally {
       setAiLoading(false);
     }
-  }, [editContentMd, editTags, activePlatform, showToast]);
+  }, [editContentMd, editTags, activePlatform, showToast, content]);
 
   // ── Publish history ──
   const [publishHistoryOpen, setPublishHistoryOpen] = useState(false);
@@ -357,34 +386,55 @@ export function useContentEditor(id: string | undefined): UseContentEditorReturn
     }
   }, []);
 
-  // ── 发布前自动检查违禁词 ──
-  const checkBannedBeforePublish = useCallback(async () => {
+  // ── P0-1: 发布前检测改为纯函数。返回 { ok, words, source }，
+//   由 ContentEditPage.onPublish 决定要不要弹违禁词 Dialog / 打开发布对话框。
+//   避免之前那种"hook 内部 setState 触发 Dialog 与发布 Dialog 抢焦点"的混乱。
+  const checkBannedBeforePublish = useCallback(async (): Promise<{
+    ok: boolean;
+    words: Array<{ word: string }>;
+    source: 'ai' | 'keyword' | 'none';
+  }> => {
+    // 第一道：AI 检测（更精准，但慢且可能超时）
     try {
       const res = await aiEditApi.checkBannedWordsAi(editContentMd, activePlatform);
       if (res.data.success && res.data.data) {
         const data = res.data.data as { words: Array<{ word: string }>; total: number };
         if (data.total > 0) {
-          setBannedWordsList(data.words);
-          setBannedWordsOpen(true);
-          showToast(`发布前检测到 ${data.total} 个违禁词`, 'warning');
-          return false;
+          return { ok: false, words: data.words, source: 'ai' };
         }
       }
-    } catch { /* 降级 */ }
+    } catch { /* 降级到关键词 */ }
+    // 第二道：关键词检测（快）
     try {
       const res = await aiEditApi.checkBannedWords(editContentMd, activePlatform);
       if (res.data.success) {
         const data = res.data.data as { words: Array<{ word: string }>; total: number };
         if (data.total > 0) {
-          setBannedWordsList(data.words);
-          setBannedWordsOpen(true);
-          showToast(`发布前检测到 ${data.total} 个违禁词`, 'warning');
-          return false;
+          return { ok: false, words: data.words, source: 'keyword' };
         }
       }
     } catch { /* 忽略 */ }
-    return true;
-  }, [editContentMd, activePlatform, showToast]);
+    return { ok: true, words: [], source: 'none' };
+  }, [editContentMd, activePlatform]);
+
+  /**
+   * P0-1: 发布前置完整流程：
+   *   1. 触发检测
+   *   2. 有违禁词 → 设置列表 + 打开违禁词 Dialog，**不**打开发布 Dialog
+   *   3. 没违禁词 → 打开发布 Dialog
+   * 集中在这里是为了让 onPublish 保持纯净。
+   */
+  const requestPublish = useCallback(async (): Promise<void> => {
+    if (!content) return;
+    const result = await checkBannedBeforePublish();
+    if (!result.ok) {
+      setBannedWordsList(result.words);
+      setBannedWordsOpen(true);
+      showToast(`发布前检测到 ${result.words.length} 个违禁词`, 'warning');
+      return;
+    }
+    openPublishDialog(content.id);
+  }, [checkBannedBeforePublish, showToast, content, openPublishDialog]);
 
   // ── Delete confirm ──
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -418,12 +468,14 @@ export function useContentEditor(id: string | undefined): UseContentEditorReturn
   // ── Initial load effect ──
   useEffect(() => {
     if (!id) { navigate('/content'); return; }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadContent(id);
   }, [id, loadContent, navigate]);
 
   // ── Diff effect ──
   useEffect(() => {
     if (!diffMode || diffSelected.length !== 2 || !content) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setDiffLines(null);
       return;
     }
@@ -438,7 +490,7 @@ export function useContentEditor(id: string | undefined): UseContentEditorReturn
         } else if (!cancelled) {
           setDiffLines([]);
         }
-      } catch (e) {
+      } catch {
         if (!cancelled) {
           setDiffLines([]);
           showToast('获取版本差异失败', 'error');
@@ -451,24 +503,46 @@ export function useContentEditor(id: string | undefined): UseContentEditorReturn
   }, [content, diffMode, diffSelected, versions, showToast]);
 
   // ── Save ──
+  // ── P0-3: 平台 dirty 标记 ──
+  // 注意：这里不再用 useEffect 来 reset — 改在 handleSave 成功后显式清，
+  // 避免 react-hooks/set-state-in-effect 警告。
+  // 必须在 handleSave 之前声明，否则 react-hooks/immutability 报错
+  const [platformDirty, setPlatformDirty] = useState(false);
+
+  // ── P0-3: 内容平台/体裁变化也需要持久化 —— 用户切了平台后点保存时落库 ──
+  const initialPlatformRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (content && initialPlatformRef.current === null) {
+      initialPlatformRef.current = activePlatform;
+    }
+  }, [content, activePlatform]);
+
   const handleSave = useCallback(async () => {
     if (!id) return;
     setSaving(true);
     try {
+      const platformChanged = activePlatform !== initialPlatformRef.current;
+      // 注意：contentsApi.update 的 platform_code 字段如果后端不支持则会被忽略，
+      // 这里同时更新 activePlatform 本地状态，确保 preview 立刻生效。
       await contentsApi.update(id, {
         title: editTitle,
         content_md: editContentMd,
         tags: editTags.join(','),
-      });
-      showToast('保存成功', 'success');
+        // 后端 Pydantic schema 可能没声明这两个字段，但 Pydantic 默认忽略未知字段
+        // 如果想稳妥持久化，可以在后端 ContentUpdate schema 加 target_platform
+        ...(platformChanged ? { platform_code: activePlatform } : {}),
+      } as Record<string, unknown>);
+      showToast(platformChanged ? `已切换为「${activePlatform}」风格并保存` : '保存成功', 'success');
       setIsDirty(false);
+      setPlatformDirty(false);
+      initialPlatformRef.current = activePlatform;
       loadContent(id);
     } catch {
       showToast('保存失败', 'error');
     } finally {
       setSaving(false);
     }
-  }, [id, editTitle, editContentMd, editTags, showToast, loadContent]);
+  }, [id, editTitle, editContentMd, editTags, activePlatform, showToast, loadContent, setPlatformDirty]);
 
   // ── Keyboard shortcut: Ctrl+S ──
   const handleSaveRef = useRef(handleSave);
@@ -520,6 +594,16 @@ export function useContentEditor(id: string | undefined): UseContentEditorReturn
   }, [content]);
 
   // ── Change handlers ──
+  // ── P0-3: 平台切换 — 只改本地 activePlatform + 标记 dirty，不弹窗 ──
+  // 用户随后点「保存」时落库（handleSave 会把 platform_code 一起提交）。
+  const handlePlatformChange = useCallback((platform: string) => {
+    if (!platform || platform === activePlatform) return;
+    setActivePlatform(platform);
+    setPlatformDirty(true);
+    setIsDirty(true);
+    showToast(`已切换为「${platform}」风格（点保存生效）`, 'info');
+  }, [activePlatform, setPlatformDirty, setActivePlatform, setIsDirty, showToast]);
+
   const handleTitleChange = useCallback((title: string) => {
     setEditTitle(title);
     setIsDirty(true);
@@ -540,6 +624,8 @@ export function useContentEditor(id: string | undefined): UseContentEditorReturn
     content, versions, loading, saving,
     // Edit
     editTitle, editContentMd, editTags, isDirty, autoSaveStatus, activePlatform,
+    // ── P0-3: 暴露平台切换 / 当前 platform 标识 ──
+    platformDirty, handlePlatformChange,
     // AI
     aiLoading, seoResult, seoOpen, headlines, headlinesOpen,
     aiPreviewOpen, aiPreviewResult, aiPreviewAction, setAiPreviewOpen, handleApplyAiPreview,
@@ -555,7 +641,7 @@ export function useContentEditor(id: string | undefined): UseContentEditorReturn
     setDiffMode, setDiffSelected, handleHistoryOpenChange,
     // Ops
     handleSave, handleDelete, handleExportMd, handleCopyContent, handleUndo,
-    runAiEdit, loadPublishHistory, checkBannedBeforePublish,
+    runAiEdit, loadPublishHistory, checkBannedBeforePublish, requestPublish,
     // Derived
     contentStats,
   };

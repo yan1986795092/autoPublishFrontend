@@ -39,6 +39,8 @@ export function useExecutionEngine(_mode: WorkspaceMode): UseExecutionEngineRetu
   void _mode; // reserved for future 'chat'/'create'/'studio' mode routing
 
   // Agent Store 状态订阅
+  // 修复 BUG-27：hasFirstEventReceived 单独订阅，
+  // 否则它在 useShallow 对象里会让整个对象在第一个 SSE 事件到达时重算。
   const agentState = useAgentStore(useShallow((s) => ({
     isRunning: s.isRunning,
     currentResult: s.currentResult,
@@ -59,8 +61,8 @@ export function useExecutionEngine(_mode: WorkspaceMode): UseExecutionEngineRetu
     disconnectWebSocket: s.disconnectWebSocket,
     clearCurrent: s.clearCurrent,
     setAppliedSkill: s.setAppliedSkill,
-    hasFirstEventReceived: s.hasFirstEventReceived,
   })));
+  const hasFirstEventReceived = useAgentStore((s) => s.hasFirstEventReceived);
 
   // Conversation Store 状态订阅
   const conversationState = useConversationStore(useShallow((s) => ({

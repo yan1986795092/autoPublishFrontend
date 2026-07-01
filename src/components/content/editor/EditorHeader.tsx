@@ -1,11 +1,18 @@
 import { ArrowLeft, Send } from 'lucide-react';
 import { Button } from '../../ui/button';
 import { MoreMenu } from './MoreMenu';
+import { PlatformSwitcher } from './PlatformSwitcher';
 
 export interface EditorHeaderProps {
-  contentId: string;
+  /** 当前 platform code */
+  activePlatform: string;
+  /** 平台已切换但未保存 */
+  platformPending?: boolean;
+  /** 切换平台回调 — 不持久化，需用户点保存 */
+  onPlatformChange: (platform: string) => void;
   onBack: () => void;
-  onPublish: (contentId: string) => void;
+  /** 发布按钮回调（内部已包含违禁词检测流程） */
+  onPublish: () => void;
   onExportMd: () => void;
   onCopyContent: () => void;
   onHistory: () => void;
@@ -14,7 +21,9 @@ export interface EditorHeaderProps {
 }
 
 export function EditorHeader({
-  contentId,
+  activePlatform,
+  platformPending,
+  onPlatformChange,
   onBack,
   onPublish,
   onExportMd,
@@ -34,7 +43,13 @@ export function EditorHeader({
         <ArrowLeft className="w-4 h-4" />
       </Button>
       <div className="flex items-center gap-2 shrink-0">
-        <Button variant="primary" size="sm" onClick={() => onPublish(contentId)} className="h-7 text-xs gap-1.5">
+        {/* ── P0-3: 平台切换器 ── */}
+        <PlatformSwitcher
+          current={activePlatform}
+          onChange={onPlatformChange}
+          pending={platformPending}
+        />
+        <Button variant="primary" size="sm" onClick={() => onPublish()} className="h-7 text-xs gap-1.5">
           <Send className="h-3 w-3" />
           发布
         </Button>

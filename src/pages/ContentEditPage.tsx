@@ -2,7 +2,6 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { FileText } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { SkeletonCard, SkeletonText } from '../components/ui/skeleton';
-import { useUIStore } from '../stores/useUIStore';
 import { useContentEditor } from '../hooks/useContentEditor';
 import { EditorShell } from '../components/content/editor/EditorShell';
 import { EditorHeader } from '../components/content/editor/EditorHeader';
@@ -16,8 +15,9 @@ import { EditorDialogs } from '../components/content/editor/EditorDialogs';
 export function ContentEditPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { openPublishDialog } = useUIStore();
   const editor = useContentEditor(id);
+  // ── P0-1: 移除 openPublishDialog 直接调用，统一走 editor.requestPublish ──
+  // requestPublish 内部会先做违禁词检测，再决定打开哪个 Dialog
 
   // ── Loading state ──
   if (editor.loading) {
@@ -51,12 +51,12 @@ export function ContentEditPage() {
       <div className="flex-1 min-w-0 space-y-4">
         <EditorShell>
           <EditorHeader
-            contentId={editor.content.id}
+            // ── P0-3: 平台切换器接入 ──
+            activePlatform={editor.activePlatform}
+            platformPending={editor.platformDirty}
+            onPlatformChange={editor.handlePlatformChange}
             onBack={() => navigate(-1)}
-            onPublish={async () => {
-              const safe = await editor.checkBannedBeforePublish();
-              if (safe) openPublishDialog(editor.content!.id);
-            }}
+            onPublish={editor.requestPublish}
             onExportMd={editor.handleExportMd}
             onCopyContent={editor.handleCopyContent}
             onHistory={() => editor.setHistoryOpen(true)}
@@ -101,7 +101,7 @@ export function ContentEditPage() {
         <EditorDialogs editor={editor} />
       </div>
       <PreviewPanel
-        platformCode={editor.content.platform_code}
+        platformCode={editor.activePlatform}
         title={editor.editTitle}
         contentMd={editor.editContentMd}
         tags={editor.editTags}

@@ -312,10 +312,34 @@ export function MessageBubble({
   return null;
 }
 
+// 显式比较流式/重渲染相关字段，避免依赖 message 引用。
+// 之前的 prev.message !== next.message 在 store 用 Object.assign 原地改时会失效，
+// 导致 SSE 流式更新时 MessageBubble 不重新渲染。
 export const MessageBubbleMemo = Object.assign(
   React.memo(MessageBubble, (prev, next) => {
-    if (prev.message !== next.message) return false;
     if (prev.copiedId !== next.copiedId) return false;
+    const pm = prev.message;
+    const nm = next.message;
+    if (pm === nm) {
+      // 引用相同但其他 props 可能仍变了 — 下面按字段再核
+    }
+    if (pm.id !== nm.id) return false;
+    if (pm.content !== nm.content) return false;
+    if (pm.status !== nm.status) return false;
+    if (pm.role !== nm.role) return false;
+    if (pm.kind !== nm.kind) return false;
+    if (pm.renderMode !== nm.renderMode) return false;
+    if (pm.result !== nm.result) return false;
+    if (pm.timestamp !== nm.timestamp) return false;
+    // 仅在真正运行时才对比 stages，避免无意义重渲染
+    if (pm.status === 'running' || nm.status === 'running') {
+      if (prev.stages !== next.stages) return false;
+      if (prev.currentStage !== next.currentStage) return false;
+      if (prev.thinkingSteps !== next.thinkingSteps) return false;
+      if (prev.llmChunks !== next.llmChunks) return false;
+      if (prev.reasoningChunks !== next.reasoningChunks) return false;
+      if (prev.runningTime !== next.runningTime) return false;
+    }
     return true;
   }),
   { displayName: 'MessageBubbleMemo' },

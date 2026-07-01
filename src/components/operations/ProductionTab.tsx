@@ -1,62 +1,42 @@
 import { useState, useEffect, useCallback } from 'react';
-import React from 'react';
 import { motion } from 'framer-motion';
 import {
-  Bar, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, ComposedChart,
+  ComposedChart, Bar, Line, XAxis, YAxis,
+  CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
-import { FileText, TrendingUp, Cpu, Clock, AlertTriangle } from 'lucide-react';
-import {
-  Globe, MessageSquare, Video,
-  BookOpen, Share2, Star,
-} from 'lucide-react';
+import { FileText, TrendingUp, Eye, MessageSquare, Clock, AlertTriangle } from 'lucide-react';
+import { Globe, MessageSquare as MDIcon, Video, BookOpen, Share2, Star } from 'lucide-react';
 import { operationsApi } from '../../services/api';
 import { StatCard } from './StatCard';
 import type { ProductionMetrics } from '../../types/operations';
 
-// ── Custom Tooltips ──
+// ── Tooltip ──
 function TrendTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
   return (
     <div className="rounded-lg border border-app-border/50 bg-app-surface p-3 shadow-lg text-[11px]">
       <p className="font-medium text-app-text mb-1">{label}</p>
-      {payload.map((entry: any, i: number) => (
-        <p key={i} style={{ color: entry.color }}>
-          {entry.name}: {entry.value}{entry.name === '累积总量' ? ' 篇' : ' 篇'}
+      {payload.map((e: any, i: number) => (
+        <p key={i} style={{ color: e.color }}>
+          {e.name}: {e.value}{e.name === '累积总量' ? ' 篇' : ' 篇'}
         </p>
       ))}
     </div>
   );
 }
 
-function PlatformTooltip({ active, payload, label }: any) {
-  if (!active || !payload?.length) return null;
-  return (
-    <div className="rounded-lg border border-app-border/50 bg-app-surface p-3 shadow-lg text-[11px]">
-      <p className="font-medium text-app-text mb-1">{label}</p>
-      {payload.map((entry: any, i: number) => (
-        <p key={i} style={{ color: entry.color }}>
-          {entry.payload.count} 篇 ({entry.payload.percentage}%)
-        </p>
-      ))}
-    </div>
-  );
+function formatPct(v: number) { return `${(v * 100).toFixed(1)}%`; }
+function fmtViews(n: number) {
+  if (n >= 10000) return `${(n / 10000).toFixed(1)}万`;
+  return String(n);
 }
 
-function formatPct(v: number): string {
-  return `${(v * 100).toFixed(1)}%`;
-}
-
-const PLATFORM_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
-  wechat: MessageSquare,
-  xiaohongshu: Star,
-  zhihu: BookOpen,
-  bilibili: Video,
-  toutiao: Globe,
-  weibo: Share2,
-  jianshu: FileText,
-  csdn: BookOpen,
+const PLATFORM_ICON_MAP: Record<string, React.ElementType> = {
+  wechat: MDIcon, xiaohongshu: Star, zhihu: BookOpen,
+  bilibili: Video, toutiao: Globe, weibo: Share2,
 };
+
+const POLL_INTERVAL = 60_000;
 
 export function ProductionTab() {
   const [data, setData] = useState<ProductionMetrics | null>(null);
@@ -69,25 +49,18 @@ export function ProductionTab() {
     setError('');
     try {
       const res = await operationsApi.getProductionMetrics();
-      if (res.data.success && res.data.data) {
-        setData(res.data.data);
-      } else {
-        setError('获取数据失败');
-      }
-    } catch {
-      setError('网络错误');
-    } finally {
-      setLoading(false);
-    }
+      if (res.data.success && res.data.data) setData(res.data.data);
+      else setError('获取数据失败');
+    } catch { setError('网络错误'); }
+    finally { setLoading(false); }
   }, []);
 
   useEffect(() => {
     fetch();
-    const timer = setInterval(() => fetch(true), 60_000);
-    return () => clearInterval(timer);
+    const t = setInterval(() => fetch(true), POLL_INTERVAL);
+    return () => clearInterval(t);
   }, [fetch]);
 
-  // ── Loading ──
   if (loading && !data) {
     return (
       <div className="flex items-center justify-center h-48">
@@ -99,7 +72,6 @@ export function ProductionTab() {
     );
   }
 
-  // ── Error ──
   if (error && !data) {
     return (
       <div className="flex items-center justify-center h-48">
@@ -114,60 +86,61 @@ export function ProductionTab() {
 
   if (!data) return null;
 
-  // ── KPI colors ──
-  const dailyColor = data.daily.change_vs_yesterday >= 0 ? 'text-green-400' : 'text-red-400';
+  const dailyColor  = data.daily.change_vs_yesterday >= 0 ? 'text-green-400' : 'text-red-400';
   const weeklyColor = data.weekly.change_vs_last_week >= 0 ? 'text-green-400' : 'text-red-400';
-  const aiColor = data.ai_generation_ratio >= 0.7 ? 'text-green-400' : data.ai_generation_ratio < 0.4 ? 'text-yellow-400' : 'text-blue-400';
-  const timeColor = data.avg_completion_time_min < 10 ? 'text-green-400' : data.avg_completion_time_min < 20 ? 'text-yellow-400' : 'text-red-400';
+  const viewsColor  = data.change_vs_last_week_views >= 0 ? 'text-green-400' : 'text-red-400';
+  const timeColor   = data.avg_end_to_end_time_min < 30 ? 'text-green-400'
+                     : data.avg_end_to_end_time_min < 120 ? 'text-yellow-400' : 'text-red-400';
 
   const trendData = data.trend.slice(-trendDays);
-  const platformData = [...data.platform_distribution].sort((a, b) => b.count - a.count);
+  const platData  = [...data.platform_distribution].sort((a, b) => b.count - a.count);
+  const maxCount  = platData[0]?.count || 1;
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+
       {/* KPI 横幅 */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <StatCard
           icon={FileText} label="今日产量"
-          value={data.daily.count}
-          sub={`vs 昨日`}
+          value={data.daily.count} sub="今日完成"
           color={dailyColor}
           trend={data.daily.change_vs_yesterday * 100}
+          trendLabel="vs 昨日"
         />
         <StatCard
           icon={TrendingUp} label="本周总量"
-          value={data.weekly.count}
-          sub="本周累计"
+          value={data.weekly.count} sub="本周累计"
           color={weeklyColor}
           trend={data.weekly.change_vs_last_week * 100}
+          trendLabel="vs 上周"
         />
         <StatCard
-          icon={Cpu} label="AI 生成占比"
-          value={formatPct(data.ai_generation_ratio)}
-          color={aiColor}
-          sub={`${Math.round(data.ai_generation_ratio * 100)}% 由 AI 生成`}
+          icon={Eye} label="平均阅读量"
+          value={fmtViews(data.avg_view_count)}
+          color={viewsColor}
+          sub={`vs 上周 ${data.change_vs_last_week_views >= 0 ? '+' : ''}${(data.change_vs_last_week_views * 100).toFixed(1)}%`}
+          trend={data.change_vs_last_week_views * 100}
         />
         <StatCard
-          icon={Clock} label="平均完成耗时"
-          value={`${Math.round(data.avg_completion_time_min)} min`}
+          icon={Clock} label="平均完成时长"
+          value={`${Math.round(data.avg_end_to_end_time_min)} min`}
           color={timeColor}
-          sub={data.avg_completion_time_min < 10 ? '效率良好' : '需关注'}
+          sub={data.avg_end_to_end_time_min < 30 ? '较快' : data.avg_end_to_end_time_min < 120 ? '正常' : '较慢'}
         />
       </div>
 
-      {/* 生产趋势图 */}
+      {/* 产量趋势 */}
       <div className="rounded-lg border border-app-border/50 bg-app-surface p-4 shadow-sm">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-xs font-medium text-app-text">生产趋势</h3>
+          <h3 className="text-xs font-medium text-app-text">产量趋势</h3>
           <div className="flex gap-1">
-            {([7, 30] as const).map((d) => (
+            {([7, 30] as const).map(d => (
               <button
                 key={d}
                 onClick={() => setTrendDays(d)}
                 className={`px-2 py-0.5 text-[10px] rounded transition-colors ${
-                  trendDays === d
-                    ? 'bg-primary-600 text-white'
-                    : 'text-app-text-tertiary hover:text-app-text-secondary'
+                  trendDays === d ? 'bg-primary-600 text-white' : 'text-app-text-tertiary hover:text-app-text-secondary'
                 }`}
               >
                 {d}日
@@ -175,16 +148,16 @@ export function ProductionTab() {
             ))}
           </div>
         </div>
-        <ResponsiveContainer width="100%" height={240}>
+        <ResponsiveContainer width="100%" height={220}>
           <ComposedChart data={trendData}>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border, #2d2d3d)" />
-            <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#888' }}
-              tickFormatter={(v: string) => v.slice(5)} />
+            <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#888' }} tickFormatter={v => v.slice(5)} />
             <YAxis yAxisId="left" tick={{ fontSize: 10, fill: '#888' }} />
             <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10, fill: '#888' }} />
             <Tooltip content={<TrendTooltip />} />
             <Bar yAxisId="left" dataKey="completed" name="每日完成" fill="#3b82f6" radius={[3, 3, 0, 0]} />
-            <Line yAxisId="right" type="monotone" dataKey="cumulative" name="累积总量" stroke="#8b5cf6" strokeWidth={2} dot={false} />
+            <Line yAxisId="right" type="monotone" dataKey="cumulative" name="累积总量"
+              stroke="#8b5cf6" strokeWidth={2} dot={false} />
           </ComposedChart>
         </ResponsiveContainer>
       </div>
@@ -193,9 +166,8 @@ export function ProductionTab() {
       <div className="rounded-lg border border-app-border/50 bg-app-surface p-4 shadow-sm">
         <h3 className="text-xs font-medium text-app-text mb-4">平台产量分布</h3>
         <div className="space-y-3">
-          {platformData.map((p) => {
-            const Icon = PLATFORM_ICONS[p.platform_code] || Globe;
-            const maxCount = platformData[0]?.count || 1;
+          {platData.map(p => {
+            const Icon = PLATFORM_ICON_MAP[p.platform_code] || Globe;
             const pct = Math.round((p.count / maxCount) * 100);
             return (
               <div key={p.platform_code} className="flex items-center gap-3">
@@ -203,25 +175,27 @@ export function ProductionTab() {
                 <span className="text-xs text-app-text-secondary min-w-[80px]">{p.platform_name}</span>
                 <div className="flex-1 h-2 rounded-full bg-app-border/30 overflow-hidden">
                   <motion.div
-                    initial={{ width: 0 }}
-                    animate={{ width: `${pct}%` }}
+                    initial={{ width: 0 }} animate={{ width: `${pct}%` }}
                     className="h-full rounded-full bg-gradient-to-r from-blue-500 to-purple-500"
                     transition={{ duration: 0.6, ease: 'easeOut' }}
                   />
                 </div>
                 <span className="text-[10px] text-app-text-secondary shrink-0">
-                  {p.percentage.toFixed(1)}% ({p.count})
+                  {p.percentage >= 0.01 ? `${(p.percentage * 100).toFixed(1)}%` : '<1%'} ({p.count})
                 </span>
               </div>
             );
           })}
+          {platData.length === 0 && (
+            <p className="text-xs text-app-text-tertiary text-center py-4">暂无数据</p>
+          )}
         </div>
       </div>
 
-      {/* 自动刷新 */}
+      {/* 刷新提示 */}
       <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-app-border/50 bg-app-surface">
         <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-        <span className="text-[10px] text-app-text-tertiary">每 60 秒自动刷新</span>
+        <span className="text-[10px] text-app-text-tertiary">每 {POLL_INTERVAL / 1000} 秒自动刷新</span>
       </div>
     </motion.div>
   );

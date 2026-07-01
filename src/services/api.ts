@@ -178,20 +178,20 @@ export const aiEditApi = {
   parseUrl: (url: string) =>
     apiClient.post<ApiResponse<{ title: string; description: string; content: string; images: string[]; domain: string }>>('/api/v1/contents/ai-edit/parse-url', { url }),
 
-  rewrite: (text: string, instruction?: string) =>
-    apiClient.post<ApiResponse<{ result: string }>>('/api/v1/contents/ai-edit/rewrite', { text, instruction }),
+  rewrite: (text: string, instruction?: string, platform?: string) =>
+    apiClient.post<ApiResponse<{ result: string }>>('/api/v1/contents/ai-edit/rewrite', { text, instruction, platform }),
 
-  expand: (text: string) =>
-    apiClient.post<ApiResponse<{ result: string }>>('/api/v1/contents/ai-edit/expand', { text }),
+  expand: (text: string, platform?: string) =>
+    apiClient.post<ApiResponse<{ result: string }>>('/api/v1/contents/ai-edit/expand', { text, platform }),
 
-  improveTone: (text: string, targetTone: string) =>
-    apiClient.post<ApiResponse<{ result: string }>>('/api/v1/contents/ai-edit/improve-tone', { text, target_tone: targetTone }),
+  improveTone: (text: string, targetTone: string, platform?: string) =>
+    apiClient.post<ApiResponse<{ result: string }>>('/api/v1/contents/ai-edit/improve-tone', { text, target_tone: targetTone, platform }),
 
-  summarize: (text: string) =>
-    apiClient.post<ApiResponse<{ result: string }>>('/api/v1/contents/ai-edit/summarize', { text }),
+  summarize: (text: string, platform?: string) =>
+    apiClient.post<ApiResponse<{ result: string }>>('/api/v1/contents/ai-edit/summarize', { text, platform }),
 
-  translate: (text: string, targetLang: string) =>
-    apiClient.post<ApiResponse<{ result: string }>>('/api/v1/contents/ai-edit/translate', { text, target_lang: targetLang }),
+  translate: (text: string, targetLang: string, platform?: string) =>
+    apiClient.post<ApiResponse<{ result: string }>>('/api/v1/contents/ai-edit/translate', { text, target_lang: targetLang, platform }),
 };
 
 export const platformsApi = {
@@ -314,6 +314,19 @@ export const operationsApi = {
   getCostMetrics: () =>
     apiClient.get<{ success: boolean; data: import('../types/operations').CostMetrics }>(
       '/api/v1/metrics/cost'
+    ),
+
+  /** 设置月度预算 */
+  setBudget: (budget: number) =>
+    apiClient.patch<{ success: boolean; data: { monthly_budget: number } }>(
+      '/api/v1/metrics/budget',
+      { budget }
+    ),
+
+  /** 获取系统状态 */
+  getSystemMetrics: () =>
+    apiClient.get<{ success: boolean; data: import('../types/operations').SystemMetrics }>(
+      '/api/v1/metrics/system'
     ),
 };
 
@@ -439,6 +452,36 @@ export const generateStream = (
               } catch {
                 // skip malformed JSON
               }
+            }
+          }
+        }
+      }
+
+      // 修复 BUG-20：连接正常关闭时，最后一段没有 \n\n 结尾的事件块
+      // 仍残留在 buffer 中（最后一句 token、最后一条 SSE 事件等），
+      // 必须 flush 一次以避免丢字。
+      if (buffer.trim()) {
+        const normalizedTail = buffer.replace(/\r\n/g, '\n');
+        for (const line of normalizedTail.split('\n')) {
+          if (line.startsWith('data: ')) {
+            try {
+              const parsed = JSON.parse(line.slice(6));
+              switch (parsed.type) {
+                case 'token':
+                  callbacks.onToken(parsed.content);
+                  break;
+                case 'title':
+                  callbacks.onTitle(parsed.content);
+                  break;
+                case 'done':
+                  callbacks.onDone(parsed);
+                  break;
+                case 'error':
+                  callbacks.onError(parsed.message);
+                  break;
+              }
+            } catch {
+              // skip malformed JSON
             }
           }
         }
@@ -582,117 +625,6 @@ export interface ChatConversationDetail {
   conversation: ChatConversationSummary;
   messages: ChatMessageRecord[];
 }
-
-const obsClient: AxiosInstance = axios.create({
-  baseURL: API_BASE_URL,
-  timeout: 30000,
-  headers: { 'Content-Type': 'application/json' },
-});
-
-obsClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
-  const token = useAuthStore.getState().accessToken;
-  if (token && config.headers) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
-
-const unwrapApiData = <T>(payload: T | { data: T }): T => {
-  if (payload && typeof payload === 'object' && 'data' in payload) {
-    return (payload as { data: T }).data;
-  }
-  return payload as T;
-};
-
-export const observabilityApi = {
-  searchTraces(params: {
-    service?: string;
-    operation?: string;
-    trace_id?: string;
-    keyword?: string;
-    span_type?: string;
-    status?: 'error' | 'ok' | 'all';
-    time?: string;
-    page?: number;
-    page_size?: number;
-  }): Promise<TraceSearchResult> {
-    return obsClient
-      .get<TraceSearchResult | { data: TraceSearchResult }>('/api/v1/observability/traces', { params })
-      .then((r) => unwrapApiData(r.data));
-  },
-
-  searchAgentEvents(params: {
-    service?: string;
-    session_id?: string;
-    run_id?: string;
-    agent_name?: string;
-    event_type?: string;
-    keyword?: string;
-    level?: string;
-    time?: string;
-    page?: number;
-    page_size?: number;
-  }): Promise<AgentEventSearchResult> {
-    return obsClient
-      .get<AgentEventSearchResult | { data: AgentEventSearchResult }>('/api/v1/observability/agent-events', { params })
-      .then((r) => unwrapApiData(r.data));
-  },
-
-  getTrace(traceId: string): Promise<TraceDetail> {
-    return obsClient
-      .get<TraceDetail | { data: TraceDetail }>(`/api/v1/observability/traces/${traceId}`)
-      .then((r) => unwrapApiData(r.data));
-  },
-
-  getSpan(traceId: string, spanId: string): Promise<Record<string, unknown>> {
-    return obsClient
-      .get(`/api/v1/observability/traces/${traceId}/spans/${spanId}`)
-      .then((r) => r.data as Record<string, unknown>);
-  },
-
-  getStats(params: { service?: string; time?: string }): Promise<TraceStats> {
-    return obsClient
-      .get<TraceStats | { data: TraceStats }>('/api/v1/observability/stats', { params })
-      .then((r) => unwrapApiData(r.data));
-  },
-
-  getDashboardOverview(): Promise<DashboardOverview> {
-    return obsClient
-      .get<{ data: DashboardOverview }>('/api/v1/observability/dashboard/overview')
-      .then((r) => r.data.data);
-  },
-
-  searchLogs(params: {
-    keyword: string;
-    service?: string;
-    level?: string;
-    time?: string;
-    page?: number;
-    page_size?: number;
-  }): Promise<{
-    total: number;
-    page: number;
-    page_size: number;
-    hits: Array<Record<string, unknown>>;
-    error?: string;
-  }> {
-    return obsClient
-      .get<{
-        total: number;
-        page: number;
-        page_size: number;
-        hits: Array<Record<string, unknown>>;
-        error?: string;
-      }>('/api/v1/observability/logs', { params })
-      .then((r) => r.data);
-  },
-
-  queryMetrics(query: string): Promise<unknown> {
-    return obsClient
-      .get('/api/v1/observability/metrics', { params: { query } })
-      .then((r) => r.data);
-  },
-};
 
 // ===================== Chat API =====================
 

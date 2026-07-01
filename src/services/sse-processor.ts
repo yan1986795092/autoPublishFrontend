@@ -27,23 +27,37 @@ export class SSEProcessor {
     const dataLines: string[] = [];
 
     for (const line of lines) {
-      if (line.startsWith('event: ')) {
-        eventType = line.slice(7).trim();
-      } else if (line.startsWith('data: ')) {
-        dataLines.push(line.slice(6));
+      if (line.startsWith('event:')) {
+        // New event type starts — emit the previous event if valid
+        if (eventType && dataLines.length > 0) {
+          const rawData = dataLines.join('\n');
+          try {
+            events.push({
+              type: eventType,
+              data: JSON.parse(rawData) as Record<string, unknown>,
+            });
+          } catch {
+            // skip malformed data
+          }
+        }
+        eventType = line.slice(line.indexOf(':') + 1).trim();
+        dataLines.length = 0;
+      } else if (line.startsWith('data:')) {
+        dataLines.push(line.slice(line.indexOf(':') + 1));
       }
     }
 
-    if (!eventType || dataLines.length === 0) return events;
-
-    const rawData = dataLines.join('\n');
-    try {
-      events.push({
-        type: eventType,
-        data: JSON.parse(rawData) as Record<string, unknown>,
-      });
-    } catch {
-      // skip malformed data
+    // Emit the last event in the block
+    if (eventType && dataLines.length > 0) {
+      const rawData = dataLines.join('\n');
+      try {
+        events.push({
+          type: eventType,
+          data: JSON.parse(rawData) as Record<string, unknown>,
+        });
+      } catch {
+        // skip malformed data
+      }
     }
 
     return events;

@@ -1,10 +1,7 @@
-import { useState, useMemo } from 'react';
 import {
   Hash, SearchIcon, Send,
   Loader2, AlertTriangle, XCircle,
 } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { contentsApi } from '../../../services/api';
 import { Button } from '../../ui/button';
 import { ConfirmDialog } from '../../ui/ConfirmDialog';
@@ -19,6 +16,14 @@ import type { UseContentEditorReturn } from '../../../hooks/useContentEditor';
 
 interface EditorDialogsProps {
   editor: UseContentEditorReturn;
+}
+
+// Banned word item 类型（来自后端 banned words 检查）
+interface BannedWordItem {
+  word: string;
+  reason?: string;
+  suggestion?: string;
+  severity?: 'high' | 'medium' | 'low';
 }
 
 export function EditorDialogs({ editor }: EditorDialogsProps) {
@@ -205,30 +210,33 @@ export function EditorDialogs({ editor }: EditorDialogsProps) {
               发现 <span className="text-red-400 font-medium">{bannedWordsList.length}</span> 个违禁词：
             </p>
             <div className="max-h-48 overflow-y-auto space-y-1.5">
-              {bannedWordsList.map((item, i) => (
+              {bannedWordsList.map((item, i) => {
+                const w = item as BannedWordItem;
+                return (
                 <div key={i} className="px-3 py-2 rounded-lg bg-red-500/5 border border-red-500/10">
                   <div className="flex items-center gap-2">
                     <XCircle className="w-3.5 h-3.5 text-red-400 shrink-0" />
-                    <span className="text-xs text-red-300 font-mono">{item.word}</span>
-                    {(item as any).severity && (
+                    <span className="text-xs text-red-300 font-mono">{w.word}</span>
+                    {item.severity && (
                       <span className={cn(
                         'text-[9px] px-1 py-0.5 rounded font-medium',
-                        (item as any).severity === 'high' ? 'bg-red-500/20 text-red-400' :
-                        (item as any).severity === 'medium' ? 'bg-orange-500/20 text-orange-400' :
+                        item.severity === 'high' ? 'bg-red-500/20 text-red-400' :
+                        w.severity === 'medium' ? 'bg-orange-500/20 text-orange-400' :
                         'bg-yellow-500/20 text-yellow-400'
                       )}>
-                        {(item as any).severity === 'high' ? '高危' : (item as any).severity === 'medium' ? '中危' : '低危'}
+                        {w.severity === 'high' ? '高危' : w.severity === 'medium' ? '中危' : '低危'}
                       </span>
                     )}
                   </div>
-                  {(item as any).reason && (
-                    <p className="text-[10px] text-red-300/70 mt-0.5 ml-6">{(item as any).reason}</p>
+                  {w.reason && (
+                    <p className="text-[10px] text-red-300/70 mt-0.5 ml-6">{w.reason}</p>
                   )}
-                  {(item as any).suggestion && (
-                    <p className="text-[10px] text-green-400/70 mt-0.5 ml-6">建议：{(item as any).suggestion}</p>
+                  {w.suggestion && (
+                    <p className="text-[10px] text-green-400/70 mt-0.5 ml-6">建议：{w.suggestion}</p>
                   )}
                 </div>
-              ))}
+              );
+              })}
             </div>
             <div className="flex justify-end gap-2 pt-1">
               <Button variant="outline" size="sm" onClick={() => setBannedWordsOpen(false)}>关闭</Button>

@@ -326,6 +326,11 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     // 防止重复调用
     if (get().isRunning) { get().stopStreaming(); }
 
+    // 修复 BUG-17：stopStreaming() 触发的 ondone/onerror handler 可能在事件循环
+    // 中还在排队，await 一帧让事件循环先处理完这些 handler，避免前一次的
+    // msgIdRef.current 被错误地用于本次消息。
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
     const token = useAuthStore.getState().accessToken;
     const conversationStore = useConversationStore.getState();
 
@@ -598,11 +603,13 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       conversationStore.updateMessage(msgIdRef.current, {
         status: 'completed', content: fullText, result: resultWithTracking,
       });
+      // 修复 BUG-13：成功完成后清除 error，避免上次失败的错误信息残留
       set((s) => ({
         currentResult: resultWithReview,
         isRunning: false,
         currentTaskId: null,
         thinkingSteps: finalSteps,
+        error: null,
         streamEvents: timelineEvents.length > 0 ? timelineEvents : s.streamEvents,
       }));
       
@@ -869,7 +876,11 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       clearTimeout(s._reconnectTimer);
     }
 
-    // 2. 清空所有状态
+    // 2. 修复 BUG-12：清空所有属于本 store 的状态。
+    // 注意：对话管理（messages / conversationId / conversationList 等）已迁移到
+    // useConversationStore，本 store 类型里也没声明这些字段。如果把它们写进
+    // set()，在 zustand 默认的浅合并下会被静默丢弃，造成"看上去清了实际没清"的隐患。
+    // 这里只重置本 store 实际持有的字段。
     set({
       currentTaskId: null,
       currentTask: null,
@@ -888,17 +899,16 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       wsConnectionState: 'disconnected',
       _ws: null,
       _reconnectTimer: null,
-      _inflightLoadId: null,
       _abortController: null,
       _streamingProcessor: null,
-      messages: [],
-      conversationId: null,
-      conversationList: [],
-      conversationListTotal: 0,
+      // 预览相关：本 store 持有 previewContent/previewPlatform/previewContentType
+      // 用户切换账号时也应清空，避免上一个用户的内容泄露
+      previewContent: null,
+      previewPlatform: null,
+      previewContentType: null,
+      // 技能选择：跨账号不应该保留（不同用户的技能库可能不同）
       appliedSkill: null,
       appliedSkillFull: null,
-      previewContent: null,
-      previewContentType: null,
     });
 
     // 3. 清 localStorage

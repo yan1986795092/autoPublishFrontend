@@ -9,10 +9,10 @@ import { CostTab } from '../components/operations/CostTab';
 import { SystemTab } from '../components/operations/SystemTab';
 
 const TAB_ITEMS = [
-  { value: 'production', label: '产能看板' },
-  { value: 'publishing', label: '发布监控' },
-  { value: 'cost', label: '成本分析' },
-  { value: 'system', label: '系统监控' },
+  { value: 'production', label: '内容看板' },
+  { value: 'publishing', label: '发布看板' },
+  { value: 'cost',       label: '成本看板' },
+  { value: 'system',     label: '系统状态' },
 ] as const;
 
 const LS_KEY = 'operations_tab';
@@ -51,8 +51,8 @@ export function OperationsPage() {
               <BarChart3 className="w-4 h-4 text-primary-400" />
             </div>
             <div>
-              <h1 className="text-base font-semibold text-app-text leading-none tracking-tight">运维中心</h1>
-              <p className="text-xs text-app-text-tertiary mt-0.5 leading-none">全面掌控产能、发布与成本</p>
+              <h1 className="text-base font-semibold text-app-text leading-none tracking-tight">监控中心</h1>
+              <p className="text-xs text-app-text-tertiary mt-0.5 leading-none">实时掌握内容产能与成本</p>
             </div>
           </div>
           <Button onClick={handleRefresh} variant="outline" size="sm">

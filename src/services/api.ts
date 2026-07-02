@@ -285,8 +285,19 @@ export const agentApi = {
     return `${wsBase || 'ws://localhost:8000'}/api/v1/agent/ws/${taskId}${qs}`;
   },
 
-  /** SSE 流式执行：通过 fetch + ReadableStream 接收实时事件 */
+  /** SSE 流式执行：通过 fetch + ReadableStream 接收实时事件
+
+   * @deprecated `/agent/stream` 自 2026-07-01 起标 deprecated，2026-09-30 下线。
+   * 请改用 streamV2Url() — 业务轨 SSE 不再下发内部状态，result 用收敛 schema。
+   * 旧客户端可继续使用本端点（向后兼容）。
+   */
   streamUrl: () => `${API_BASE_URL}/api/v1/agent/stream`,
+
+  /** SSE 流式执行 v2（spec 2026-07-01）：
+   * - 实时不下发 thinking_step / reasoning（前端 store 自累积）
+   * - result 用收敛 schema（不携带运行时缓冲字段）
+   */
+  streamV2Url: () => `${API_BASE_URL}/api/v1/agent/stream/v2`,
 
   /** 获取系统监控指标 */
   getMetrics: () =>
@@ -698,7 +709,25 @@ export const chatApi = {
       success: boolean;
       data: { id: string };
     }>(`/api/v1/chat/messages/${messageId}`),
+};
 
+/**
+ * 已被废弃的接口
+ *
+ * 这些端点即将在 2026-09-30 下线。
+ * 调用方应迁移到 chatApi 的标准 createConversation + addMessage 流程。
+ *
+ * - quickStart: 改用 chatApi.createConversation() + chatApi.addMessage()
+ * - （未来还有更多会挪到这里）
+ *
+ * 保留在这里是为了让历史调用点编译时拿到 @deprecated 警告，便于全量搜索。
+ */
+export const chatApiDeprecated = {
+  /**
+   * @deprecated since 2026-07-01
+   * 改用 chatApi.createConversation() + chatApi.addMessage() 两次调用替代。
+   * 后端 /api/v1/chat/quick-start 将在 2026-09-30 下线。
+   */
   quickStart: (data: {
     role: string;
     content: string;

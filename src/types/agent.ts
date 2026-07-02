@@ -129,6 +129,34 @@ export interface RenderPayload {
   preview_text?: string;
   title?: string;
   platform?: string;
+  /** 平台结构化数据（与 preview 组件 AdapterData 对应） */
+  structured?: PlatformStructuredData;
+}
+
+/** 平台结构化数据 — AgentResult.output 可选携带这些字段
+ *
+ * 后端 Agent 在产出 full_text 同时，可附带封面、互动数、作者、标签等元数据。
+ * 字段都是可选的：缺失时预览组件走降级占位，而不是编造假数据。
+ */
+export interface PlatformStructuredData {
+  cover_url?: string | null;
+  images?: string[] | null;
+  title?: string | null;
+  tags?: string[] | null;
+  metrics?: {
+    likes?: number | null;
+    comments?: number | null;
+    shares?: number | null;
+    views?: number | null;
+    collects?: number | null;
+  } | null;
+  author?: {
+    name?: string | null;
+    avatar?: string | null;
+    verified?: boolean | null;
+  } | null;
+  publish_time?: string | null;
+  extras?: Record<string, unknown> | null;
 }
 
 export interface GenerationMeta {

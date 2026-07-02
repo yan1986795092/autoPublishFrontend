@@ -36,7 +36,6 @@ interface StageTimelineProps {
   llmChunks?: Record<string, LLMChunk[]>;
   reasoningChunks?: Record<string, ReasoningChunk[]>;
   currentStage?: string | null;
-  thinkingSteps?: unknown[];
 }
 
 interface StageRowProps {
@@ -178,7 +177,7 @@ function StageRow({ stage, index, totalStages, expanded, onToggle, chunks, hasDe
   );
 }
 
-export function StageTimeline({ stages, isRunning, llmChunks, reasoningChunks, currentStage, thinkingSteps }: StageTimelineProps) {
+export function StageTimeline({ stages, isRunning, llmChunks, reasoningChunks, currentStage }: StageTimelineProps) {
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(() => new Set());
   // 记录上一次的 isRunning，仅在 true→false 翻转时才清空 expandedKeys，
   // 避免在父级任何无关渲染（例如新流触发时其它消息的 StageTimeline 重渲染）误清空。

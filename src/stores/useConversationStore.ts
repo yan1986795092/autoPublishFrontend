@@ -233,6 +233,28 @@ export const useConversationStore = create<ConversationState>()(
 
       // ============ 切换对话 ============
       switchConversation: async (id) => {
+        // 修复 #5：切对话前先停掉所有进行中的流
+        // 否则 SSE 还在跑，agent stream 还在跑，切过去后 store 里的 isRunning
+        // 还是 true，且新消息会被写到错误的 conversationId
+        // P23: 用 try/finally 把"停流 + 清预览 + 切 ID"打包成原子序列——
+        //     任何一步 throw 都不让 store 处于半残状态（preview 残留 / ID 不一致）。
+        try {
+          const { useAgentStore } = await import('./useAgentStore');
+          // stopStreaming 内部已经 abort SSE + 重置 _abortController/_streamingProcessor
+          useAgentStore.getState().stopStreaming();
+          useAgentStore.getState().disconnectWebSocket();
+          // 同步清预览（保证下一行 set 之前 preview 字段已 null）
+          clearAgentPreviewFields();
+        } catch {
+          // 即便 useAgentStore 未初始化或抛错，也保证清预览——独立 try
+          clearAgentPreviewFields();
+        }
+        // 注意：useConversationChat 的 abort 必须在 useConversationChat 的 hook 内调用
+        // 这里通过全局事件广播，让 hook 监听后自停
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('app:conversation-switching'));
+        }
+
         // 更新当前对话 ID（乐观更新）
         set((s) => {
           s.conversationId = id;
@@ -240,8 +262,8 @@ export const useConversationStore = create<ConversationState>()(
           s._inflightLoadId = id;
         });
 
-        // 修复 BUG-16：切对话时清空预览字段
-        clearAgentPreviewFields();
+        // P23: clearAgentPreviewFields 已在前面 try/finally 内同步调用过（保证停流与清预览原子），
+        //     此处不再重复调用。
 
         // 持久化
         saveToStorage({ currentId: id });

@@ -1,202 +1,173 @@
-/** 公众号预览 — 真实微信文章样式，模拟手机端阅读体验 */
+/** 公众号文章预览（对齐真实微信 App 文章阅读页）
+ *
+ * 布局：
+ *   ① 顶栏        — 返回 + 标题 + ···
+ *   ② 标题区      — 大标题 + [原创] + 作者 + 时间/地点/耳机/人数
+ *   ③ 分隔线      — 绿色渐变线
+ *   ④ 正文区      — 白底灰字正文
+ *   ⑤ 底部互动栏  — 作者头像 + 昵称 + 点赞/在看/评论 + 写留言
+ */
 
+import React, { useMemo } from 'react';
 import type { PlatformPreviewProps } from './index';
+import { Avatar, formatMetric } from './index';
 import { ContentRenderer } from './ContentRenderer';
 
-function seedRand(seed: number) {
-  return (n: number) => Math.floor(((seed * 9301 + 49297) % 233280) / 233280 * n);
+function parseBody(content: string) {
+  // 过滤掉纯 #tag 格式的行（标签已在下方独立区块展示）
+  return content.split('\n')
+    .filter(l => l.trim().length > 0)
+    .filter(l => !/^#[^\s#]+(\s+#[^\s#]+)*$/.test(l.trim()));
 }
 
-function parseWechatContent(content: string) {
-  const lines = content.split('\n').filter(Boolean);
-  const sections: { heading?: string; body: string[] }[] = [];
-  let current: { heading?: string; body: string[] } = { body: [] };
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    if (/^#{1,3}\s/.test(trimmed) || /^\d+[\.、]\s/.test(trimmed) || /^[一二三四五六七八九十]+[\.、]/.test(trimmed)) {
-      if (current.body.length) {
-        sections.push(current);
-        current = { heading: trimmed.replace(/^#+\s*/, ''), body: [] };
-      } else {
-        current.heading = trimmed.replace(/^#+\s*/, '');
-      }
-    } else {
-      current.body.push(trimmed);
-    }
-  }
-  if (current.body.length) sections.push(current);
-
-  return {
-    title: '',
-    sections: sections.length > 0 ? sections : [{ body: lines }],
-    allBody: lines.join('\n\n'),
-  };
-}
-
-export function WechatPreview({ content, contentType }: PlatformPreviewProps) {
-  const rand = seedRand(content.length);
-  const views = rand(80000) + 5000;
-  const likes = rand(800) + 100;
-
-  const { title, sections, allBody } = parseWechatContent(content);
-  const dateStr = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' });
+export function WechatPreview({ content, contentType, data }: PlatformPreviewProps) {
+  const bodyLines = useMemo(() => parseBody(content), [content]);
+  const displayTitle = data?.title;
+  const dateStr = data?.publishTime ?? new Date().toLocaleDateString('zh-CN', {
+    year: 'numeric', month: 'long', day: 'numeric',
+  });
+  const location = (data?.extras?.location as string | undefined) ?? '上海';
+  const authorName = data?.author?.name ?? '程序员鱼皮';
+  const authorAvatar = data?.author?.avatar;
+  const likes = data?.metrics?.likes;
+  const comments = data?.metrics?.comments;
+  const views = data?.metrics?.views;
 
   return (
-    <div className="max-w-xl mx-auto rounded-2xl border border-gray-200 bg-white overflow-hidden shadow-lg shadow-emerald-500/5">
-      {/* 顶部导航 */}
-      <div className="flex items-center gap-3 px-4 py-2.5 bg-white border-b border-gray-100">
-        <button className="text-gray-400">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 18l-6-6 6-6" strokeLinecap="round" strokeLinejoin="round"/></svg>
+    <div className="w-full h-full flex flex-col overflow-hidden bg-white">
+
+      {/* ① 顶栏 */}
+      <div className="h-[44px] flex items-center px-3 shrink-0 bg-white border-b border-gray-100">
+        <button className="p-0.5 shrink-0">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#999" strokeWidth="2.2">
+            <path d="M15 18l-6-6 6-6" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
         </button>
-        <div className="flex-1 text-center">
-          <span className="text-sm font-bold text-gray-800">公众号</span>
-        </div>
-        <button className="text-gray-400">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
+        <p className="flex-1 text-center text-[13px] text-gray-500 truncate px-2">
+          {displayTitle ? displayTitle.slice(0, 18) + (displayTitle.length > 18 ? '…' : '') : '文章'}
+        </p>
+        <button className="p-0.5 shrink-0">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="#999">
+            <circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/>
+          </svg>
         </button>
       </div>
 
-      {/* 文章头图 */}
-      <div className="relative h-40 bg-gradient-to-br from-green-800 via-emerald-700 to-teal-600 overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
-        <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-white to-transparent" />
-        <div className="absolute top-3 left-3 flex items-center gap-2">
-          <div className="w-8 h-8 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
-            <span className="text-white text-xs font-bold">号</span>
-          </div>
-          <div>
-            <p className="text-white text-xs font-semibold">科技前沿</p>
-            <p className="text-white/60 text-[9px]">100万+阅读</p>
-          </div>
-        </div>
-        <div className="absolute top-3 right-3 text-[10px] text-white/60 bg-black/30 px-2 py-1 rounded-full backdrop-blur-sm">
-          深度好文
-        </div>
-      </div>
+      {/* 可滚动内容区 */}
+      <div className="flex-1 min-h-0 overflow-y-auto">
 
-      {/* 公众号信息栏 */}
-      <div className="px-5 pt-4 pb-1">
-        <div className="flex items-center gap-3">
-          <div className="w-11 h-11 rounded-full bg-gradient-to-br from-green-600 to-emerald-500 flex items-center justify-center flex-shrink-0 shadow-md border-2 border-white">
-            <span className="text-white text-sm font-bold">科</span>
+        {/* ② 标题区 */}
+        <div className="px-5 pt-5 pb-0 bg-white">
+
+          {/* 大标题 */}
+          {displayTitle && (
+            <h1 className="text-[21px] font-bold text-gray-900 leading-[1.4] tracking-wide mb-3">
+              {displayTitle}
+            </h1>
+          )}
+
+          {/* 元信息行 */}
+          <div className="flex items-center flex-wrap gap-x-2 gap-y-1 text-[12px] text-gray-500 mb-4">
+            {/* [原创] 标签 */}
+            <span className="inline-flex items-center gap-0.5 px-1.5 py-px rounded-sm text-[11px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+              <svg width="9" height="9" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+              </svg>
+              原创
+            </span>
+            {/* 作者名（蓝色链接色） */}
+            <span className="text-[#576B95] font-semibold">{authorName}</span>
+            <span>{dateStr}</span>
+            <span>{location}</span>
+            {/* 耳机 + 人数 */}
+            <span className="inline-flex items-center gap-0.5">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M3 18v-6a9 9 0 0 1 18 0v6"/>
+                <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/>
+              </svg>
+              {views != null ? formatMetric(views) : 2}人
+            </span>
           </div>
-          <div className="flex-1">
-            <div className="flex items-center gap-2">
-              <p className="text-sm font-semibold text-gray-800">科技前沿观察</p>
-              <span className="px-1.5 py-0.5 rounded bg-green-100 text-green-600 text-[9px] font-bold">公众号</span>
-            </div>
-            <p className="text-[11px] text-gray-400">
-              {dateStr}
-              <span className="mx-1">·</span>
-              阅读 {views >= 10000 ? `${(views / 10000).toFixed(1)}万` : views}
-            </p>
-          </div>
-          <button className="px-3 py-1 rounded-full bg-green-50 border border-green-200 text-[11px] font-semibold text-green-600 hover:bg-green-100 transition-colors">
-            关注
-          </button>
+
+          {/* ③ 分隔线 */}
+          <div className="h-px bg-gradient-to-r from-green-300 via-emerald-200 to-transparent mb-0" />
         </div>
-      </div>
 
-      {/* 文章标题 */}
-      <div className="px-5 py-3">
-        <h1 className="text-xl font-bold text-gray-900 leading-snug tracking-wide">{title}</h1>
-        <div className="flex items-center gap-2 mt-2">
-          <span className="text-[10px] px-2 py-0.5 rounded bg-green-50 text-green-600 border border-green-200 font-medium">原创</span>
-          <span className="text-[10px] px-2 py-0.5 rounded bg-gray-50 text-gray-400 border border-gray-200">侵权请联系删除</span>
-        </div>
-      </div>
-
-      {/* 分隔线 */}
-      <div className="px-5">
-        <div className="h-px bg-gradient-to-r from-green-200 via-emerald-200 to-transparent" />
-      </div>
-
-      {/* 正文内容 */}
-      <div className="px-5 pb-6">
-        {sections.map((section, idx) => (
-          <div key={idx} className="mb-5">
-            {section.heading && (
-              <div className="flex items-center gap-2 mb-3 mt-4">
-                <div className="w-1 h-5 bg-green-500 rounded-full flex-shrink-0" />
-                <h2 className="text-base font-bold text-gray-800">{section.heading}</h2>
+        {/* ④ 正文区 */}
+        <div className="px-5 py-5 text-[16px] leading-[1.9] text-gray-600 bg-white">
+          {bodyLines.map((line, i) => {
+            const isBold = /^[*_]{2}.+[*_]{2}$/.test(line.trim());
+            const clean = line.replace(/^[*_]{2}|[*_]{2}$/g, '').trim();
+            return (
+              <div key={i} className="mb-4 last:mb-0">
+                {isBold ? (
+                  <p className="font-bold text-gray-800">{clean}</p>
+                ) : (
+                  <ContentRenderer content={line} contentType={contentType} />
+                )}
               </div>
-            )}
-            <ContentRenderer content={section.body.join('\n\n')} contentType={contentType} />
+            );
+          })}
+        </div>
+
+        {/* ⑤ 话题标签（独立区块，放在正文下方） */}
+        {data?.tags && (data.tags as string[]).length > 0 && (
+          <div className="flex flex-wrap gap-1 px-5 pb-4 bg-white">
+            {(data.tags as string[]).map(tag => (
+              <span key={tag} className="text-[12px] text-[#576B95]">#{tag}</span>
+            ))}
           </div>
-        ))}
-        {sections.length === 0 && (
-          <ContentRenderer content={allBody} contentType={contentType} />
         )}
       </div>
 
-      {/* 底部：原文链接 */}
-      <div className="mx-5 mb-4 p-3 rounded-xl bg-gray-50 border border-gray-100">
-        <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded bg-green-100 flex items-center justify-center">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="#07C160"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg>
-          </div>
-          <div className="flex-1">
-            <p className="text-[11px] font-semibold text-gray-700">阅读全文</p>
-            <p className="text-[10px] text-gray-400">点击查看原文</p>
-          </div>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2"><path d="M9 18l6-6-6-6" strokeLinecap="round" strokeLinejoin="round"/></svg>
-        </div>
-      </div>
+      {/* ⑤ 底部互动栏 */}
+      <div className="shrink-0 bg-white border-t border-gray-100 px-3 py-1.5">
+        <div className="flex items-center">
 
-      {/* 底部互动栏 */}
-      <div className="border-t border-gray-100 bg-gray-50/50">
-        <div className="flex items-center justify-around py-3">
-          <div className="flex flex-col items-center gap-0.5 text-gray-400 hover:text-red-500 cursor-pointer transition-colors">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
-            </svg>
-            <span className="text-[11px]">{likes}</span>
+          {/* 左侧：头像 + 昵称 */}
+          <div className="flex items-center gap-1 shrink-0 overflow-hidden">
+            <Avatar src={authorAvatar} name={authorName} platform="wechat" size="w-5 h-5" textClass="text-[8px]" />
+            <span className="text-[10px] font-semibold text-gray-800 whitespace-nowrap">{authorName}</span>
           </div>
-          <div className="w-px h-5 bg-gray-200" />
-          <div className="flex flex-col items-center gap-0.5 text-gray-400 hover:text-green-500 cursor-pointer transition-colors">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-              <path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92-1.31-2.92-2.92-2.92z"/>
-            </svg>
-            <span className="text-[11px]">分享</span>
-          </div>
-          <div className="w-px h-5 bg-gray-200" />
-          <div className="flex flex-col items-center gap-0.5 text-gray-400 hover:text-yellow-500 cursor-pointer transition-colors">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-              <path d="M17 3H7c-1.1 0-2 .9-2 2v16l7-3 7 3V5c0-1.1-.9-2-2-2z"/>
-            </svg>
-            <span className="text-[11px]">收藏</span>
-          </div>
-          <div className="w-px h-5 bg-gray-200" />
-          <div className="flex flex-col items-center gap-0.5 text-gray-400 hover:text-gray-600 cursor-pointer transition-colors">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-              <path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"/>
-            </svg>
-            <span className="text-[11px]">投诉</span>
-          </div>
-        </div>
 
-        {/* 赞赏 */}
-        <div className="mx-5 mb-3 pt-3 border-t border-gray-100">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded-full bg-yellow-100 border border-yellow-300 flex items-center justify-center">
-                <span className="text-yellow-500 text-[8px]">赞</span>
-              </div>
-              <span className="text-[11px] text-gray-400">喜欢就赞赏一下吧</span>
-            </div>
-            <button className="px-4 py-1 rounded-full bg-yellow-50 border border-yellow-200 text-[11px] font-semibold text-yellow-600 hover:bg-yellow-100 transition-colors">
-              赞赏 ¥1
+          {/* 右侧：点赞 / 评论 / 在看 / 写留言 */}
+          <div className="flex items-center gap-1 ml-auto shrink-0">
+            <BottomStat icon="like" count={likes != null ? formatMetric(likes) : '358'} />
+            <BottomStat icon="comment" count={comments != null ? formatMetric(comments) : '27'} />
+            <BottomStat icon="star" count={likes != null ? formatMetric(likes) : '358'} />
+            <button className="flex items-center px-1 py-px rounded-full text-[10px] text-[#4A9E6B] border border-[#4A9E6B]/40 whitespace-nowrap shrink-0">
+              写留言
             </button>
           </div>
         </div>
       </div>
+    </div>
+  );
+}
 
-      {/* 阅读安全提示 */}
-      <div className="px-5 py-2 text-center text-[10px] text-gray-300 bg-gray-50">
-        微信安全认证 · 绿色阅读
-      </div>
+function BottomStat({ icon, count }: { icon: 'like' | 'star' | 'comment'; count: string }) {
+  const icons = {
+    like: (
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#576B95" strokeWidth="1.8">
+        <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/>
+        <path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/>
+      </svg>
+    ),
+    star: (
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#576B95" strokeWidth="1.8">
+        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+      </svg>
+    ),
+    comment: (
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#576B95" strokeWidth="1.8">
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" strokeLinecap="round" strokeLinejoin="round"/>
+      </svg>
+    ),
+  };
+  return (
+    <div className="flex items-center gap-1 text-gray-500">
+      {icons[icon]}
+      <span className="text-[12px] font-medium">{count}</span>
     </div>
   );
 }

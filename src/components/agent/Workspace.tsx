@@ -6,11 +6,12 @@ import { Separator } from '../ui/separator';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { LoadingDots } from '../ui/loading-dots';
 import { MessageBubbleSkeleton, ChatBubbleSkeleton } from '../ui/skeleton';
-import { useExecutionEngine } from '../../hooks/useExecutionEngine';
+import { useAgentEngine } from '../../hooks/useExecutionEngine';
 import { useConversationChat } from '../../hooks/useConversationChat';
 import { useAgentStore } from '../../stores/useAgentStore';
 import { useConversationStore } from '../../stores/useConversationStore';
 import { useUIStore } from '../../stores/useUIStore';
+import { useSettingsStore } from '../../stores/useSettingsStore';
 import { formatDuration } from '../../utils/format';
 import { cn } from '../../utils/helpers';
 import {
@@ -38,18 +39,37 @@ export function Workspace({
   mobileSidebarOpen = false,
   onToggleMobileSidebar,
 }: WorkspaceProps) {
-  const engine = useExecutionEngine('create');
-  // 修复 BUG-25：解构 abort 用于在 handleStop 中停掉对话 SSE
-  const { sendChatMessage, isChatting, abort: abortChat } = useConversationChat();
+  // prompt 是 UI 本地状态（输入框内容），不属于 agent store
+  const [prompt, setPrompt] = useState('');
+  const engine = useAgentEngine();
   const {
-    prompt, setPrompt, isRunning, runningTime,
+    isRunning, runningTime,
     messages, currentResult, thinkingSteps, llmChunks, reasoningChunks,
     stages, currentStage, hasFirstEventReceived,
     handleStop: engineHandleStop,
+    handleClearCurrent: engineClearCurrent,
   } = engine;
+
+  // 修复 BUG-25 + #8：解构 abort 用于在 handleStop 中停掉对话 SSE
+  // 引入 isGenerating 区分"对话阶段"（isChatting）和"生成阶段"（isGenerating）
+  const { sendChatMessage, isChatting, isGenerating, abort: abortChat } = useConversationChat();
 
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  // 修复 #8：保存发送前的 prompt，stop 时还原
+  const pendingPromptRef = useRef<string | null>(null);
+
+  // 修复 #8：统一 phase 状态机
+  // - 'idle'    : 空闲，可以发送
+  // - 'chat'    : 对话 LLM 流式回复中（对话阶段，可 stop）
+  // - 'generating': Agent 生成中（生成阶段，可 stop）
+  // isRunning | isGenerating 表示 Agent 阶段；isChatting 表示对话阶段
+  const phase: 'idle' | 'chat' | 'generating' = isGenerating || isRunning
+    ? 'generating'
+    : isChatting
+      ? 'chat'
+      : 'idle';
+  const isBusy = phase !== 'idle';
 
   // 修复 BUG-10：此前误用 useAgentStore.createConversation，
   // 实际会话列表由 useConversationStore 管理，导致点击"新对话"后列表 active 项不更新。
@@ -63,7 +83,7 @@ export function Workspace({
     if (isCreating) return;
     setIsCreating(true);
     setPrompt('');
-    void engine.handleClearCurrent();
+    void engineClearCurrent();
     try {
       const newId = await createConversation();
       if (!newId) {
@@ -77,21 +97,41 @@ export function Workspace({
     }
   }, [isCreating, createConversation, engine, showToast, setPrompt]);
 
-  // 修复 BUG-25：stop 按钮需要同时停掉 agent 流和对话流
+  // 修复 #8 + BUG-25：stop 按钮需要同时停掉 agent 流和对话流，
+  // 并把 pending prompt 还原到输入框，让用户能编辑后重发。
   const handleStop = useCallback(() => {
     engineHandleStop();
     abortChat();
-  }, [engineHandleStop, abortChat]);
+    if (pendingPromptRef.current) {
+      setPrompt(pendingPromptRef.current);
+      pendingPromptRef.current = null;
+      // 让输入框重新拿到焦点，用户可继续编辑
+      requestAnimationFrame(() => inputRef.current?.focus());
+    }
+  }, [engineHandleStop, abortChat, setPrompt]);
+
+  // P4: 监听"对话切换中"事件——切对话时清 pendingPromptRef，避免 stale prompt
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handler = () => {
+      pendingPromptRef.current = null;
+    };
+    window.addEventListener('app:conversation-switching', handler);
+    return () => window.removeEventListener('app:conversation-switching', handler);
+  }, []);
 
   // ── 选中平台/文体（左侧引导页 + 右侧预览画廊共享） ──
   const [selectedPlatform, setSelectedPlatform] = useState<string | null>(null);
 
-  // ── Params dialog ──
+  // ── Params dialog ── 修复 #12：参数从 useSettingsStore 读写，自动持久化
   const [paramsOpen, setParamsOpen] = useState(false);
-  const [creativity, setCreativity] = useState(0.7);
-  const [contentLength, setContentLength] = useState<'short' | 'medium' | 'long'>('medium');
-  const [tone, setTone] = useState<string>('friendly');
-  const [audience, setAudience] = useState<string>('intermediate');
+  const creationPreferences = useSettingsStore((s) => s.creationPreferences);
+  const setCreationPreferences = useSettingsStore((s) => s.setCreationPreferences);
+  // 兼容旧逻辑里使用的别名（handleSubmit 仍按 preferences 入参结构展开）
+  const creativity = creationPreferences.creativity;
+  const contentLength = creationPreferences.length;
+  const tone = creationPreferences.tone;
+  const audience = creationPreferences.audience;
 
   // ── 流式消息区滚动控制 ──
   const scrollViewportRef = useRef<HTMLDivElement | null>(null);
@@ -164,7 +204,10 @@ export function Workspace({
       scrollDueToProgramRef.current = true;
       const id = requestAnimationFrame(() => {
         el.scrollTop = el.scrollHeight;
-        setTimeout(() => { scrollDueToProgramRef.current = false; }, 0);
+        // P18: scroll 事件是异步派发的，setTimeout(0) 太短导致 flag 过早复位，
+        //     用户在滚动动画期间手滚会被误判为主动滚动 → unreadCount 误增。
+        //     用 rAF 后的 100ms 给浏览器留足时间派发 scroll 事件，再复位 flag。
+        setTimeout(() => { scrollDueToProgramRef.current = false; }, 100);
       });
       return () => cancelAnimationFrame(id);
     }
@@ -179,8 +222,10 @@ export function Workspace({
   }, [isRunning]);
 
   const handleSubmit = useCallback(async () => {
-    if (!prompt.trim() || isRunning || isChatting) return;
+    if (!prompt.trim() || isBusy) return;
     const text = prompt.trim();
+    // 修复 #8：把待发送内容存进 ref，stop 时还原到输入框
+    pendingPromptRef.current = text;
     setPrompt('');
     // 非发布类文体（如 tutorial/seo）作为 contentType 传给对话 LLM，让 trigger 阶段少问文体。
     const contentType = selectedPlatform && !isPublishable(selectedPlatform) ? selectedPlatform : undefined;
@@ -202,7 +247,9 @@ export function Workspace({
       tone,
       audience,
     });
-  }, [prompt, isRunning, isChatting, setPrompt, sendChatMessage, selectedPlatform, creativity, contentLength, tone, audience]);
+    // 发送完成（不管成功失败）清掉 pending
+    pendingPromptRef.current = null;
+  }, [prompt, isBusy, setPrompt, sendChatMessage, selectedPlatform, creativity, contentLength, tone, audience]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     // 修复 BUG-14：第二个 if 缺少 !e.shiftKey 防御，
@@ -281,25 +328,55 @@ export function Workspace({
                         <MessageBubbleSkeleton />
                       </>
                     )}
-                    {messages.map((msg) => (
-                      <MessageBubbleMemo
-                        key={msg.id}
-                        message={msg}
-                        copiedId={copiedId}
-                        onCopy={handleCopy}
-                        thinkingSteps={thinkingSteps}
-                        runningTime={runningTime}
-                        stages={stages}
-                        currentStage={currentStage}
-                        llmChunks={llmChunks}
-                        reasoningChunks={reasoningChunks}
-                      />
-                    ))}
+                    {messages.map((msg, idx) => {
+                      // 找到上一条 user 消息（用于"重试"功能）
+                      const prevUserMsg = idx > 0
+                        ? [...messages.slice(0, idx)].reverse().find((m) => m.role === 'user')
+                        : null;
+                      // P5: 重试时保留原 platform + 生成参数，避免产物质量不同
+                      const retryPlatform = selectedPlatform
+                        || (msg as any).renderPayload?.platform
+                        || (msg as any).generationMeta?.platform
+                        || null;
+                      const handleRetry = (msgId: string, _prompt: string) => {
+                        // 优先用原 user prompt，避免 content 是 placeholder
+                        const promptToUse = prevUserMsg?.content || _prompt;
+                        if (!promptToUse) return;
+                        // 取消当前任务并用原 prompt 重新生成
+                        // engine.handleStop 会停 SSE + 断 WS
+                        engine.handleStop();
+                        // 异步重新发请求（让 abort 先走完）
+                        setTimeout(() => {
+                          // runStreaming 在 useAgentStore 上，不在 engine 上
+                          // 保留 platform + 参数，与原生成一致
+                          useAgentStore.getState().runStreaming(
+                            promptToUse,
+                            retryPlatform,
+                            { creativity, length: contentLength, tone, audience },
+                          );
+                        }, 50);
+                      };
+                      return (
+                        <MessageBubbleMemo
+                          key={msg.id}
+                          message={msg}
+                          copiedId={copiedId}
+                          onCopy={handleCopy}
+                          onRetry={handleRetry}
+                          thinkingSteps={thinkingSteps}
+                          runningTime={runningTime}
+                          stages={stages}
+                          currentStage={currentStage}
+                          llmChunks={llmChunks}
+                          reasoningChunks={reasoningChunks}
+                        />
+                      );
+                    })}
                   </>
                 )}
 
-                {/* Running indicator */}
-                {isRunning && !hasFirstEventReceived && messages[messages.length - 1]?.status === 'running' && (
+                {/* Running indicator — 修复 #1：判断改为"isRunning 但还没产生消息"，避免与气泡叠加 */}
+                {isRunning && !hasFirstEventReceived && messages.length === 0 && (
                   <div className="flex items-center gap-2 text-xs text-app-text-tertiary px-1">
                     <Bot className="w-4 h-4 text-primary-400 animate-pulse" />
                     <span>思考中</span>
@@ -371,14 +448,22 @@ export function Workspace({
                 className="flex-1 min-h-[44px] max-h-[120px] resize-none bg-transparent text-sm text-app-text placeholder:text-app-text-tertiary outline-none leading-relaxed"
                 rows={1}
               />
-              {isRunning || isChatting ? (
-                <Button onClick={handleStop} className="h-9 px-3 flex-shrink-0" variant="destructive" size="sm" aria-label="停止生成">
+              {/* 修复 #8：统一 phase 状态机驱动按钮 */}
+              {isBusy ? (
+                <Button
+                  onClick={handleStop}
+                  className="h-9 px-3 flex-shrink-0"
+                  variant="destructive"
+                  size="sm"
+                  aria-label="停止生成"
+                  title={phase === 'chat' ? '停止对话' : '停止生成'}
+                >
                   <Square className="w-3.5 h-3.5" />
                 </Button>
               ) : (
                 <Button
                   onClick={handleSubmit}
-                  disabled={!prompt.trim() || isRunning || isChatting}
+                  disabled={!prompt.trim() || isBusy}
                   className="h-9 px-4 flex-shrink-0 gap-1.5"
                   size="sm"
                   aria-label="发送消息"
@@ -437,7 +522,7 @@ export function Workspace({
               <p className="text-xs font-medium text-app-text-secondary mb-2">创造力 ({creativity.toFixed(1)})</p>
               <input
                 type="range" min="0" max="1" step="0.1" value={creativity}
-                onChange={(e) => setCreativity(parseFloat(e.target.value))}
+                onChange={(e) => setCreationPreferences({ creativity: parseFloat(e.target.value) })}
                 className="w-full accent-primary-500"
               />
             </div>
@@ -448,7 +533,7 @@ export function Workspace({
                 {(['short', 'medium', 'long'] as const).map((l) => (
                   <button
                     key={l}
-                    onClick={() => setContentLength(l)}
+                    onClick={() => setCreationPreferences({ length: l })}
                     className={cn(
                       'flex-1 rounded-lg border px-3 py-1.5 text-xs transition-colors',
                       contentLength === l
@@ -473,7 +558,7 @@ export function Workspace({
                 ].map((t) => (
                   <button
                     key={t.id}
-                    onClick={() => setTone(t.id)}
+                    onClick={() => setCreationPreferences({ tone: t.id })}
                     className={cn(
                       'rounded-full px-3 py-1 text-xs transition-colors',
                       tone === t.id
@@ -497,7 +582,7 @@ export function Workspace({
                 ].map((a) => (
                   <button
                     key={a.id}
-                    onClick={() => setAudience(a.id)}
+                    onClick={() => setCreationPreferences({ audience: a.id })}
                     className={cn(
                       'flex-1 rounded-lg border px-3 py-1.5 text-xs transition-colors',
                       audience === a.id

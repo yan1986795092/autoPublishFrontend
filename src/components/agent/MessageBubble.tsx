@@ -3,7 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '../ui/button';
 import { LoadingDots } from '../ui/loading-dots';
 import { StageTimeline } from './StageTimeline';
-import { Sparkles, Bot, Copy, Check, Eye, Loader2 } from 'lucide-react';
+import { UsageBadge } from './UsageBadge';
+import { Sparkles, Bot, Copy, Check, Eye, Loader2, RefreshCw, StopCircle, AlertTriangle, Ban } from 'lucide-react';
 import { useAgentStore } from '../../stores/useAgentStore';
 import { cn } from '../../utils/helpers';
 import { formatTime, formatDuration } from '../../utils/format';
@@ -24,12 +25,25 @@ interface MessageBubbleProps {
   };
   copiedId: string | null;
   onCopy: (id: string, text: string) => void;
+  onRetry?: (id: string, prompt: string) => void;
   thinkingSteps?: any[];
   runningTime?: number;
   stages?: StageInfo[];
   currentStage?: string | null;
   llmChunks?: Record<string, LLMChunk[]>;
   reasoningChunks?: Record<string, ReasoningChunk[]>;
+}
+
+// 长内容阈值：超过此字符数默认折叠，避免挤压 timeline
+const LONG_CONTENT_THRESHOLD = 800;
+
+// 提取可复制的"纯文本产物"——业务 schema 优先，回退到 renderPayload.body / content
+function _resolveCopyContent(message: any): string {
+  const output = message?.result?.output;
+  if (output) {
+    return output.full_text || output.content || output.body || '';
+  }
+  return message?.renderPayload?.body || message?.content || '';
 }
 
 function _fallbackLlmChunks(result: any, content: string): Record<string, LLMChunk[]> {
@@ -74,13 +88,39 @@ function _synthesizeStages(result: any, content: string): StageInfo[] {
     }];
   }
 
+  // D1: 多源兜底——从 _thinkingSteps 推断（review-flow 早期数据）
+  const steps = result?._thinkingSteps as Array<{ agent?: string }> | undefined;
+  if (steps && steps.length > 0) {
+    const uniqueAgents = Array.from(new Set(steps.map((s) => s.agent).filter(Boolean))) as string[];
+    return uniqueAgents.map((agent) => {
+      const mapEntry = AGENT_STAGE_MAP[agent as keyof typeof AGENT_STAGE_MAP] || { label: agent, icon: '⚙️' };
+      return {
+        agent,
+        label: mapEntry.label,
+        icon: mapEntry.icon,
+        status: 'completed' as const,
+      };
+    });
+  }
+
   return [];
+}
+
+function _extractErrorDetail(message: any): { message: string; code?: string } | null {
+  // 兼容多种错误字段：result.error / result.message / error / message
+  const result = message?.result;
+  if (!result) return null;
+  const messageText = result.error || result.message || result.detail || null;
+  if (!messageText) return null;
+  const code = result.error_code || result.code || undefined;
+  return { message: messageText, code };
 }
 
 export function MessageBubble({
   message,
   copiedId,
   onCopy,
+  onRetry,
   thinkingSteps,
   runningTime,
   stages,
@@ -88,26 +128,41 @@ export function MessageBubble({
   llmChunks,
   reasoningChunks,
 }: MessageBubbleProps) {
+  // 优先用业务 schema 的纯文本作为复制/预览源（在 handlePreview 前定义，闭包清晰）
+  const copyableContent = _resolveCopyContent(message);
+  const copySource = copyableContent || message.content || '';
+
   const handlePreview = useCallback(() => {
-    if (!message.content) return;
+    if (!copySource) return;
     const store = useAgentStore.getState();
-    store.setPreviewContent(message.content);
+    store.setPreviewContent(copySource);
     const platform =
       (message as any).renderPayload?.platform ||
       (message as any).generationMeta?.platform ||
       null;
     if (platform) store.setPreviewPlatform(platform);
-  }, [message.content]);
+  }, [copySource, message]);
+
+  const handleStop = useCallback(() => {
+    useAgentStore.getState().stopStreaming();
+  }, []);
 
   const [finalExpanded, setFinalExpanded] = useState(false);
   useEffect(() => {
     if (message.status === 'running') {
       setFinalExpanded(false);
-    } else if (message.status === 'completed' || (!message.status && message.content)) {
-      setFinalExpanded(true);
+      return;
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [message.status]);
+    // 取消/失败：强制折叠，让错误信息优先可见
+    if (message.status === 'failed' || message.status === 'cancelled') {
+      setFinalExpanded(false);
+      return;
+    }
+    // 完成 / 历史消息：长内容默认折叠（>800 字），短内容默认展开
+    const hasContent = Boolean(message.content);
+    const isLong = (copySource?.length || 0) > LONG_CONTENT_THRESHOLD;
+    setFinalExpanded(hasContent && !isLong);
+  }, [message.status, message.content, copySource]);
 
   // ── User message ──
   if (message.role === 'user') {
@@ -163,7 +218,12 @@ export function MessageBubble({
     // ── Generation result card ──
     const isRunning = message.status === 'running';
     const isFailed = message.status === 'failed';
-    const displayContent = message.renderPayload?.body || message.content || '';
+    const isCancelled = message.status === 'cancelled';
+    const isError = isFailed || isCancelled;
+    const errorDetail = _extractErrorDetail(message);
+    // P3: 统一用 copySource 作为"用户感知的产物"——复制/预览/折叠展示都用同一份
+    // 保留 displayContent 别名用于 isError / 字数展示的兜底（避免空字符串误判）
+    const displayContent = copySource || message.content || '';
 
     const msgResult = message.result as any;
     const storedStages = Array.isArray(msgResult?._stages) ? msgResult._stages : [];
@@ -188,30 +248,52 @@ export function MessageBubble({
             <div className="flex items-center gap-2">
               {isRunning ? (
                 <Bot className="w-4 h-4 text-primary-400 animate-pulse" />
-              ) : isFailed ? (
+              ) : isError ? (
                 <span className="w-4 h-4 flex items-center justify-center text-red-400 text-sm">!</span>
               ) : (
                 <Sparkles className="w-4 h-4 text-primary-400" />
               )}
               <span className="text-xs font-medium text-app-text">
-                {isRunning ? '生成中...' : isFailed ? '生成失败' : '生成结果'}
+                {isRunning
+                  ? '生成中...'
+                  : isCancelled
+                    ? '已取消'
+                    : isFailed
+                      ? '生成失败'
+                      : '生成结果'}
               </span>
               {isRunning && runningTime !== undefined && (
                 <span className="text-[10px] text-app-text-tertiary">{formatDuration(runningTime)}</span>
               )}
             </div>
-            {!isRunning && displayContent && (
-              <button
-                onClick={() => onCopy(message.id, displayContent)}
-                className="rounded p-1 text-app-text-tertiary hover:text-app-text-secondary transition-colors"
-              >
-                {copiedId === message.id ? (
-                  <Check className="w-3.5 h-3.5 text-green-400" />
-                ) : (
-                  <Copy className="w-3.5 h-3.5" />
-                )}
-              </button>
-            )}
+            <div className="flex items-center gap-1">
+              {/* A2: running 中暴露 ⏹ 停止按钮 */}
+              {isRunning && (
+                <button
+                  type="button"
+                  onClick={handleStop}
+                  className="rounded p-1 text-app-text-tertiary hover:text-red-400 transition-colors"
+                  aria-label="停止生成"
+                  title="停止生成"
+                >
+                  <StopCircle className="w-4 h-4" />
+                </button>
+              )}
+              {/* 复制按钮：A4——用 copySource（业务 schema 纯文本）而非 renderPayload.body */}
+              {!isRunning && copySource && (
+                <button
+                  onClick={() => onCopy(message.id, copySource)}
+                  className="rounded p-1 text-app-text-tertiary hover:text-app-text-secondary transition-colors"
+                  aria-label="复制内容"
+                >
+                  {copiedId === message.id ? (
+                    <Check className="w-3.5 h-3.5 text-green-400" />
+                  ) : (
+                    <Copy className="w-3.5 h-3.5" />
+                  )}
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Thinking animation */}
@@ -278,30 +360,88 @@ export function MessageBubble({
             </div>
           )}
 
-          {/* Failed */}
-          {isFailed && !displayContent && (
-            <div className="text-sm text-red-400 py-1">请求失败，请重试</div>
+          {/* A1: 失败/取消状态——区分 + 显示错误详情 + 重试按钮 */}
+          {isError && (
+            <div
+              className={cn(
+                'rounded-lg border px-3 py-2 mb-3',
+                isCancelled
+                  ? 'border-app-border/40 bg-app-surface/40'
+                  : 'border-red-500/30 bg-red-500/5',
+              )}
+              role={isFailed ? 'alert' : 'status'}
+            >
+              <div className="flex items-start gap-2">
+                {isCancelled ? (
+                  <Ban className="w-3.5 h-3.5 mt-0.5 text-app-text-tertiary shrink-0" />
+                ) : (
+                  <AlertTriangle className="w-3.5 h-3.5 mt-0.5 text-red-400 shrink-0" />
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className={cn('text-xs', isCancelled ? 'text-app-text-secondary' : 'text-red-300')}>
+                    {isCancelled ? '生成已被你手动取消' : '生成失败，请重试'}
+                  </p>
+                  {!isCancelled && errorDetail && (
+                    <details className="mt-1">
+                      <summary className="text-[10px] text-red-400/70 cursor-pointer hover:text-red-300 select-none">
+                        查看错误详情
+                      </summary>
+                      <pre className="mt-1 text-[10px] text-red-300/80 whitespace-pre-wrap break-words font-mono leading-relaxed">
+{errorDetail.code ? `[${errorDetail.code}] ` : ''}{errorDetail.message}
+                      </pre>
+                    </details>
+                  )}
+                </div>
+                {isFailed && onRetry && message.content && (
+                  <button
+                    type="button"
+                    onClick={() => onRetry(message.id, message.content)}
+                    className="shrink-0 rounded p-1 text-app-text-tertiary hover:text-primary-400 transition-colors"
+                    aria-label="重试"
+                    title="用相同 prompt 重新生成"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* A1: 失败且没产物时给最小兜底文案（兼容老 data） */}
+          {isError && !displayContent && (
+            <div className={cn('text-sm py-1', isCancelled ? 'text-app-text-tertiary' : 'text-red-400')}>
+              {isCancelled ? '已取消' : '请求失败，请重试'}
+            </div>
           )}
 
           {/* Actions */}
-          {!isRunning && displayContent && (
-            <div className="flex items-center justify-between border-t border-app-border/30 mt-3 pt-2">
-              <Button
-                onClick={handlePreview}
-                variant="ghost"
-                size="xs"
-                className="text-app-text-tertiary hover:text-primary-400"
-              >
-                <Eye className="w-3.5 h-3.5 mr-1" />
-                预览
-              </Button>
-              {message.result?.usage && (
-                <div className="flex flex-wrap gap-3 text-[10px] text-app-text-tertiary">
-                  <span>Token: {message.result.usage.tokens_used}</span>
-                  <span>耗时: {message.result.usage.time_elapsed?.toFixed(1)}s</span>
-                  <span>模型: {message.result.usage.model || 'N/A'}</span>
-                </div>
-              )}
+          {!isRunning && copySource && (
+            <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-2 border-t border-app-border/30 mt-3 pt-2">
+              <div className="flex items-center gap-2">
+                <Button
+                  onClick={handlePreview}
+                  variant="ghost"
+                  size="xs"
+                  className="text-app-text-tertiary hover:text-primary-400"
+                >
+                  <Eye className="w-3.5 h-3.5 mr-1" />
+                  预览
+                </Button>
+                {/* A1: 失败时在底部也提供重试入口（双重发现路径） */}
+                {isFailed && onRetry && message.content && (
+                  <Button
+                    onClick={() => onRetry(message.id, message.content)}
+                    variant="ghost"
+                    size="xs"
+                    className="text-app-text-tertiary hover:text-primary-400"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5 mr-1" />
+                    重试
+                  </Button>
+                )}
+              </div>
+              {/* A5: 提取 UsageBadge，桌面横排 / 移动竖排 */}
+              <UsageBadge usage={message.result?.usage} />
             </div>
           )}
         </div>
@@ -318,6 +458,7 @@ export function MessageBubble({
 export const MessageBubbleMemo = Object.assign(
   React.memo(MessageBubble, (prev, next) => {
     if (prev.copiedId !== next.copiedId) return false;
+    if (prev.onRetry !== next.onRetry) return false;
     const pm = prev.message;
     const nm = next.message;
     if (pm === nm) {

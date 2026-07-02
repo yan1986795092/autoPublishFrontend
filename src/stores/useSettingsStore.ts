@@ -21,6 +21,14 @@ interface SettingsState {
   // Language
   language: string;
 
+  // 创作偏好（修复 #12：参数持久化）
+  creationPreferences: {
+    creativity: number;
+    length: 'short' | 'medium' | 'long';
+    tone: string;
+    audience: string;
+  };
+
   // Actions - Appearance
   setTheme: (theme: Theme) => void;
   setFontSize: (size: FontSize) => void;
@@ -35,9 +43,20 @@ interface SettingsState {
   // Actions - Language
   setLanguage: (lang: string) => void;
 
+  // Actions - 创作偏好
+  setCreationPreferences: (prefs: Partial<SettingsState['creationPreferences']>) => void;
+  resetCreationPreferences: () => void;
+
   // Helpers
   resetSettings: () => void;
 }
+
+const defaultCreationPreferences = {
+  creativity: 0.7,
+  length: 'medium' as const,
+  tone: 'friendly',
+  audience: 'intermediate',
+};
 
 const defaultSettings = {
   theme: 'dark' as Theme,
@@ -54,6 +73,7 @@ const defaultSettings = {
   },
   notificationEmail: true,
   language: 'zh-CN',
+  creationPreferences: defaultCreationPreferences,
 };
 
 export const useSettingsStore = create<SettingsState>()(
@@ -84,6 +104,13 @@ export const useSettingsStore = create<SettingsState>()(
 
       setLanguage: (language) => set({ language }),
 
+      // 修复 #12：参数持久化
+      setCreationPreferences: (prefs) =>
+        set((state) => ({
+          creationPreferences: { ...state.creationPreferences, ...prefs },
+        })),
+      resetCreationPreferences: () => set({ creationPreferences: defaultCreationPreferences }),
+
       resetSettings: () => {
         document.documentElement.setAttribute('data-theme', 'dark');
         document.documentElement.setAttribute('data-font-size', 'medium');
@@ -101,6 +128,7 @@ export const useSettingsStore = create<SettingsState>()(
         notifications: state.notifications,
         notificationEmail: state.notificationEmail,
         language: state.language,
+        creationPreferences: state.creationPreferences,
       }),
     }
   )

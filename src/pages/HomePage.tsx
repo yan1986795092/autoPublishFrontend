@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useConversationStore } from '../stores/useConversationStore';
+import { useUIStore } from '../stores/useUIStore';
 import { ConversationHistory } from '../components/layout/ConversationHistory';
 import { Workspace } from '../components/agent/Workspace';
 import { cn } from '../utils/helpers';
@@ -10,6 +11,7 @@ export function HomePage() {
   const switchConversation = useConversationStore((s) => s.switchConversation);
   const createConversation = useConversationStore((s) => s.createConversation);
   const clearMessages = useConversationStore((s) => s.clearMessages);
+  const showToast = useUIStore((s) => s.showToast);
 
   // 三档布局状态
   // < 768px: 左栏隐藏（单栏），通过 mobile 浮层打开
@@ -38,14 +40,16 @@ export function HomePage() {
   }, [conversationId, switchConversation]);
 
   const handleNewSession = useCallback(async () => {
+    // 修复 #10：失败时给 toast，不静默清空消息
     const newId = await createConversation();
     if (newId) {
       await switchConversation(newId);
     } else {
-      clearMessages();
+      showToast('创建对话失败，请检查网络后重试', 'error');
+      // 注意：失败时不调用 clearMessages()，保留用户当前消息
     }
     setMobileSidebarOpen(false);
-  }, [createConversation, switchConversation, clearMessages]);
+  }, [createConversation, switchConversation, showToast]);
 
   return (
     <div className="flex h-full overflow-hidden">

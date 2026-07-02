@@ -1,12 +1,11 @@
 import { ScrollArea } from '../ui/scroll-area';
-import { Eye, PanelRightClose, X } from 'lucide-react';
+import { Eye, PanelRightClose, X, FlaskConical } from 'lucide-react';
 import { useAgentStore } from '../../stores/useAgentStore';
 import { useConversationStore } from '../../stores/useConversationStore';
 import { useShallow } from 'zustand/react/shallow';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { cn } from '../../utils/helpers';
 import { ResultPreview } from './ResultPreview';
-import { ContentRenderer } from '../preview/ContentRenderer';
 import { getPreviewComponent } from '../preview/index';
 import { PlatformIcon } from './PlatformIcons';
 import { ALL_PLATFORMS } from './PlatformSelector';
@@ -55,10 +54,14 @@ export function AdvancedPanel({ selectedPlatform, onCollapse }: AdvancedPanelPro
   // Conversation Store：消息列表（已迁移到这里）
   const messages = useConversationStore((s) => s.messages);
 
+  // P2: 预览模式开关 — 默认 'real'（缺数据走降级，不编假数据）
+  // 'mock' 仅用于演示场景，开启后会显示半透明水印提示"预览示意 · 数据为模拟"
+  const [previewMode, setPreviewMode] = useState<'real' | 'mock'>('real');
+
   const isIdle = !isRunning && !currentResult && thinkingSteps.length === 0 && !previewContent && messages.length === 0;
 
-  const liveContent = messages.find(m => m.role === 'assistant' && m.status === 'running')?.content || '';
-  const hasLiveContent = isRunning && !!liveContent;
+  // 修复 #7：去掉 liveContent 双渲染 — 不再用 messages 里的流式内容做右侧实时渲染
+  // 让用户专注左侧 Workspace 里的 MessageBubble；右侧运行时只显示"生成中"占位
 
   // ── P1-1: 用单一解析函数取代分散的三元链 ──
   const { platform: resolvedPlatform, contentType: resolvedContentType, previewKey: activePreviewKey }
@@ -86,6 +89,20 @@ export function AdvancedPanel({ selectedPlatform, onCollapse }: AdvancedPanelPro
         <div className="flex-shrink-0 border-b border-app-border bg-app-elevated px-4 py-2.5 flex items-center gap-2">
           <Eye className="w-4 h-4 text-primary-400" />
           <span className="text-sm font-semibold text-app-text">预览</span>
+          {/* P2: 预览模式切换 — real 模式缺数据走降级，mock 模式显示模拟数据并加 '预览示意' 水印 */}
+          <button
+            onClick={() => setPreviewMode(m => m === 'real' ? 'mock' : 'real')}
+            className={cn(
+              'ml-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border transition-colors',
+              previewMode === 'mock'
+                ? 'bg-yellow-500/15 text-yellow-600 border-yellow-500/30 hover:bg-yellow-500/25'
+                : 'bg-app-hover/40 text-app-text-tertiary border-app-border hover:text-app-text-secondary'
+            )}
+            title={previewMode === 'real' ? '当前：真实模式（缺数据走降级）· 点击切换到模拟模式' : '当前：模拟模式（含演示数据并加水印）· 点击切回真实模式'}
+          >
+            <FlaskConical className="w-3 h-3" />
+            {previewMode === 'real' ? '真实' : '模拟'}
+          </button>
           {/* 修复 BUG-9：previewContent 注入后用户无法切回 currentResult，加一个清除按钮 */}
           {previewContent && (
             <button
@@ -126,17 +143,26 @@ export function AdvancedPanel({ selectedPlatform, onCollapse }: AdvancedPanelPro
             </div>
           </div>
         ) : (
-          <ScrollArea className="flex-1 min-h-0">
+          <div className="flex-1 min-h-0 overflow-hidden">
             {previewContent ? (
               <div className="p-4 prose prose-invert prose-xs max-w-none text-sm leading-relaxed text-app-text-secondary">
                 <div className="whitespace-pre-wrap">{previewContent}</div>
               </div>
-            ) : hasLiveContent ? (
-              <div className="p-4">
-                <ContentRenderer content={liveContent} contentType={resolvedContentType || undefined} />
-                <span className="inline-block w-1.5 h-4 bg-primary-400 animate-pulse ml-0.5 align-text-bottom" />
+            ) : isRunning && !currentResult ? (
+              // 修复 #7：运行时只显示"生成中"占位，专注留给左侧 Workspace
+              <div className="p-6 flex flex-col items-center justify-center text-center">
+                <div className="relative w-12 h-12 mb-3">
+                  <div className="absolute inset-0 rounded-full bg-primary-500/20 animate-ping" />
+                  <div className="absolute inset-2 rounded-full bg-primary-500/40" />
+                </div>
+                <p className="text-xs text-app-text-secondary mb-1">
+                  AI 正在为你创作…
+                </p>
+                <p className="text-[10px] text-app-text-tertiary">
+                  生成过程在左侧实时显示
+                </p>
               </div>
-            ) : PreviewComponent ? (
+            ) : previewKey ? (
               <div className="p-4">
                 {selectedPlatform && (
                   <div className="mb-3 flex items-center gap-2">
@@ -146,24 +172,19 @@ export function AdvancedPanel({ selectedPlatform, onCollapse }: AdvancedPanelPro
                     </span>
                   </div>
                 )}
-                <div className={cn(
-                  'transition-opacity duration-300',
-                  isIdle ? 'opacity-100' : 'opacity-50'
-                )}>
-                  {(() => {
-                    const PC = getPreviewComponent(previewKey);
-                    return (
-                      <PC
-                        content={isIdle ? '✨ 内容准备中...\n\n输入你的需求，AI 将自动为你生成内容。' : '✨ 内容准备中...\n\nAgent 正在理解需求并生成内容，请稍候。'}
-                        contentType={previewKey ?? undefined}
-                      />
-                    );
-                  })()}
-                </div>
+                {/* P1: previewKey 但还没 currentResult 时，调用 ResultPreview 让组件按 isPlaceholder=true 走骨架占位
+                    而非硬编码 '✨ 内容准备中...' 死字符串 */}
+                <ResultPreview
+                  result={currentResult}
+                  selectedPlatform={resolvedPlatform}
+                  selectedContentType={resolvedContentType}
+                  isPlaceholder={!currentResult}
+                  previewMode={previewMode}
+                />
               </div>
             ) : currentResult ? (
-              <div className="p-4">
-                <ResultPreview result={currentResult} selectedPlatform={resolvedPlatform} selectedContentType={resolvedContentType} />
+              <div className="p-4 relative">
+                <ResultPreview result={currentResult} selectedPlatform={resolvedPlatform} selectedContentType={resolvedContentType} previewMode={previewMode} />
               </div>
             ) : (
               <p className="text-xs text-app-text-tertiary text-center py-8">

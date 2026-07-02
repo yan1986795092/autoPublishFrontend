@@ -46,7 +46,7 @@ function TemplateCard({
 }: {
   platform: Platform;
   isSelected: boolean;
-  onSelect: (prompt: string, platformId: string) => void;
+  onSelect: (prompt: string, platformId: string | null) => void;
 }) {
   const prompt = PROMPT_TEMPLATES[platform.id] ?? '';
   return (
@@ -83,9 +83,10 @@ interface EmptyWorkspaceProps {
 }
 
 export function EmptyWorkspace({ selectedPlatform, onSelectPlatform, onSelect }: EmptyWorkspaceProps) {
-  const handleSelect = (prompt: string, platformId: string) => {
+  const handleSelect = (prompt: string, platformId: string | null) => {
     onSelect(prompt);
-    onSelectPlatform(platformId);
+    // 修复 #11：把空字符串统一规范成 null，避免组件层看到 selectedPlatform === ''
+    onSelectPlatform(platformId || null);
   };
 
   // 修复 BUG-26：把 staggered children 控制权放在每个 section 自己的父容器
@@ -160,7 +161,7 @@ export function EmptyWorkspace({ selectedPlatform, onSelectPlatform, onSelect }:
         <Button
           variant="gradient"
           size="xl"
-          onClick={() => handleSelect('写一篇关于 ', '')}
+          onClick={() => handleSelect('写一篇关于 ', null)}
           className="w-full justify-between px-5 group"
           aria-label="从示例 prompt 开始：点击后将示例文本放入输入框"
         >

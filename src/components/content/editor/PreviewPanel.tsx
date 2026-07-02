@@ -12,7 +12,7 @@ export interface PreviewPanelProps {
 // ── P1-3: 区分手机壳平台和文档框平台 ──
 // 手机壳主要给移动端主导的平台（小红书/抖音/微博）
 // 文档框覆盖桌面长文（公众号/邮件/技术文档/SEO 文章等）
-const MOBILE_PLATFORMS = new Set(['xiaohongshu', 'douyin', 'weibo']);
+const MOBILE_PLATFORMS = new Set(['xiaohongshu', 'douyin', 'weibo', 'bilibili']);
 
 type PreviewMode = 'mobile' | 'document';
 

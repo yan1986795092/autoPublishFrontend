@@ -12,7 +12,7 @@
  */
 import { create } from 'zustand';
 import type {
-  AsyncTask, AgentResult, ExecutionPlan, ChatMessage,
+  AsyncTask, AgentResult, ExecutionPlan,
   ThinkingStep, StreamEvent, LLMChunk, ReasoningChunk,
   StageInfo, IntentConflict,
 } from '../types';
@@ -50,10 +50,7 @@ interface AgentState {
   // 流式事件是否已开始（第一个 SSE 事件到达后为 true）
   hasFirstEventReceived: boolean;
 
-  // WebSocket 状态
-  wsConnectionState: 'connecting' | 'connected' | 'disconnected';
-  _ws: WebSocket | null;
-  _reconnectTimer: ReturnType<typeof setTimeout> | null;
+  // WebSocket 状态（P6: 已删除，仅保留 disconnectWebSocket 作 no-op 兼容）
 
   // 流式处理器
   _streamingProcessor: SSEProcessor | null;
@@ -93,31 +90,14 @@ interface AgentState {
    */
   reset: () => void;
 
-  // WebSocket 管理
-  connectWebSocket: (taskId: string) => WebSocket | null;
+  // WebSocket 管理（P6: connectWebSocket 已删，仅保留 disconnectWebSocket 作 no-op 兼容）
   disconnectWebSocket: () => void;
-  setWsConnectionState: (state: 'connecting' | 'connected' | 'disconnected') => void;
 }
 
-const _MAX_STREAM_EVENTS = 500;
+// C2: streamEvents 上限 200（与 thinkingSteps 一致），避免长任务无限增长
+const _MAX_STREAM_EVENTS = 200;
 const _CHUNK_UPDATE_INTERVAL = 120;
 const _MSG_UPDATE_INTERVAL = 50;
-
-function _hasPersistedGenerationResult(message: Pick<ChatMessage, 'kind' | 'result'>): boolean {
-  if (message.kind === 'generation') return true;
-  const result = message.result as any;
-  if (!result || typeof result !== 'object') return false;
-
-  if (Array.isArray(result._stages) && result._stages.length > 0) return true;
-  if (result._draftContent) return true;
-  if (result._llmChunks && Object.keys(result._llmChunks).length > 0) return true;
-  if (result.usage) return true;
-  if (result.agent_type || result.task_id) return true;
-
-  const output = result.output;
-  if (!output || typeof output !== 'object') return false;
-  return Boolean(output.full_text || output.content || output.draft_content);
-}
 
 export const useAgentStore = create<AgentState>()((set, get) => ({
   currentTaskId: null,
@@ -134,9 +114,6 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
   currentStage: null,
   intentConflicts: [],
   hasFirstEventReceived: false,
-  wsConnectionState: 'disconnected',
-  _ws: null,
-  _reconnectTimer: null,
   _streamingProcessor: null,
   _abortController: null,
   appliedSkill: null,
@@ -153,7 +130,17 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
   addStreamEvent: (event) => set((state) => ({ streamEvents: [...state.streamEvents, event] })),
 
   stopStreaming: () => {
-    const { _streamingProcessor, _abortController, stages, thinkingSteps, reasoningChunks } = useAgentStore.getState();
+    const { _streamingProcessor, _abortController, currentTaskId } = useAgentStore.getState();
+    // P1-3 issue: 前端只断 SSE，未通知后端停 LangGraph → 后端继续跑。
+    // 修复：stopStreaming 时 fire-and-forget 调 DELETE /agent/async/{taskId}，
+    //     后端 cancel_task 改 state，LangGraph worker 下次循环检测到 CANCELLED 退出。
+    // 注意：在 set() 之前调用 cancelTask（set 会把 currentTaskId 置 null）
+    const taskIdToCancel = currentTaskId;
+    if (taskIdToCancel) {
+      import('../services/api').then(({ agentApi }) => {
+        agentApi.cancelTask(taskIdToCancel).catch(() => {});
+      });
+    }
     if (_streamingProcessor) {
       _streamingProcessor.abort();
     }
@@ -176,84 +163,11 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     });
   },
 
-  // WebSocket 管理
-  setWsConnectionState: (wsConnectionState) => set({ wsConnectionState }),
-
-  connectWebSocket: (taskId: string) => {
-    const { disconnectWebSocket } = get();
-    disconnectWebSocket();
-
-    set({ wsConnectionState: 'connecting', _ws: null });
-    const ws = new WebSocket(agentApi.wsUrl(taskId));
-
-    ws.onopen = () => {
-      set({ wsConnectionState: 'connected', _ws: ws });
-    };
-
-    ws.onclose = () => {
-      set({ wsConnectionState: 'disconnected', _ws: null });
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-
-        if (data.type === 'progress') {
-          const task = data.data as AsyncTask;
-          useAgentStore.getState().setCurrentTask(task);
-        } else if (data.type === 'thinking_step') {
-          const step = data.data as ThinkingStep;
-          set((s) => ({ thinkingSteps: [...s.thinkingSteps, step] }));
-        } else if (data.type === 'result') {
-          const result = data.data as AgentResult;
-          useAgentStore.getState().setCurrentResult(result);
-          const eventSteps = getResultThinkingSteps(result);
-          if (eventSteps.length > 0) {
-            set({ thinkingSteps: eventSteps });
-          }
-          const conversationStore = useConversationStore.getState();
-          const msgs = conversationStore.messages;
-          const assistantMsg = msgs.find((m) => m.role === 'assistant' && m.status === 'running');
-          if (assistantMsg) {
-            conversationStore.updateMessage(assistantMsg.id, {
-              status: 'completed',
-              content: (result.output as any)?.full_text || (result.output as any)?.content || JSON.stringify(result.output, null, 2),
-              result,
-            });
-          }
-        } else if (data.type === 'error') {
-          const conversationStore = useConversationStore.getState();
-          const msgs = conversationStore.messages;
-          const assistantMsg = msgs.find((m) => m.role === 'assistant' && m.status === 'running');
-          if (assistantMsg) {
-            conversationStore.updateMessage(assistantMsg.id, {
-              status: 'failed',
-              content: data.message || '任务执行出错',
-            });
-          }
-        }
-      } catch {
-        // ignore parse errors
-      }
-    };
-
-    ws.onerror = () => {
-      set({ wsConnectionState: 'disconnected' });
-    };
-
-    set({ _ws: ws });
-    return ws;
-  },
-
+  // P6: connectWebSocket 已删除（v1 遗留路径），setWsConnectionState 也删除
+  //     disconnectWebSocket 保留作幂等 no-op（_ws/_reconnectTimer 在 v2 始终为 null）
   disconnectWebSocket: () => {
-    const { _ws, _reconnectTimer } = get();
-    if (_reconnectTimer) {
-      clearTimeout(_reconnectTimer);
-    }
-    if (_ws) {
-      _ws.close();
-      set({ _ws: null, _reconnectTimer: null, wsConnectionState: 'disconnected' });
-    }
+    // v2 不维护 WebSocket 状态——外部调用方（useExecutionEngine / useConversationStore /
+    // clearAllUserStores）继续调用此函数以保持兼容性，但函数本身什么都不做。
   },
 
   previewPlan: async (prompt: string) => {
@@ -334,8 +248,14 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     const token = useAuthStore.getState().accessToken;
     const conversationStore = useConversationStore.getState();
 
-    // 获取当前对话 ID
+    // 修复 #6：每次 runStreaming 重新读取最新的 conversationId，
+    // 而不是闭包在 store 的初始值上。
+    // 注意：useConversationStore.getState() 总拿最新值。
     let conversationId: string | null = conversationStore.conversationId;
+    // P14: 用 mutable ref 而非 const —— messagePromise 内会自动建对话，
+    //     此时需同步更新"初始 conversationId" 否则 safePersist 会与新 ID mismatch
+    //     拒绝写入 DB（用户首次发消息场景下产物会丢失）。
+    const initialConversationIdRef: { current: string | null } = { current: conversationId };
     const msgIdRef: { current: string } = { current: crypto.randomUUID() };
     const temporaryId = msgIdRef.current;
 
@@ -354,7 +274,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       llmChunks: {}, reasoningChunks: {}, stages: [], currentStage: null,
       intentConflicts: [], streamEvents: [], hasFirstEventReceived: false
     });
-    
+
     // 初始阶段
     set({
       stages: [{
@@ -366,23 +286,29 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       }],
       currentStage: 'preparing',
     });
-    
+
     const controller = new AbortController();
     set({ _abortController: controller });
 
-    // Create conversation messages in background
+    // 修复 #6：移除副作用式 switchConversation，改走 conversationStore 的
+    // 标准 createConversation() 流程，UI 列表立刻同步显示。
+    // 同时去掉对已废弃 chatApi.quickStart 的依赖。
+    // 行为保证：
+    //   1) 用户列表立刻看到这条新对话
+    //   2) 不会"切到了第三方创建的对话，用户毫无感知"
+    //   3) 用户中途切走 → runStreaming 走完也只写回最初那个对话
     const messagePromise = (async (): Promise<string> => {
       let realAssistantId = temporaryId;
       try {
         if (!conversationId) {
-          const resp = await chatApi.quickStart({
-            role: 'user', content: '[内容生成]', status: 'completed',
-          });
-          if (resp.data.success && resp.data.data) {
-            conversationId = resp.data.data.conversation_id;
-            // 更新 conversationStore
-            conversationStore.switchConversation(conversationId);
-            const asstResp = await chatApi.addMessage(conversationId, {
+          // 走 conversationStore 的标准创建路径，UI 列表立刻同步
+          const newId = await conversationStore.createConversation('[内容生成]');
+          if (newId) {
+            conversationId = newId;
+            // P14: 同步更新"初始 conversationId" ref，让 safePersist 通过守门
+            //     （用户首次发消息场景下需要把 DB 写入指向新创建的对话）
+            initialConversationIdRef.current = newId;
+            const asstResp = await chatApi.addMessage(newId, {
               role: 'assistant', content: '', status: 'running',
             });
             if (asstResp?.data?.success && asstResp.data.data) {
@@ -390,6 +316,15 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
             }
           }
         } else {
+          // 已有对话：检查中途是否被切走
+          // （切走会触发 stopStreaming + abort controller，这里只是双保险）
+          const currentNowId = useConversationStore.getState().conversationId;
+          if (currentNowId !== initialConversationIdRef.current) {
+            logger.warning('runStreaming 时 conversationId 已变化，中止写入',
+                          from=initialConversationIdRef.current, to=currentNowId);
+            controller.abort();
+            return temporaryId;
+          }
           const [, asstResp] = await Promise.all([
             chatApi.addMessage(conversationId, {
               role: 'user', content: '[内容生成]', status: 'completed',
@@ -414,23 +349,56 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
 
     const processor = new SSEProcessor();
 
+    // D3 + P14: safePersist — 写入 DB 前两道守门：
+    //     1) conversationId 一致性（防切对话脏写）
+    //        注意：自动创建对话时，messagePromise 会更新 initialConversationIdRef，
+    //        所以这里读 ref.current 而非闭包常量。
+    //     2) P13: msgId 仍在当前 messages 列表里（防 placeholder 被清空后用 stale ID 写）
+    // local store update 仍可做（UI 短暂可见即可，刷新后由 DB 决定），但 DB 必须守门。
+    const safePersist = (msgId: string, payload: Parameters<typeof chatApi.updateMessage>[1]) => {
+      const convState = useConversationStore.getState();
+      const currentConv = convState.conversationId;
+      if (currentConv !== initialConversationIdRef.current) {
+        if (process.env.NODE_ENV === 'development') {
+          console.warn(`[useAgentStore] conversation 已切换 (${initialConversationIdRef.current} → ${currentConv})，放弃 DB 写入`);
+        }
+        return Promise.resolve();
+      }
+      if (!convState.messages.find((m) => m.id === msgId)) {
+        if (process.env.NODE_ENV === 'development') {
+          console.warn(`[useAgentStore] msgId ${msgId} 不在 messages 列表，放弃 DB 写入（placeholder 可能已被清空）`);
+        }
+        return Promise.resolve();
+      }
+      return chatApi.updateMessage(msgId, payload).catch((err) => {
+        console.warn('[useAgentStore] DB 写入失败:', err);
+      });
+    };
+
     // Throttled update helpers
-    let lastStep: ThinkingStep | null = null;
     let errorOccurred = false;
-    let accumulated = '';
+    // P20: 改用数组累积，避免长任务（>10k tokens）字符串拼接的 O(n²) 内存行为。
+    //     累积到最终态时再 join() 一次。
+    const accumulatedChunks: string[] = [];
+    const getAccumulated = () => accumulatedChunks.join('');
     let msgUpdateTimer: ReturnType<typeof setTimeout> | null = null;
-    let msgUpdatePending = false;
+    // P9: 改名 _needsRefresh 让意图更清晰——这只是"50ms 后还有内容要刷新"的标志位，
+    //     不是"待处理内容"。实际刷新内容始终从 `accumulatedChunks` 闭包读取（最新值）。
+    let _needsRefresh = false;
     const updateMsg = (content: string) => {
       if (msgUpdateTimer) {
-        msgUpdatePending = true;
+        // 已有计时器在跑——标记"50ms 后还需要再刷一次"，但不存 content。
+        // 50ms 后会从闭包的 accumulatedChunks 读最新值。
+        _needsRefresh = true;
         return;
       }
       conversationStore.updateMessage(msgIdRef.current, { content });
       msgUpdateTimer = setTimeout(() => {
         msgUpdateTimer = null;
-        if (msgUpdatePending) {
-          msgUpdatePending = false;
-          conversationStore.updateMessage(msgIdRef.current, { content: accumulated });
+        if (_needsRefresh) {
+          _needsRefresh = false;
+          // P20: 数组 → 字符串（join 一次完成，避免重复拷贝）
+          conversationStore.updateMessage(msgIdRef.current, { content: getAccumulated() });
         }
       }, _MSG_UPDATE_INTERVAL);
     };
@@ -482,53 +450,163 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       set({ currentTaskId: event.data.task_id as string });
     });
 
-    processor.on('thinking_step', (event) => {
-      flushChunks();
-      lastStep = event.data as unknown as ThinkingStep;
+    // 第四批修复：thinking_step / reasoning 重新启用，写入 thinkingSteps / reasoningChunks。
+    //     两个事件的高频到达（reasoning token 级，thinking_step agent 级）会打满主线程
+    //     并阻塞 llm_chunk / result 处理——用 debounce 合并不影响用户体验（StageTimeline
+    //     实时性以 100-200ms 颗粒度足够），同时保证 body 内容渲染不被阻塞。
+    //     刷新：done/error 时 flush 残留，保证流结束后数据完整。
+    let _thinkingTimer: ReturnType<typeof setTimeout> | null = null;
+    let _reasoningTimer: ReturnType<typeof setTimeout> | null = null;
+    let _pendingThinking: { data: Record<string, unknown>; step: ReturnType<typeof _parseThinkingStep> } | null = null;
+    let _pendingReasoning: { data: Record<string, unknown>; agent: string; content: string; reviewRound: number } | null = null;
+    const _parseThinkingStep = (data: Record<string, unknown>) => {
+      const rawStatus = (data.status as string) || 'done';
+      const stepStatus: 'running' | 'done' | 'failed' =
+        rawStatus === 'running' || rawStatus === 'failed' ? rawStatus : 'done';
+      return {
+        step_number: (data.step_number as number) || 0,
+        agent: (data.agent as string) || 'Unknown',
+        action: (data.action as string) || '',
+        reasoning: (data.reasoning as string) || '',
+        input_summary: (data.input_summary as string) || '',
+        output_summary: (data.output_summary as string) || '',
+        tokens_used: (data.tokens_used as number) || 0,
+        time_elapsed: (data.time_elapsed as number) || 0,
+        status: stepStatus,
+        _from_cache: (data._from_cache as boolean) || false,
+        _review_round: (data._review_round as number) || 0,
+      };
+    };
+    const flushThinking = () => {
+      if (!_pendingThinking) return;
+      const pending = _pendingThinking;
+      _pendingThinking = null;
+      const { data, step } = pending;
       set((s) => ({
-        thinkingSteps: s.thinkingSteps.length >= 200
-          ? [...s.thinkingSteps.slice(1), lastStep!]
-          : [...s.thinkingSteps, lastStep!],
-        stages: s.stages.map(st =>
-          st.agent === (event.data.agent as string)
-            ? { ...st, substeps: [...(st.substeps || []), event.data as any] }
-            : st
-        ),
+        thinkingSteps: [...s.thinkingSteps, step],
         streamEvents: get()._pushStreamEvent(s.streamEvents, {
-          id: `thinking-${Date.now()}-${(event.data.step_number as number) || 0}`,
+          id: `step-${Date.now()}-${step.agent}-${step.step_number}`,
           type: 'thinking_step',
           timestamp: Date.now(),
-          data: event.data,
-          agent: event.data.agent as string,
-          action: event.data.action as string,
-          reasoning: event.data.reasoning as string,
-          status: event.data.status as string,
-          output_summary: event.data.output_summary as string,
+          data,
+          agent: step.agent,
+          content: step.reasoning,
         }),
       }));
+    };
+    const flushReasoning = () => {
+      if (!_pendingReasoning) return;
+      const { data, agent, content, reviewRound } = _pendingReasoning;
+      _pendingReasoning = null;
+      const key = `${agent}|${reviewRound}`;
+      set((s) => {
+        const existing = s.reasoningChunks[key] || [];
+        const updatedStages = s.stages.map((stg) => {
+          if (stg.agent === agent && stg.reviewRound === reviewRound) {
+            const prev = (stg.reasoning as string) || '';
+            return { ...stg, reasoning: prev ? `${prev}\n${content}` : content };
+          }
+          return stg;
+        });
+        return {
+          reasoningChunks: {
+            ...s.reasoningChunks,
+            [key]: [...existing, { agent, content, timestamp: Date.now() }],
+          },
+          stages: updatedStages,
+          streamEvents: get()._pushStreamEvent(s.streamEvents, {
+            id: `reasoning-${Date.now()}-${agent}`,
+            type: 'reasoning',
+            timestamp: Date.now(),
+            data,
+            agent,
+            content,
+          }),
+        };
+      });
+    };
+    const scheduleReasoningFlush = () => {
+      if (_reasoningTimer) return;
+      _reasoningTimer = setTimeout(() => {
+        _reasoningTimer = null;
+        flushReasoning();
+      }, 100);
+    };
+    const scheduleThinkingFlush = () => {
+      if (_thinkingTimer) return;
+      _thinkingTimer = setTimeout(() => {
+        _thinkingTimer = null;
+        flushThinking();
+      }, 200);
+    };
+
+    processor.on('thinking_step', (event) => {
+      const data = event.data as Record<string, unknown>;
+      _pendingThinking = { data, step: _parseThinkingStep(data) };
+      scheduleThinkingFlush();
     });
 
-    processor.on('progress', (event) => {
+    processor.on('reasoning', (event) => {
+      const data = event.data as Record<string, unknown>;
+      const agent = (data.agent as string) || 'Unknown';
+      const content = (data.content as string) || '';
+      const reviewRound = (data._review_round as number) || 0;
+      _pendingReasoning = { data, agent, content, reviewRound };
+      scheduleReasoningFlush();
+    });
+    // C4: progress 事件 5Hz，原样更新 store 会触发订阅组件 5Hz 重渲染。
+    //     这里 200ms throttle：合并连发事件，但保留"最后一次"的数据，
+    //     streamEvents 仍然每条都记（200 上限 FIFO）。
+    let _lastProgressUpdate = 0;
+    let _pendingProgressData: any = null;
+    let _progressFlushTimer: ReturnType<typeof setTimeout> | null = null;
+    const flushProgress = () => {
+      if (_pendingProgressData == null) return;
+      const data = _pendingProgressData;
+      _pendingProgressData = null;
+      _lastProgressUpdate = Date.now();
       set((s) => ({
         currentTask: {
-          id: (event.data.task_id as string) || s.currentTask?.id || '',
+          id: (data.task_id as string) || s.currentTask?.id || '',
           user_id: s.currentTask?.user_id || '',
           prompt: s.currentTask?.prompt || prompt,
           state: 'running',
-          progress: (event.data.progress as number) || 0,
-          progress_message: (event.data.progress_message as string) || '',
-          current_step: (event.data.current_step as string) || '',
-          completed_steps: (event.data.completed_steps as number) || 0,
-          total_steps: (event.data.total_steps as number) || 0,
+          progress: (data.progress as number) || 0,
+          progress_message: (data.progress_message as string) || '',
+          current_step: (data.current_step as string) || '',
+          completed_steps: (data.completed_steps as number) || 0,
+          total_steps: (data.total_steps as number) || 0,
           created_at: s.currentTask?.created_at || new Date().toISOString(),
         } as AsyncTask,
+      }));
+    };
+    processor.on('progress', (event) => {
+      const data = event.data as any;
+      _pendingProgressData = data;
+      // streamEvents 仍每次 push（FIFO 200 上限）
+      set((s) => ({
         streamEvents: get()._pushStreamEvent(s.streamEvents, {
           id: `progress-${Date.now()}`,
           type: 'progress',
           timestamp: Date.now(),
-          data: event.data,
+          data,
         }),
       }));
+      // throttle currentTask 更新到 200ms
+      const now = Date.now();
+      const sinceLast = now - _lastProgressUpdate;
+      if (sinceLast >= 200) {
+        if (_progressFlushTimer) {
+          clearTimeout(_progressFlushTimer);
+          _progressFlushTimer = null;
+        }
+        flushProgress();
+      } else if (!_progressFlushTimer) {
+        _progressFlushTimer = setTimeout(() => {
+          _progressFlushTimer = null;
+          flushProgress();
+        }, 200 - sinceLast);
+      }
     });
 
     processor.on('stage', (event) => {
@@ -567,12 +645,25 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
         }
 
         if (status === 'completed') {
+          // 第四批修复：提取后端 stage:completed 携带的 _reasoning 字段，
+          //     绑定到对应 stage.reasoning，让 StageTimeline 展开态显示决策摘要。
+          //     如果 reasoning 事件已经先于 stage 完成到达，reasoning handler 已经写过；
+          //     这里用 \n 累加（不覆盖前文），确保两步都有内容时全显示。
+          const stageReasoning = (data._reasoning as string) || '';
           return {
-            stages: state.stages.map(s =>
-              `${s.agent}|${s.reviewRound || 0}` === stageKey
-                ? { ...s, status: 'completed' as const, duration: data.duration as number }
-                : s
-            ),
+            stages: state.stages.map(s => {
+              if (`${s.agent}|${s.reviewRound || 0}` !== stageKey) return s;
+              const prev = (s.reasoning as string) || '';
+              const merged = stageReasoning
+                ? (prev ? `${prev}\n${stageReasoning}` : stageReasoning)
+                : prev;
+              return {
+                ...s,
+                status: 'completed' as const,
+                duration: data.duration as number,
+                reasoning: merged,
+              };
+            }),
             currentStage: state.currentStage === agent ? null : state.currentStage,
           };
         }
@@ -583,60 +674,101 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
 
     processor.on('result', async (event) => {
       flushChunks();
-      const result = event.data as unknown as AgentResult;
-      const timelineEvents = resultToTimelineEvents(result);
-      const fullText = (result.output as any)?.full_text || (result.output as any)?.content || accumulated;
-      const backendReview = (result.output as any)?.review_content as string | undefined;
-      const backendDraft = (result.output as any)?.draft_content as string | undefined;
-      const eventSteps = getResultThinkingSteps(result);
+
+      // ── v2 schema: SSE 下发的 result 已是收敛后的"业务产物"
+      // 不携带运行时缓冲字段（_stages / _thinkingSteps / _llmChunks /
+      //     _reasoningChunks / _draftContent / agent_events）。
+      // 这些字段由前端 store 运行时自己累积，结果入库时再拼接（spec 2026-07-01） ──
+      const frontendResult = event.data as unknown as AgentResult;
+      const output = (frontendResult as any)?.output as Record<string, unknown> | undefined;
+
+      // 流式内容优先级：message.content 全程由 llm_chunk 累积，
+      // result 只注入 metadata（review_content / draft_content），
+      // 不覆盖 message.content（避免 result 先到时占位符覆盖真实内容）。
+      const backendReview = (output?.review_content as string | undefined);
+      const backendDraft = (output?.draft_content as string | undefined);
+
+      // 渲染用的 result：只含业务字段 + 可能注入 _reviewContent 让 ContentRenderer 工作
+      const resultForUi = backendReview
+        ? ({ ...frontendResult, _reviewContent: backendReview } as AgentResult)
+        : frontendResult;
+
+      // ── timeline 渲染：兼容旧 result（AgentEvents） + 新 result（无 events） ──
+      const timelineEvents = resultToTimelineEvents(frontendResult);
+      // 注：v2 result 不含 agent_events，所以 timelineEvents 通常为空数组，
+      //     前端 fallback 到 stages 即可
+
       const currentState = useAgentStore.getState();
+
+      // ── 持久化版 result：把 store 累积的运行时缓冲拼回去（仅入库用） ──
+      const eventSteps = getResultThinkingSteps(frontendResult);
       const finalSteps = eventSteps.length > 0 ? eventSteps : currentState.thinkingSteps;
-      const resultWithReview = backendReview ? { ...result, _reviewContent: backendReview } : result;
-      const resultWithTracking = {
-        ...resultWithReview,
-        _stages: currentState.stages.map(s => ({ ...s })),
+
+      // 第四批修复：保留 stage.reasoning（不再清空）——
+      //     reasoning 是 StageTimeline / MessageBubble 展开态的核心数据，
+      //     入库后用户刷新页面仍可看到推理摘要。
+      //     DB 体积：每个 stage.reasoning 通常 < 500B，几十个 stage 累计 < 10KB，可接受。
+      const persistedResult = {
+        ...resultForUi,
+        _stages: currentState.stages.map((s) => ({ ...s })),
         _thinkingSteps: finalSteps,
         _reasoningChunks: currentState.reasoningChunks,
         _llmChunks: currentState.llmChunks,
         _draftContent: backendDraft,
       };
+
+      // 流式内容已在 llm_chunk 阶段通过 50ms throttle 写入了 message.content，
+      // result 只补 metadata（result）。不更新 content 避免覆盖真实流式内容。
       conversationStore.updateMessage(msgIdRef.current, {
-        status: 'completed', content: fullText, result: resultWithTracking,
+        status: 'completed',
+        // content 保持不变（由 llm_chunk 流式累积 + done 最终注入）
+        result: resultForUi,
       });
-      // 修复 BUG-13：成功完成后清除 error，避免上次失败的错误信息残留
+      // store 状态更新：保留运行时缓冲（运行中的 store 仍要持有）
       set((s) => ({
-        currentResult: resultWithReview,
+        currentResult: resultForUi,
         isRunning: false,
         currentTaskId: null,
         thinkingSteps: finalSteps,
         error: null,
         streamEvents: timelineEvents.length > 0 ? timelineEvents : s.streamEvents,
       }));
-      
+
       if (conversationId) {
-        chatApi.updateMessage(msgIdRef.current, {
-          status: 'completed', content: fullText,
-          result: {
-            ...resultWithReview,
-            _stages: currentState.stages.map(s => ({ ...s, reasoning: '' })),
-            _thinkingSteps: finalSteps,
-            _reasoningChunks: currentState.reasoningChunks,
-            _llmChunks: currentState.llmChunks,
-            _draftContent: backendDraft,
-          } as unknown as Record<string, unknown>,
-        }).catch(console.error);
+        // D3: 用 safePersist 守门，避免切对话后脏写
+        safePersist(msgIdRef.current, {
+          status: 'completed',
+          content: fullText,
+          result: persistedResult as unknown as Record<string, unknown>,
+        });
       }
     });
 
     processor.on('error', (event) => {
       flushChunks();
+      // 第四批修复回归：flush reasoning/thinking 残留，避免流结束后 thinkingSteps 少最后几条
+      flushReasoning();
+      flushThinking();
       errorOccurred = true;
+      // P12: 后端 SSE error 事件字段可能漂移（message / detail / error），
+      //     code 字段命名也漂移（code / error_code），统一解析
+      const errorData = event.data as Record<string, unknown>;
+      const errorMessage =
+        (errorData.message as string) ||
+        (errorData.detail as string) ||
+        (errorData.error as string) ||
+        '执行出错';
+      const errorCode =
+        (errorData.code as string | undefined) ||
+        (errorData.error_code as string | undefined) ||
+        undefined;
       conversationStore.updateMessage(msgIdRef.current, {
         status: 'failed',
-        content: (event.data.message as string) || '执行出错',
+        content: errorMessage,
+        result: errorCode ? { error: errorMessage, error_code: errorCode } : { error: errorMessage },
       });
       set((s) => ({
-        error: (event.data.message as string) || '执行出错',
+        error: errorMessage,
         isRunning: false,
         currentTaskId: null,
         streamEvents: get()._pushStreamEvent(s.streamEvents, {
@@ -644,42 +776,24 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
           type: 'error',
           timestamp: Date.now(),
           data: event.data,
-          content: (event.data.message as string) || '执行出错',
+          content: errorMessage,
           status: 'failed',
         }),
       }));
       if (conversationId) {
-        chatApi.updateMessage(msgIdRef.current, {
+        safePersist(msgIdRef.current, {
           status: 'failed',
-          content: (event.data.message as string) || '执行出错',
-        }).catch(console.error);
+          content: errorMessage,
+          result: errorCode ? { error: errorMessage, error_code: errorCode } : { error: errorMessage },
+        });
       }
     });
 
-    processor.on('reasoning', (event) => {
-      const agent = (event.data as any).agent as string;
-      const content = (event.data as any).content as string;
-      const reviewRound = (event.data as any)._review_round || 0;
-      const key = `${agent}|${reviewRound}`;
-      set((s) => {
-        const existing = s.reasoningChunks[key] || [];
-        return {
-          reasoningChunks: { ...s.reasoningChunks, [key]: [...existing, { agent, content, timestamp: Date.now() }] },
-          stages: s.stages.map(st =>
-            st.agent === agent ? { ...st, reasoning: (st.reasoning || '') + content } : st
-          ),
-          streamEvents: get()._pushStreamEvent(s.streamEvents, {
-            id: `reasoning-${Date.now()}-${agent}`,
-            type: 'reasoning',
-            timestamp: Date.now(),
-            data: event.data,
-            agent,
-            content,
-          }),
-        };
-      });
-    });
-
+    // 第四批修复：reasoning 重新启用，累积到 stageReasoning + reasoningChunks + streamEvents。
+    //     这是 ManagerAgent 意图分析、规划推理等"决策过程"反馈的核心通道。
+    //     注意：reasoning token 频率极高（LLM reasoning 每秒 50-200 个 token），
+    //     直接 set() 会打满 React 重渲染队列，阻塞 llm_chunk / result 处理。
+    //     用 100ms debounce 合并连发——只取最后一条写入 store，但 streamEvents 仍逐条记。
     processor.on('llm_chunk', (event) => {
       const data = event.data as any;
       const agent = data.agent as string;
@@ -713,27 +827,95 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
         return;
       }
 
-      // body
-      accumulated += content;
-      updateMsg(accumulated);
-      pendingChunks.push({ agent, content });
-      if (!chunkBatchTimer) {
-        chunkBatchTimer = setTimeout(() => {
-          chunkBatchTimer = null;
-          flushChunks();
-        }, _CHUNK_UPDATE_INTERVAL);
-      }
+      // P8: body channel 不再 push 到 pendingChunks——body chunk 已经通过
+    //     accumulated + updateMsg 实时反映到 message.content，StageTimeline 折叠态
+    //     也只会显示 chunk[WritingAgent]，与消息体内容重复。
+    //     仅 review / search / reasoning channel 进 pendingChunks（这些 StageTimeline
+    //     折叠预览才需要）。
+    const isBodyChannel = channel === 'body' || !channel; // 默认 body
+    if (isBodyChannel) {
+      // P20: 数组 push 而非字符串拼接，长任务（>10k tokens）O(n) 而非 O(n²)
+      accumulatedChunks.push(content);
+      updateMsg(getAccumulated());
+      return;
+    }
+
+    // reasoning / search / review — 进 llmChunks map（StageTimeline 折叠用）
+    pendingChunks.push({ agent, content });
+    if (!chunkBatchTimer) {
+      chunkBatchTimer = setTimeout(() => {
+        chunkBatchTimer = null;
+        flushChunks();
+      }, _CHUNK_UPDATE_INTERVAL);
+    }
     });
 
-    processor.on('done', () => {
+    processor.on('done', (event) => {
       flushChunks();
+      // 第四批修复回归：flush reasoning/thinking 残留，避免流结束后 thinkingSteps 少最后几条
+      flushReasoning();
+      flushThinking();
       if (errorOccurred) return;
       const conversationStore = useConversationStore.getState();
       const msg = conversationStore.messages.find(m => m.id === msgIdRef.current);
       const alreadySet = msg && msg.content && msg.content.length > 0 && get().currentResult;
-      if (accumulated && !alreadySet) {
-        conversationStore.updateMessage(msgIdRef.current, { content: accumulated });
+      // P20: 用数组长度判断代替字符串 truthy check
+      if (accumulatedChunks.length > 0 && !alreadySet) {
+        conversationStore.updateMessage(msgIdRef.current, { content: getAccumulated() });
       }
+
+// B3: done 时如果 currentResult 仍为空（中途断网 / 事件丢失），
+    //     fallback 到 GET /agent/async/status 兜底拉取
+    //
+    //     P10 schema 不一致说明：
+    //     - 正常路径：result 事件携带 v2 收敛 schema（不含 _stages/_thinkingSteps/agent_events）
+    //     - fallback 路径：async/status 返回 task.result 是**后端全量 AgentResult**（含运行时缓冲）
+    //     两者字段不同，但都有 output.full_text / output.content——UI 渲染统一从这些字段取，
+    //     多余字段（_stages 等）只在 StageTimeline 历史渲染路径里用到，不影响主流程。
+    if (!get().currentResult) {
+        const taskIdFromDone = (event?.data as any)?.task_id as string | undefined;
+        const fallbackTaskId = taskIdFromDone || get().currentTaskId;
+        if (fallbackTaskId) {
+          // 异步 fetch async/status；不阻塞 done 的清场流程
+          agentApi.getAsyncStatus(fallbackTaskId)
+            .then((res) => {
+              const task = res?.data?.data;
+              if (!task) return;
+              const status = task.state; // completed / failed / cancelled / running
+              if (status === 'completed' && task.result) {
+                // async/status 返回的是 AgentResult（业务 schema），直接可用
+                const completedResult = task.result as Record<string, unknown>;
+                const fullText =
+                  ((completedResult as any).output?.full_text as string | undefined) ||
+                  ((completedResult as any).output?.content as string | undefined) ||
+                  getAccumulated();
+                conversationStore.updateMessage(msgIdRef.current, {
+                  status: 'completed',
+                  content: fullText,
+                  result: completedResult,
+                });
+                set({ currentResult: completedResult as any });
+              } else if (status === 'failed') {
+                // P11: to_dict() 里只有 error 字段，没有 error_code；别再加 undefined 字段
+                const errorMsg = task.error || '执行失败';
+                conversationStore.updateMessage(msgIdRef.current, {
+                  status: 'failed',
+                  content: errorMsg,
+                  result: { error: errorMsg },
+                });
+                set({ error: errorMsg });
+              } else if (status === 'cancelled') {
+                conversationStore.updateMessage(msgIdRef.current, {
+                  status: 'cancelled',
+                });
+              }
+            })
+            .catch((err) => {
+              console.warn('[useAgentStore] async/status fallback failed:', err);
+            });
+        }
+      }
+
       set((s) => ({
         isRunning: false,
         currentTaskId: null,
@@ -761,7 +943,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     const [connectError] = await Promise.all([
       (async (): Promise<string | null> => {
         let err: string | null = null;
-        await processor.connect(agentApi.streamUrl(), {
+        await processor.connect(agentApi.streamV2Url(), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -780,10 +962,44 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     ]);
 
     if (connectError && !errorOccurred) {
-      conversationStore.updateMessage(msgIdRef.current, {
-        status: 'failed',
-        content: connectError,
-      });
+      // D2: 如果连接失败但 task_id 已拿到（task_created 已下发），fallback 到 async/status
+      // 多数情况下后端已经启动任务，只是 SSE 通道断了——async/status 能拿到结果
+      const fallbackTaskId = get().currentTaskId;
+      if (fallbackTaskId) {
+        setTimeout(() => {
+          agentApi.getAsyncStatus(fallbackTaskId)
+            .then((res) => {
+              const task = res?.data?.data;
+              if (!task) return;
+              if (task.state === 'completed' && task.result) {
+                const completedResult = task.result as Record<string, unknown>;
+                const fullText =
+                  ((completedResult as any).output?.full_text as string | undefined) ||
+                  ((completedResult as any).output?.content as string | undefined) ||
+                  '';
+                conversationStore.updateMessage(msgIdRef.current, {
+                  status: 'completed',
+                  content: fullText,
+                  result: completedResult,
+                });
+                set({ currentResult: completedResult as any, error: null });
+              } else if (task.state === 'failed') {
+                conversationStore.updateMessage(msgIdRef.current, {
+                  status: 'failed',
+                  content: task.error || '执行失败',
+                  result: { error: task.error || '执行失败' },
+                });
+                set({ error: task.error || '执行失败' });
+              }
+            })
+            .catch(() => { /* 静默失败，UI 已是 failed 状态 */ });
+        }, 1500); // 给后端 1.5s 缓冲
+      } else {
+        conversationStore.updateMessage(msgIdRef.current, {
+          status: 'failed',
+          content: connectError,
+        });
+      }
       set({
         error: connectError,
         isRunning: false,
@@ -872,9 +1088,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     if (typeof s.disconnectWebSocket === 'function') {
       s.disconnectWebSocket();
     }
-    if (s._reconnectTimer) {
-      clearTimeout(s._reconnectTimer);
-    }
+    // P6: _ws / _reconnectTimer / wsConnectionState 已从 state 移除，无需清理
 
     // 2. 修复 BUG-12：清空所有属于本 store 的状态。
     // 注意：对话管理（messages / conversationId / conversationList 等）已迁移到
@@ -896,9 +1110,6 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       currentStage: null,
       intentConflicts: [],
       hasFirstEventReceived: false,
-      wsConnectionState: 'disconnected',
-      _ws: null,
-      _reconnectTimer: null,
       _abortController: null,
       _streamingProcessor: null,
       // 预览相关：本 store 持有 previewContent/previewPlatform/previewContentType

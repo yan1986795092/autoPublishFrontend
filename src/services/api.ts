@@ -509,7 +509,7 @@ export const generateStream = (
   });
 };
 
-export default apiClient;
+// apiClient is exported via named exports above; no default needed
 
 // ── Observability API ──────────────────────────────────────────────────────────
 

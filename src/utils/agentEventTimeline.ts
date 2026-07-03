@@ -19,7 +19,7 @@ function normalizeEventType(eventType: string): StreamEvent['type'] | null {
   }
 }
 
-export function agentEventToStreamEvent(event: AgentEvent, index: number, result?: AgentResult | null): StreamEvent | null {
+function agentEventToStreamEvent(event: AgentEvent, index: number, result?: AgentResult | null): StreamEvent | null {
   const type = normalizeEventType(event.event_type);
   if (!type) return null;
 

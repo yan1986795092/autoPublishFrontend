@@ -15,10 +15,10 @@ export const COMMANDS: Command[] = [
   { id: 'execute', title: '快速执行', keys: ['Ctrl', 'Enter'], context: 'home', description: '发送提示并执行' },
 ];
 
-export function getShortcutLabel(id: string): string {
+function getShortcutLabel(id: string): string {
   return COMMANDS.find((c) => c.id === id)?.title || id;
 }
 
-export function getShortcutKeys(id: string): string[] {
+function getShortcutKeys(id: string): string[] {
   return COMMANDS.find((c) => c.id === id)?.keys || [];
 }

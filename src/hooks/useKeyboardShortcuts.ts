@@ -50,7 +50,7 @@ export function useKeyboardShortcuts() {
 }
 
 /** Get all commands that apply in a given context */
-export function getContextCommands(context: Command['context']) {
+function getContextCommands(context: Command['context']) {
   return COMMANDS.filter((c) => c.context === context);
 }
 

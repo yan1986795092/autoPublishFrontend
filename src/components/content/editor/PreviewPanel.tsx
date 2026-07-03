@@ -12,7 +12,8 @@ export interface PreviewPanelProps {
 // ── P1-3: 区分手机壳平台和文档框平台 ──
 // 手机壳主要给移动端主导的平台（小红书/抖音/微博）
 // 文档框覆盖桌面长文（公众号/邮件/技术文档/SEO 文章等）
-const MOBILE_PLATFORMS = new Set(['xiaohongshu', 'douyin', 'weibo', 'bilibili']);
+// 手机壳覆盖所有平台（公众号在 WechatPreview 里画的是 App 内阅读页，也走 mobile）
+const MOBILE_PLATFORMS = new Set(['xiaohongshu', 'douyin', 'weibo', 'bilibili', 'wechat']);
 
 type PreviewMode = 'mobile' | 'document';
 
@@ -81,24 +82,24 @@ export function PreviewPanel({ platformCode, title, contentMd, tags }: PreviewPa
 // ── 移动端手机壳 ──
 function MobileFrame({ children }: { children: React.ReactNode }) {
   return (
-    <div className="self-center w-full max-w-[300px] aspect-[9/19] rounded-[2.25rem] bg-neutral-800 p-[7px] shadow-2xl shadow-black/50 relative">
-      <div className="w-full h-full rounded-[1.875rem] bg-white overflow-hidden relative flex flex-col">
-        <div className="absolute top-[11px] left-1/2 -translate-x-1/2 z-20 w-[100px] h-[26px] bg-black rounded-full flex items-center justify-center">
+    <div className="self-center w-full max-w-[300px] h-[600px] rounded-[2.5rem] bg-neutral-900 p-[7px] shadow-2xl shadow-black/50 relative border border-neutral-800">
+      <div className="w-full h-full rounded-[2rem] bg-white overflow-hidden relative flex flex-col">
+        <div className="absolute top-[12px] left-1/2 -translate-x-1/2 z-20 w-[110px] h-[28px] bg-black rounded-[20px] flex items-center justify-center">
           <div className="w-2 h-2 rounded-full bg-neutral-700" />
         </div>
-        <div className="shrink-0 flex items-center justify-between px-7 pt-[11px] pb-0.5 bg-white text-[10px] text-black font-semibold tracking-tight relative z-10">
+        <div className="shrink-0 h-[44px] flex items-center justify-between px-8 pt-[13px] pb-0.5 bg-white text-[11px] text-black font-semibold tracking-tight relative z-10">
           <span className="tabular-nums">9:41</span>
-          <div className="flex items-center gap-1">
-            <svg width="13" height="9" viewBox="0 0 17 12" fill="currentColor"><path d="M1 8h2v4H1zm4-3h2v7H5zm4-4h2v11H9zm4-1h2v12h-2z"/></svg>
-            <svg width="13" height="9" viewBox="0 0 15 12" fill="currentColor"><path d="M7.5 10.5a1.5 1.5 0 110 3 1.5 1.5 0 010-3zm3.5-2.5a5 5 0 00-7 0l-1.5-1.5a7 7 0 0110 0L11 8zm3-3a10 10 0 00-13 0L-.5 3.5a12 12 0 0116 0L14 5z"/></svg>
-            <svg width="20" height="10" viewBox="0 0 24 12" fill="none" stroke="currentColor" strokeWidth="1.2"><rect x="0.5" y="0.5" width="18" height="11" rx="2.5"/><path d="M21 4.5v3"/><rect x="2.5" y="2.5" width="12" height="7" rx="1.5" fill="currentColor"/></svg>
+          <div className="flex items-center gap-1.5">
+            <svg width="14" height="10" viewBox="0 0 17 12" fill="currentColor"><path d="M1 8h2v4H1zm4-3h2v7H5zm4-4h2v11H9zm4-1h2v12h-2z"/></svg>
+            <svg width="14" height="10" viewBox="0 0 15 12" fill="currentColor"><path d="M7.5 10.5a1.5 1.5 0 110 3 1.5 1.5 0 010-3zm3.5-2.5a5 5 0 00-7 0l-1.5-1.5a7 7 0 0110 0L11 8zm3-3a10 10 0 00-13 0L-.5 3.5a12 12 0 0116 0L14 5z"/></svg>
+            <svg width="22" height="11" viewBox="0 0 24 12" fill="none" stroke="currentColor" strokeWidth="1.2"><rect x="0.5" y="0.5" width="18" height="11" rx="2.5"/><path d="M21 4.5v3"/><rect x="2.5" y="2.5" width="12" height="7" rx="1.5" fill="currentColor"/></svg>
           </div>
         </div>
-        <div className="flex-1 overflow-y-auto bg-white [&>*]:m-0">
+        <div className="flex-1 overflow-y-auto bg-white min-h-0 [&>*]:m-0">
           {children}
         </div>
-        <div className="shrink-0 flex justify-center py-1.5 bg-white">
-          <div className="w-[110px] h-[4px] rounded-full bg-neutral-300/70" />
+        <div className="shrink-0 h-[32px] flex justify-center items-center bg-white">
+          <div className="w-[120px] h-[5px] rounded-full bg-neutral-300/60" />
         </div>
       </div>
     </div>

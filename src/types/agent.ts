@@ -196,6 +196,8 @@ export interface ChatMessage {
   renderMode?: 'bubble' | 'generation_card';
   renderPayload?: RenderPayload | null;
   generationMeta?: GenerationMeta | null;
+  /** Parts 模型数组（spec 2026-07-02 §3.1）：替代 result_json / stages / llmChunks 等 */
+  parts?: import('./message').MessagePart[];
 }
 
 /** 对话 LLM 触发生成的指令 */
@@ -297,7 +299,7 @@ export interface IntentConflict {
 // Agent → Stage mapping (frontend side, synced with backend STAGE_MAP)
 export const AGENT_STAGE_MAP: Record<string, { label: string; icon: string }> = {
   ManagerAgent:  { label: '思考分析中', icon: '🧠' },
-  PlanningAgent: { label: '任务规划中', icon: '📋' },
+  PlannerAgent:  { label: '规划任务中', icon: '📋' },
   WebSearch:     { label: '搜索资料中', icon: '🔍' },
   URLCrawler:    { label: '搜索资料中', icon: '🔍' },
   WritingAgent:  { label: '创作初稿中', icon: '✍️' },
@@ -305,6 +307,7 @@ export const AGENT_STAGE_MAP: Record<string, { label: string; icon: string }> = 
   FixAgent:      { label: '润色优化中', icon: '✨' },
   CodeAgent:     { label: '代码生成中', icon: '💻' },
   DiagramAgent:  { label: '图表生成中', icon: '📊' },
+  HotTopicAgent: { label: '整合分析中', icon: '🔬' },
 };
 
 export type ContentType = 'blog' | 'social_post' | 'copywriting' | 'script' | 'newsletter' | 'report' | 'auto';

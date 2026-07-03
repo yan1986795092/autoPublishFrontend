@@ -11,6 +11,9 @@ import { formatTime, formatDuration } from '../../utils/format';
 import { AGENT_STAGE_MAP } from '../../types';
 import type { StageInfo, LLMChunk, ReasoningChunk } from '../../types';
 
+import { MessageBubble as NewMessageBubble } from '../chat/MessageBubble';
+import type { MessagePart } from '../../types/message';
+
 interface MessageBubbleProps {
   message: {
     id: string;
@@ -22,6 +25,8 @@ interface MessageBubbleProps {
     renderMode?: string;
     renderPayload?: any;
     result?: any;
+    /** Parts 模型数组（spec 2026-07-02 §3.1）— 存在时优先用新渲染器 */
+    parts?: MessagePart[];
   };
   copiedId: string | null;
   onCopy: (id: string, text: string) => void;
@@ -89,18 +94,28 @@ function _synthesizeStages(result: any, content: string): StageInfo[] {
   }
 
   // D1: 多源兜底——从 _thinkingSteps 推断（review-flow 早期数据）
-  const steps = result?._thinkingSteps as Array<{ agent?: string }> | undefined;
+  const steps = result?._thinkingSteps as Array<{ agent?: string; _review_round?: number }> | undefined;
   if (steps && steps.length > 0) {
-    const uniqueAgents = Array.from(new Set(steps.map((s) => s.agent).filter(Boolean))) as string[];
-    return uniqueAgents.map((agent) => {
-      const mapEntry = AGENT_STAGE_MAP[agent as keyof typeof AGENT_STAGE_MAP] || { label: agent, icon: '⚙️' };
-      return {
-        agent,
+    // P24: 用 (agent, reviewRound) 二元组去重，保留多轮 review 的轮次信息。
+    //      之前的 uniqueAgents 只按 agent 去重，第 2/3 轮 review 的 stage 会丢。
+    const seen = new Set<string>();
+    const stages: StageInfo[] = [];
+    for (const s of steps) {
+      if (!s.agent) continue;
+      const rr = s._review_round || 0;
+      const key = `${s.agent}|${rr}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const mapEntry = AGENT_STAGE_MAP[s.agent as keyof typeof AGENT_STAGE_MAP] || { label: s.agent, icon: '⚙️' };
+      stages.push({
+        agent: s.agent,
         label: mapEntry.label,
         icon: mapEntry.icon,
         status: 'completed' as const,
-      };
-    });
+        ...(rr > 0 ? { reviewRound: rr } : {}),
+      });
+    }
+    if (stages.length > 0) return stages;
   }
 
   return [];
@@ -128,6 +143,23 @@ export function MessageBubble({
   llmChunks,
   reasoningChunks,
 }: MessageBubbleProps) {
+  // ── Parts 模型渲染路径（spec 2026-07-02 §4.4）
+  // 当 message 有 parts[] 时，使用新渲染器（替代 StageTimeline / llmChunks / reasoningChunks）
+  if (message.parts && message.parts.length > 0) {
+    return (
+      <NewMessageBubble
+        message={{
+          id: message.id,
+          role: message.role as 'user' | 'assistant',
+          status: (message.status || 'completed') as 'sending' | 'streaming' | 'completed' | 'failed' | 'cancelled',
+          timestamp: message.timestamp,
+          content: message.content || '',
+          parts: message.parts,
+        }}
+        onRetry={onRetry ? (id: string) => onRetry(id, message.content || '') : undefined}
+      />
+    );
+  }
   // 优先用业务 schema 的纯文本作为复制/预览源（在 handlePreview 前定义，闭包清晰）
   const copyableContent = _resolveCopyContent(message);
   const copySource = copyableContent || message.content || '';

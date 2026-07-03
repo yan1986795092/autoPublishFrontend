@@ -71,7 +71,7 @@ export class SSEProcessor {
       onError?: (error: string) => void;
     },
     externalSignal?: AbortSignal,
-    connectTimeoutMs: number = 15_000,
+    connectTimeoutMs: number = 45_000,
   ): Promise<void> {
     const controller = new AbortController();
     let externalAbortHandler: (() => void) | null = null;
@@ -115,8 +115,10 @@ export class SSEProcessor {
       const decoder = new TextDecoder();
       let buffer = '';
 
-      // Heartbeat: abort if no data for 30s
-      const HEARTBEAT_TIMEOUT = 30_000;
+      // Heartbeat: abort if no data for 90s
+      // P23: 长 body 流（5000 字文章单段生成）或多个 agent 切换的间隙都可能
+      //      超过 30s 没新数据；调高到 90s 避免误杀，但 heartbeat 检查间隔仍保持 5s。
+      const HEARTBEAT_TIMEOUT = 90_000;
       let lastDataTime = Date.now();
       this._heartbeatTimer = setInterval(() => {
         if (controller.signal.aborted) return;

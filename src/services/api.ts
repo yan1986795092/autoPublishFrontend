@@ -298,6 +298,8 @@ export const agentApi = {
    * - result 用收敛 schema（不携带运行时缓冲字段）
    */
   streamV2Url: () => `${API_BASE_URL}/api/v1/agent/stream/v2`,
+  /** Parts 模型 SSE v3（spec 2026-07-02） */
+  streamV3Url: () => `${API_BASE_URL}/api/v1/agent/stream/v3`,
 
   /** 获取系统监控指标 */
   getMetrics: () =>

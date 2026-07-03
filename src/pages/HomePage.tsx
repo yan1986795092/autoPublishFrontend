@@ -1,4 +1,5 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useRef, useState, useCallback, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useConversationStore } from '../stores/useConversationStore';
 import { useUIStore } from '../stores/useUIStore';
@@ -7,6 +8,7 @@ import { Workspace } from '../components/agent/Workspace';
 import { cn } from '../utils/helpers';
 
 export function HomePage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const conversationId = useConversationStore((s) => s.conversationId);
   const switchConversation = useConversationStore((s) => s.switchConversation);
   const createConversation = useConversationStore((s) => s.createConversation);
@@ -31,13 +33,41 @@ export function HomePage() {
     return () => window.removeEventListener('keydown', handler);
   }, [mobileSidebarOpen]);
 
+  // 修复 #9（URL 深链接）：页面加载时从 `?c=` 读取对话 ID 并切换
+  // 用 ref 标记已处理，避免 StrictMode 下 effect 重复执行导致 switchConversation 重复触发
+  const urlInitHandledRef = useRef(false);
+  useEffect(() => {
+    if (urlInitHandledRef.current) return;
+    urlInitHandledRef.current = true;
+    const cid = searchParams.get('c');
+    if (cid && cid !== conversationId) {
+      switchConversation(cid).catch(() => {});
+    }
+  }, [conversationId, switchConversation, searchParams]);
+
+  // 修复 #9 + BUG-H：conversationId 变化时同步到 URL；
+  // null 时也要清掉 URL（用户切账号 / 删除最后一个对话）
+  useEffect(() => {
+    if (conversationId) {
+      if (searchParams.get('c') !== conversationId) {
+        setSearchParams({ c: conversationId }, { replace: true });
+      }
+    } else if (searchParams.has('c')) {
+      const next = new URLSearchParams(searchParams);
+      next.delete('c');
+      setSearchParams(next, { replace: true });
+    }
+  }, [conversationId, searchParams, setSearchParams]);
+
+  // 修复 BUG-I：从 store 实时读取 conversationId 而非闭包旧值，
+  // 避免快速切换时闭包过期导致不必要的 switchConversation 调用
   const handleSelectSession = useCallback(async (id: string) => {
-    if (id !== conversationId) {
+    if (id !== useConversationStore.getState().conversationId) {
       await switchConversation(id);
     }
     // 移动端选完关闭浮层
     setMobileSidebarOpen(false);
-  }, [conversationId, switchConversation]);
+  }, [switchConversation]);
 
   const handleNewSession = useCallback(async () => {
     // 修复 #10：失败时给 toast，不静默清空消息

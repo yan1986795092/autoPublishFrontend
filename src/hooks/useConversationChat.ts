@@ -68,6 +68,10 @@ export function useConversationChat(): UseConversationChatReturn {
   //     accumulatedText 同步镜像在此，让 abort 路径能拿到最后一次内容。
   const activeAssistantIdRef = useRef<string | null>(null);
   const activeAccumulatedRef = useRef<string>('');
+  // 修复 #3（isChatting 竞态）：用 ref 做操作守卫，避免 React 闭包过时导致双击穿透
+  const isChattingRef = useRef(false);
+  // 修复 #8（对话超时）：对话阶段 60 秒无 done/error 则自动 abort
+  const chatTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const addMessage = useConversationStore((s) => s.addMessage);
   const updateMessage = useConversationStore((s) => s.updateMessage);
@@ -109,7 +113,9 @@ export function useConversationChat(): UseConversationChatReturn {
     contentType?: string,
     preferences?: Preferences,
   ) => {
-    if (isChatting) return;
+    // 修复 #3（isChatting 竞态）：用 ref 而非闭包 state，防止旧值导致双击穿透
+    if (isChattingRef.current) return;
+    isChattingRef.current = true;
 
     // 抢占：自增 token，旧的 send / abort 失效
     persistTokenRef.current += 1;
@@ -129,13 +135,17 @@ export function useConversationChat(): UseConversationChatReturn {
 
     const conversationIdAtSend = conversationId || null;
     if (conversationIdAtSend) {
+      // 修复 BUG-C5：持久化失败时给用户提示，而不只是 console.warn
       try {
         const { chatApi } = await import('../services/api');
         chatApi.addMessage(conversationIdAtSend, {
           role: 'user',
           content: text,
           status: 'completed',
-        }).catch((e) => console.warn('[persistUserMessage] failed:', e));
+        }).catch((e) => {
+          console.warn('[persistUserMessage] failed:', e);
+          showToast('消息保存失败，刷新页面后可能丢失，请检查网络', 'error');
+        });
       } catch {
         // 忽略 import 失败
       }
@@ -167,10 +177,16 @@ export function useConversationChat(): UseConversationChatReturn {
     const finalize = (status: 'completed' | 'failed', content: string) => {
       if (settled) return;
       settled = true;
+      isChattingRef.current = false; // 修复 #3：ref 与 state 同步
       updateMessage(assistantId, { status, content });
       setIsChatting(false);
       // 持久化对话回复（#3：刷新页面不丢）
       void persistAssistantMessage(myToken, content, conversationIdAtSend);
+      // 修复 #8：清理超时定时器
+      if (chatTimeoutRef.current) {
+        clearTimeout(chatTimeoutRef.current);
+        chatTimeoutRef.current = null;
+      }
     };
 
     const processor = new SSEProcessor();
@@ -181,10 +197,6 @@ export function useConversationChat(): UseConversationChatReturn {
     abortControllerRef.current = abortController;
 
     const token = useAuthStore.getState().accessToken;
-
-    const GENERATE_BLOCK_RE = /\[GENERATE\]\s*(\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\})\s*\[\/GENERATE\]/g;
-    const filterGenerateBlock = (s: string): string =>
-      s.replace(GENERATE_BLOCK_RE, '').trimEnd();
 
     interface SseTextEvent { content?: string }
     interface SseErrorEvent { message?: string }
@@ -212,9 +224,12 @@ export function useConversationChat(): UseConversationChatReturn {
 
     processor.on('text', (event) => {
       const data = event.data as SseTextEvent;
-      const filtered = filterGenerateBlock(data.content || '');
-      if (!filtered) return;
-      accumulatedText += filtered;
+      // v3 改造：对话 LLM 已不再输出 [GENERATE]{json}[/GENERATE] 文本标记，
+      // 所有触发统一通过 trigger_generation 工具调用完成。
+      // 这里直接累加文本即可（不再需要 filterGenerateBlock）。
+      const text = data.content || '';
+      if (!text) return;
+      accumulatedText += text;
       activeAccumulatedRef.current = accumulatedText; // P21: 暴露给 abort 路径
       scheduleChatTextFlush();
     });
@@ -304,6 +319,35 @@ export function useConversationChat(): UseConversationChatReturn {
         // 不 await，让 done 不被阻塞；triggerPromise 在后台继续
         // 但如果 triggerPromise 抛错，要避免 unhandled rejection
         triggerPromise.catch(() => {});
+      } else if (typeof window !== 'undefined') {
+        // 前端兜底：done 到达时若没收到 trigger 事件，且 LLM 输出包含"开始创作"
+        // 等明确信号词 + 用户消息含生成关键词，主动用本地 platform/content_type/preferences
+        // 触发生成（防止后端 trigger 解析失败 / SSE 漏发导致用户卡住）
+        const _llmText = (accumulatedText || '').trim();
+        const _readySignals = ['开始创作', '信息够了', '开始生成', '准备好了', '开始吧'];
+        const _userText = (text || '').toLowerCase();
+        const _genKeywords = ['写', '生成', '重新生成', '重写', '再来一份', '写一份', '生成一份', '来一份'];
+        const _wantsGen = _genKeywords.some((kw) => _userText.includes(kw.toLowerCase()));
+        const _looksReady = _readySignals.some((s) => _llmText.includes(s));
+        if (_looksReady && _wantsGen && !useAgentStore.getState().isRunning) {
+          try {
+            // 提取用户原文（剥离 [目标平台：xxx]\n 前缀）
+            const _stripHint = _userText.replace(/^\[目标平台：[^\]]+\]\s*\n?/i, '');
+            const _platform = platform || undefined;
+            await runStreaming(_stripHint, _platform, {
+              action: 'create',
+              topic: _stripHint,
+              platform: _platform,
+              tone: preferences?.tone,
+              length: preferences?.length,
+              audience: preferences?.audience,
+              ...(contentType ? { style: contentType } : {}),
+            } as Record<string, unknown>);
+            showToast('已开始创作', 'success');
+          } catch (e) {
+            console.error('[fallback runStreaming] failed:', e);
+          }
+        }
       }
       // P21: flush throttle 残留，确保 placeholder 显示最终文本（不被 throttle 缓冲吞掉）
       if (chatTextTimer.current) {
@@ -324,6 +368,16 @@ export function useConversationChat(): UseConversationChatReturn {
       finalize('failed', accumulatedText || msg);
       showToast(msg, 'error');
     });
+
+    // 修复 #8（对话超时）：60 秒无 done/error 则自动 abort
+    chatTimeoutRef.current = setTimeout(() => {
+      if (!settled) {
+        abortController.abort();
+        processorRef.current?.abort();
+        finalize('failed', '对话回复超时，请重试');
+        showToast('对话回复超时，请重试', 'error');
+      }
+    }, 60_000);
 
     try {
       await processor.connect(conversationApi.chatUrl(), {
@@ -347,6 +401,11 @@ export function useConversationChat(): UseConversationChatReturn {
       }, abortController.signal, 60_000);
     } catch (e: unknown) {
       const err = e as { name?: string };
+      // 修复 #8：清理超时定时器
+      if (chatTimeoutRef.current) {
+        clearTimeout(chatTimeoutRef.current);
+        chatTimeoutRef.current = null;
+      }
       if (err?.name !== 'AbortError') {
         finalize('failed', '连接对话服务失败');
         showToast('连接对话服务失败', 'error');
@@ -355,7 +414,10 @@ export function useConversationChat(): UseConversationChatReturn {
       }
     } finally {
       queueMicrotask(() => {
-        if (!settled) setIsChatting(false);
+        if (!settled) {
+          isChattingRef.current = false;
+          setIsChatting(false);
+        }
       });
     }
   }, [isChatting, addMessage, updateMessage, conversationId, runStreaming, showToast, persistAssistantMessage]);
@@ -387,6 +449,7 @@ export function useConversationChat(): UseConversationChatReturn {
       // 注：throttle 定时器是 sendChatMessage 的 closure-local，外部无法触达，
       //     但其 flush 只会调 updateMessage（写入 msg.content），而下一步 finalize
       //     已把 placeholder 置为 failed——定时器最多迟到一次空 write，无副作用。
+      isChattingRef.current = false; // 修复 #3
       if (isChatting) setIsChatting(false);
     };
     window.addEventListener('app:conversation-switching', onSwitch);
@@ -396,6 +459,11 @@ export function useConversationChat(): UseConversationChatReturn {
   const abort = useCallback(() => {
     // 自增 token，让所有进行中的持久化和 trigger 链作废
     persistTokenRef.current += 1;
+    // 修复 #8：清理对话超时定时器
+    if (chatTimeoutRef.current) {
+      clearTimeout(chatTimeoutRef.current);
+      chatTimeoutRef.current = null;
+    }
     processorRef.current?.abort();
     abortControllerRef.current?.abort();
     // 同时停 agent 流
@@ -410,6 +478,7 @@ export function useConversationChat(): UseConversationChatReturn {
       }
       activeAssistantIdRef.current = null;
     }
+    isChattingRef.current = false; // 修复 #3
     if (isChatting) setIsChatting(false);
   }, [isChatting, stopAgentStreaming]);
 

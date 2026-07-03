@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '../ui/button';
 import { ScrollArea } from '../ui/scroll-area';
@@ -121,7 +121,25 @@ export function Workspace({
   }, []);
 
   // ── 选中平台/文体（左侧引导页 + 右侧预览画廊共享） ──
-  const [selectedPlatform, setSelectedPlatform] = useState<string | null>(null);
+  const [selectedPlatform, setSelectedPlatform] = useState<string | null>(() => {
+    // 修复 #7：刷新后从 localStorage 恢复平台选择
+    try {
+      return localStorage.getItem('autopublish-selected-platform');
+    } catch {
+      return null;
+    }
+  });
+
+  // 修复 #7：平台选择变化时持久化到 localStorage
+  useEffect(() => {
+    try {
+      if (selectedPlatform) {
+        localStorage.setItem('autopublish-selected-platform', selectedPlatform);
+      } else {
+        localStorage.removeItem('autopublish-selected-platform');
+      }
+    } catch { /* 忽略 storage 错误 */ }
+  }, [selectedPlatform]);
 
   // ── Params dialog ── 修复 #12：参数从 useSettingsStore 读写，自动持久化
   const [paramsOpen, setParamsOpen] = useState(false);
@@ -182,7 +200,20 @@ export function Workspace({
     ta.style.height = `${Math.min(ta.scrollHeight, 120)}px`;
   }, [prompt]);
 
-  const prevCountsRef = useRef({ messages: 0, stages: 0 });
+  // P26: 累计 chunk 数量变化也要触发滚动。reasoning 流（30ms debounce）和
+  //      body 流（120ms debounce）会让 StageTimeline / MessageBubble 高度增加，
+  //      但 messages.length / stages.length 不变——之前 useLayoutEffect 不会触发，
+  //      用户看到"屏幕卡住 + 内容继续在下方生长"。
+  //      用累计 token 数作为"内容增长"的廉价信号。
+  const totalLlmChunks = useMemo(
+    () => Object.values(llmChunks).reduce((sum, arr) => sum + arr.length, 0),
+    [llmChunks],
+  );
+  const totalReasoningChunks = useMemo(
+    () => Object.values(reasoningChunks).reduce((sum, arr) => sum + arr.length, 0),
+    [reasoningChunks],
+  );
+  const prevCountsRef = useRef({ messages: 0, stages: 0, llm: 0, reasoning: 0 });
 
   useLayoutEffect(() => {
     if (!isRunning) return;
@@ -196,11 +227,22 @@ export function Workspace({
 
     const msgCount = messages.length;
     const stageCount = stages.length;
+    const llmCount = totalLlmChunks;
+    const reasoningCount = totalReasoningChunks;
     const prev = prevCountsRef.current;
-    const grew = msgCount > prev.messages || stageCount > prev.stages;
+    // 任何一个累计量增长都触发滚动（chunks 用 > 而非 !== 因为 key 增删不影响）
+    const grew = msgCount > prev.messages
+      || stageCount > prev.stages
+      || llmCount > prev.llm
+      || reasoningCount > prev.reasoning;
 
     if (grew) {
-      prevCountsRef.current = { messages: msgCount, stages: stageCount };
+      prevCountsRef.current = {
+        messages: msgCount,
+        stages: stageCount,
+        llm: llmCount,
+        reasoning: reasoningCount,
+      };
       scrollDueToProgramRef.current = true;
       const id = requestAnimationFrame(() => {
         el.scrollTop = el.scrollHeight;
@@ -211,7 +253,7 @@ export function Workspace({
       });
       return () => cancelAnimationFrame(id);
     }
-  }, [isRunning, isUserPinned, messages.length, stages.length]);
+  }, [isRunning, isUserPinned, messages.length, stages.length, totalLlmChunks, totalReasoningChunks]);
 
   useEffect(() => {
     if (isRunning) {
@@ -221,9 +263,9 @@ export function Workspace({
     }
   }, [isRunning]);
 
-  const handleSubmit = useCallback(async () => {
-    if (!prompt.trim() || isBusy) return;
-    const text = prompt.trim();
+  const handleSubmit = useCallback(async (overridePrompt?: string) => {
+    const text = (overridePrompt ?? prompt).trim();
+    if (!text || isBusy) return;
     // 修复 #8：把待发送内容存进 ref，stop 时还原到输入框
     pendingPromptRef.current = text;
     setPrompt('');
@@ -318,6 +360,14 @@ export function Workspace({
                     selectedPlatform={selectedPlatform}
                     onSelectPlatform={setSelectedPlatform}
                     onSelect={(s) => { setPrompt(s); inputRef.current?.focus(); }}
+                    onCtaClick={(s) => {
+                      setPrompt(s);
+                      inputRef.current?.focus();
+                      // 修复 #6：一帧后自动提交（绕过闭包 stale prompt）
+                      requestAnimationFrame(() => {
+                        if (!isBusy) handleSubmit(s);
+                      });
+                    }}
                   />
                 ) : (
                   <>
@@ -436,6 +486,25 @@ export function Workspace({
         {/* Input */}
         <div className="flex-shrink-0 px-6 pb-4">
           <div className="max-w-3xl mx-auto">
+            {/* 修复 #5：平台选择视觉指示器 */}
+            {selectedPlatform && (
+              <div className="mb-1.5 flex items-center gap-1.5">
+                <span className="inline-flex items-center gap-1 rounded-full border border-primary-500/30 bg-primary-500/10 px-2.5 py-0.5 text-[10px] font-medium text-primary-300">
+                  {(() => {
+                    const p = PLATFORM_MAP.get(selectedPlatform);
+                    return <>{p?.icon ?? '📌'} {p?.label ?? selectedPlatform}</>;
+                  })()}
+                  <button
+                    onClick={() => setSelectedPlatform(null)}
+                    className="ml-0.5 rounded-full p-0.5 hover:bg-primary-500/20 transition-colors"
+                    title="取消选择"
+                  >
+                    <X className="w-2.5 h-2.5" />
+                  </button>
+                </span>
+                <span className="text-[9px] text-app-text-tertiary/50">将作为目标平台</span>
+              </div>
+            )}
             <div className="flex items-end gap-2 rounded-xl border border-app-border bg-app-elevated px-4 py-3">
               <textarea
                 ref={inputRef}

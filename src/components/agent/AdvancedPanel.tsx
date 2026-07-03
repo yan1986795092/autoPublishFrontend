@@ -1,4 +1,3 @@
-import { ScrollArea } from '../ui/scroll-area';
 import { Eye, PanelRightClose, X, FlaskConical } from 'lucide-react';
 import { useAgentStore } from '../../stores/useAgentStore';
 import { useConversationStore } from '../../stores/useConversationStore';
@@ -145,8 +144,25 @@ export function AdvancedPanel({ selectedPlatform, onCollapse }: AdvancedPanelPro
         ) : (
           <div className="flex-1 min-h-0 overflow-hidden">
             {previewContent ? (
-              <div className="p-4 prose prose-invert prose-xs max-w-none text-sm leading-relaxed text-app-text-secondary">
-                <div className="whitespace-pre-wrap">{previewContent}</div>
+              <div className="p-4">
+                {(() => {
+                  const key = previewPlatform || selectedPlatform || null;
+                  return (
+                    <ResultPreview
+                      result={{
+                        output: {
+                          full_text: previewContent,
+                          content: previewContent,
+                          content_type: previewContentType || undefined,
+                          platform: key || undefined,
+                        },
+                      } as any}
+                      selectedPlatform={key}
+                      selectedContentType={previewContentType || null}
+                      isPlaceholder
+                    />
+                  );
+                })()}
               </div>
             ) : isRunning && !currentResult ? (
               // 修复 #7：运行时只显示"生成中"占位，专注留给左侧 Workspace
@@ -191,7 +207,7 @@ export function AdvancedPanel({ selectedPlatform, onCollapse }: AdvancedPanelPro
                 内容生成中，完成后显示预览...
               </p>
             )}
-          </ScrollArea>
+          </div>
         )}
       </div>
     </div>

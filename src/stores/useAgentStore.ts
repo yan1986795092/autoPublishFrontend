@@ -22,6 +22,10 @@ import { agentApi, chatApi } from '../services/api';
 import { SSEProcessor } from '../services/sse-processor';
 import { useAuthStore } from './useAuthStore';
 import { useConversationStore } from './useConversationStore';
+import { eventToPartOp } from './eventToPartOp';
+import { reduceParts } from './partReducer';
+import type { Message, MessagePart } from '../types/message';
+import type { PartOp } from '../types/partReducer';
 
 interface AgentState {
   // 当前任务
@@ -31,6 +35,9 @@ interface AgentState {
   currentPlan: ExecutionPlan | null;
   isRunning: boolean;
   error: string | null;
+
+  // Parts 模型：当前流式消息 ID（spec 2026-07-02 §4.1）
+  streamingMessageId: string | null;
 
   // Thinking trace（实时步骤）
   thinkingSteps: ThinkingStep[];
@@ -72,6 +79,9 @@ interface AgentState {
   // Stream events
   addStreamEvent: (event: StreamEvent) => void;
 
+  // Parts 模型：SSE v3 事件 → Part reducer 单一入口（spec §4.1）
+  applyStreamEvent: (event: import('../types/partReducer').StreamEventV3) => void;
+
   // Actions
   previewPlan: (prompt: string) => Promise<ExecutionPlan | null>;
   runSync: (prompt: string) => Promise<AgentResult | null>;
@@ -90,7 +100,9 @@ interface AgentState {
    */
   reset: () => void;
 
-  // WebSocket 管理（P6: connectWebSocket 已删，仅保留 disconnectWebSocket 作 no-op 兼容）
+  /** 重试失败消息（spec Phase 3.4）：用同 prompt 重新触发流式生成 */
+  retryMessage: (messageId: string) => void;
+
   disconnectWebSocket: () => void;
 }
 
@@ -106,6 +118,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
   currentPlan: null,
   isRunning: false,
   error: null,
+  streamingMessageId: null,
   thinkingSteps: [],
   streamEvents: [],
   llmChunks: {},
@@ -129,8 +142,41 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
 
   addStreamEvent: (event) => set((state) => ({ streamEvents: [...state.streamEvents, event] })),
 
+  applyStreamEvent: (event) => {
+    const { streamingMessageId } = get();
+    if (!streamingMessageId) return;
+
+    const conversationStore = useConversationStore.getState();
+    const msg = conversationStore.messages.find(m => m.id === streamingMessageId);
+    if (!msg) return;
+
+    const currentParts: MessagePart[] = msg.parts || [];
+    const op = eventToPartOp(event, streamingMessageId, currentParts);
+    if (!op) return; // message_end / null ops
+
+    // parts 累加：找到当前 message，更新其 parts
+    const nextParts = reduceParts(currentParts, op);
+
+    conversationStore.updateMessage(streamingMessageId, {
+      parts: nextParts,
+    } as Parameters<typeof conversationStore.updateMessage>[1]);
+
+    // message_end：关闭流式
+    if (event.type === 'message_end') {
+      const status = event.data.status === 'completed'
+        ? 'completed'
+        : event.data.status === 'failed'
+          ? 'failed'
+          : 'completed';
+      conversationStore.updateMessage(streamingMessageId, {
+        status,
+      } as Parameters<typeof conversationStore.updateMessage>[1]);
+      set({ streamingMessageId: null });
+    }
+  },
+
   stopStreaming: () => {
-    const { _streamingProcessor, _abortController, currentTaskId } = useAgentStore.getState();
+    const { _streamingProcessor, _abortController, currentTaskId, streamingMessageId } = useAgentStore.getState();
     // P1-3 issue: 前端只断 SSE，未通知后端停 LangGraph → 后端继续跑。
     // 修复：stopStreaming 时 fire-and-forget 调 DELETE /agent/async/{taskId}，
     //     后端 cancel_task 改 state，LangGraph worker 下次循环检测到 CANCELLED 退出。
@@ -147,6 +193,24 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     if (_abortController) {
       _abortController.abort();
     }
+
+    // 修复 BUG-C1：把当前 placeholder message 设为 cancelled，
+    // 避免 stopStreaming 后卡片一直停在"生成中"状态（生成按钮仍在转、无法继续操作）
+    if (streamingMessageId) {
+      try {
+        const convState = useConversationStore.getState();
+        const msg = convState.messages.find((m) => m.id === streamingMessageId);
+        if (msg && msg.status === 'running') {
+          convState.updateMessage(streamingMessageId, {
+            status: 'cancelled',
+            content: msg.content || '已取消',
+          });
+        }
+      } catch {
+        // store 未初始化或消息已被清理，静默忽略
+      }
+    }
+
     set({
       isRunning: false,
       currentTaskId: null,
@@ -160,7 +224,28 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       streamEvents: [],
       _streamingProcessor: null,
       _abortController: null,
+      streamingMessageId: null,
     });
+  },
+
+  retryMessage: (messageId: string) => {
+    const conversationStore = useConversationStore.getState();
+    const agentStore = useAgentStore.getState();
+    const messages = conversationStore.messages;
+    const msg = messages.find((m) => m.id === messageId);
+    if (!msg) return;
+
+    const idx = messages.findIndex((m) => m.id === messageId);
+    const prevUserMsg = idx > 0
+      ? [...messages.slice(0, idx)].reverse().find((m) => m.role === 'user')
+      : null;
+    const promptToUse = prevUserMsg?.content || msg.content;
+    if (!promptToUse) return;
+
+    agentStore.stopStreaming();
+    setTimeout(() => {
+      agentStore.runStreaming(promptToUse, null);
+    }, 50);
   },
 
   // P6: connectWebSocket 已删除（v1 遗留路径），setWsConnectionState 也删除
@@ -287,6 +372,31 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       currentStage: 'preparing',
     });
 
+    // P25: 清理上一次 runStreaming 的残留 timer + 采样计数器，
+    //      避免切对话 / 重发时旧 timer 还触发 set() 写脏数据。
+    if (chunkBatchTimer) {
+      clearTimeout(chunkBatchTimer);
+      chunkBatchTimer = null;
+    }
+    if (msgUpdateTimer) {
+      clearTimeout(msgUpdateTimer);
+      msgUpdateTimer = null;
+    }
+    if (_thinkingTimer) {
+      clearTimeout(_thinkingTimer);
+      _thinkingTimer = null;
+    }
+    if (_reasoningTimer) {
+      clearTimeout(_reasoningTimer);
+      _reasoningTimer = null;
+    }
+    pendingChunks = [];
+    accumulatedChunks.length = 0;
+    _pendingThinking = null;
+    _pendingReasoningBatch = [];
+    _needsRefresh = false;
+    _llmStreamSample = 0;
+
     const controller = new AbortController();
     set({ _abortController: controller });
 
@@ -402,6 +512,19 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
         }
       }, _MSG_UPDATE_INTERVAL);
     };
+    // P21: 显式 flush 接口。result / done / error handler 调用前必须 flush，
+    //      否则最后一段 50ms 内的 chunk 会被 _needsRefresh 标记但永远等不到 timer 触发，
+    //      出现"流式产物少几个 token"的现象（句号/引号丢失）。
+    const flushMsgUpdate = () => {
+      if (msgUpdateTimer) {
+        clearTimeout(msgUpdateTimer);
+        msgUpdateTimer = null;
+      }
+      if (_needsRefresh) {
+        _needsRefresh = false;
+        conversationStore.updateMessage(msgIdRef.current, { content: getAccumulated() });
+      }
+    };
 
     // Chunk batching
     let chunkBatchTimer: ReturnType<typeof setTimeout> | null = null;
@@ -417,48 +540,131 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
           const existing = newChunks[agent] || [];
           newChunks[agent] = [...existing, { agent, content, timestamp: Date.now() }];
         }
+        // P25: streamEvents 改成"每 N 次 flush 记 1 条采样"，避免长 body 流
+        //      把 200 上限的 streamEvents 占满，导致 stage / result / thinking_step 被 FIFO 掉。
+        //      llmChunks 已经持有完整流，不需要 streamEvents 每 120ms 都记一条。
         const lastEvent = batch[batch.length - 1];
-        return {
-          llmChunks: newChunks,
-          streamEvents: get()._pushStreamEvent(s.streamEvents, {
-            id: `llm-${Date.now()}-${lastEvent.agent}`,
-            type: 'llm_chunk',
-            timestamp: Date.now(),
-            data: { agent: lastEvent.agent, content: lastEvent.content },
-            agent: lastEvent.agent,
-            content: lastEvent.content,
-          }),
-        };
+        const sample = _llmStreamSample++;
+        const events = sample % 5 === 0
+          ? get()._pushStreamEvent(s.streamEvents, {
+              id: `llm-${Date.now()}-${lastEvent.agent}`,
+              type: 'llm_chunk',
+              timestamp: Date.now(),
+              data: { agent: lastEvent.agent, content: lastEvent.content },
+              agent: lastEvent.agent,
+              content: lastEvent.content,
+            })
+          : s.streamEvents;
+        return { llmChunks: newChunks, streamEvents: events };
       });
     };
+    // P25: 流式采样计数器。每次 flushChunks 自增，每 5 次记一条到 streamEvents。
+    let _llmStreamSample = 0;
 
     // Register SSE handlers
+    // 修复 BUG-C3：result 事件到达后标记 _resultCommitted，
+    //     之后到达的 text_delta 不再覆盖 message.content（防止 result 先到时丢失累积）
+    let _resultCommitted = false;
+
+    // ── v3 Parts 模型事件（spec 2026-07-02 §3.3）─────────────────────────
+    processor.on('message_start', (event) => {
+      // v3: message_start → 设置 streamingMessageId
+      const msgId = (event.data as { message_id?: string }).message_id;
+      if (msgId) {
+        set({ streamingMessageId: msgId });
+        // 在 conversationStore 里找到这个 message，把临时 placeholder 替换为 real ID
+        conversationStore.updateMessage(msgIdRef.current, { id: msgId } as Parameters<typeof conversationStore.updateMessage>[1]);
+        msgIdRef.current = msgId;
+      }
+    });
+
+    processor.on('text_delta', (event) => {
+      // v3: text_delta → accumulate in conversationStore message content
+      const data = event.data as { part_id?: string; delta: string };
+      if (!data.delta) return;
+      // 修复 BUG-C3：result 已提交后到达的 late delta 不能再覆盖 message.content，
+      //     只累积到内部 chunks（不影响显示）；否则会冲掉后端权威 content
+      if (_resultCommitted) {
+        accumulatedChunks.push(data.delta);
+        return;
+      }
+      accumulatedChunks.push(data.delta);
+      updateMsg(getAccumulated());
+    });
+
+    processor.on('reasoning_delta', (event) => {
+      // v3: reasoning_delta → update/add to reasoning part via applyStreamEvent
+      const { applyStreamEvent } = get();
+      applyStreamEvent(event.data as import('../types/partReducer').StreamEventV3);
+    });
+
+    processor.on('stage', (event) => {
+      // v3: stage → update/add tool_call part
+      const { applyStreamEvent } = get();
+      applyStreamEvent(event.data as import('../types/partReducer').StreamEventV3);
+    });
+
+    processor.on('tool_input_delta', (event) => {
+      // v3: tool_input_delta → update tool_call input
+      const { applyStreamEvent } = get();
+      applyStreamEvent(event.data as import('../types/partReducer').StreamEventV3);
+    });
+
+    processor.on('tool_result', (event) => {
+      // v3: tool_result → state transition
+      const { applyStreamEvent } = get();
+      applyStreamEvent(event.data as import('../types/partReducer').StreamEventV3);
+    });
+
+    processor.on('artifact', (event) => {
+      // v3: artifact → append artifact part
+      const { applyStreamEvent } = get();
+      applyStreamEvent(event.data as import('../types/partReducer').StreamEventV3);
+    });
+
     processor.on('plan', (event) => {
-      set((s) => ({
-        hasFirstEventReceived: true,
-        currentPlan: event.data as unknown as ExecutionPlan,
-        streamEvents: get()._pushStreamEvent(s.streamEvents, {
-          id: `plan-${Date.now()}`,
-          type: 'plan',
-          timestamp: Date.now(),
-          data: event.data,
-        }),
-      }));
+      // v3: plan → append plan part
+      const { applyStreamEvent } = get();
+      applyStreamEvent(event.data as import('../types/partReducer').StreamEventV3);
+      set({ hasFirstEventReceived: true, currentPlan: event.data as unknown as ExecutionPlan });
+    });
+
+    processor.on('message_end', (event) => {
+      // v3: message_end → close all streaming parts
+      const { applyStreamEvent } = get();
+      applyStreamEvent(event.data as import('../types/partReducer').StreamEventV3);
+    });
+
+    processor.on('error', (event) => {
+      // v3: error → append error part
+      const { applyStreamEvent } = get();
+      applyStreamEvent(event.data as import('../types/partReducer').StreamEventV3);
     });
 
     processor.on('task_created', (event) => {
-      set({ currentTaskId: event.data.task_id as string });
+      const data = event.data as { task_id?: string };
+      set({ currentTaskId: data.task_id || null });
     });
 
+    // ── Legacy v2 handlers (kept for compatibility during migration)
+    // Note: v3 SSE endpoint does NOT emit thinking_step / llm_chunk / reasoning events.
+    // These handlers won't fire against /stream/v3 — kept only to avoid breaking v2 fallback path.
     // 第四批修复：thinking_step / reasoning 重新启用，写入 thinkingSteps / reasoningChunks。
     //     两个事件的高频到达（reasoning token 级，thinking_step agent 级）会打满主线程
     //     并阻塞 llm_chunk / result 处理——用 debounce 合并不影响用户体验（StageTimeline
-    //     实时性以 100-200ms 颗粒度足够），同时保证 body 内容渲染不被阻塞。
+    //     实时性以 30-50ms 颗粒度足够），同时保证 body 内容渲染不被阻塞。
+    //     reasoning: 30ms（更实时，让 token 级流式肉眼可见）
+    //     thinking_step: 200ms（步骤级合并足够）
     //     刷新：done/error 时 flush 残留，保证流结束后数据完整。
     let _thinkingTimer: ReturnType<typeof setTimeout> | null = null;
     let _reasoningTimer: ReturnType<typeof setTimeout> | null = null;
     let _pendingThinking: { data: Record<string, unknown>; step: ReturnType<typeof _parseThinkingStep> } | null = null;
-    let _pendingReasoning: { data: Record<string, unknown>; agent: string; content: string; reviewRound: number } | null = null;
+    let _pendingReasoningBatch: Array<{
+      data: Record<string, unknown>;
+      agent: string;
+      content: string;
+      reviewRound: number;
+    }> = [];
     const _parseThinkingStep = (data: Record<string, unknown>) => {
       const rawStatus = (data.status as string) || 'done';
       const stepStatus: 'running' | 'done' | 'failed' =
@@ -495,42 +701,40 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       }));
     };
     const flushReasoning = () => {
-      if (!_pendingReasoning) return;
-      const { data, agent, content, reviewRound } = _pendingReasoning;
-      _pendingReasoning = null;
-      const key = `${agent}|${reviewRound}`;
+      if (_pendingReasoningBatch.length === 0) return;
+      const batch = _pendingReasoningBatch;
+      _pendingReasoningBatch = [];
       set((s) => {
-        const existing = s.reasoningChunks[key] || [];
-        const updatedStages = s.stages.map((stg) => {
-          if (stg.agent === agent && stg.reviewRound === reviewRound) {
-            const prev = (stg.reasoning as string) || '';
-            return { ...stg, reasoning: prev ? `${prev}\n${content}` : content };
-          }
-          return stg;
-        });
-        return {
-          reasoningChunks: {
-            ...s.reasoningChunks,
-            [key]: [...existing, { agent, content, timestamp: Date.now() }],
-          },
-          stages: updatedStages,
-          streamEvents: get()._pushStreamEvent(s.streamEvents, {
+        const nextChunks = { ...s.reasoningChunks };
+        // 30ms debounce 窗口内的所有 chunk 都累积下来，flush 时一次性写入。
+        // 之前的实现用单值 _pendingReasoning，每个窗口只保留"最后一条"，
+        // burst 内的多个 chunk 会被覆盖丢弃 → StageTimeline 展开只看到碎片。
+        for (const { agent, content, reviewRound } of batch) {
+          const key = `${agent}|${reviewRound}`;
+          const existing = nextChunks[key] || [];
+          nextChunks[key] = [...existing, { agent, content, timestamp: Date.now() }];
+        }
+        let events = s.streamEvents;
+        for (const { data, agent, content } of batch) {
+          events = get()._pushStreamEvent(events, {
             id: `reasoning-${Date.now()}-${agent}`,
             type: 'reasoning',
             timestamp: Date.now(),
             data,
             agent,
             content,
-          }),
-        };
+          });
+        }
+        return { reasoningChunks: nextChunks, streamEvents: events };
       });
     };
     const scheduleReasoningFlush = () => {
       if (_reasoningTimer) return;
+      // 30ms debounce：让 token 级流式肉眼可见（每帧 ~16ms），同时合并连发 token
       _reasoningTimer = setTimeout(() => {
         _reasoningTimer = null;
         flushReasoning();
-      }, 100);
+      }, 30);
     };
     const scheduleThinkingFlush = () => {
       if (_thinkingTimer) return;
@@ -551,7 +755,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       const agent = (data.agent as string) || 'Unknown';
       const content = (data.content as string) || '';
       const reviewRound = (data._review_round as number) || 0;
-      _pendingReasoning = { data, agent, content, reviewRound };
+      _pendingReasoningBatch.push({ data, agent, content, reviewRound });
       scheduleReasoningFlush();
     });
     // C4: progress 事件 5Hz，原样更新 store 会触发订阅组件 5Hz 重渲染。
@@ -647,21 +851,25 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
         if (status === 'completed') {
           // 第四批修复：提取后端 stage:completed 携带的 _reasoning 字段，
           //     绑定到对应 stage.reasoning，让 StageTimeline 展开态显示决策摘要。
-          //     如果 reasoning 事件已经先于 stage 完成到达，reasoning handler 已经写过；
-          //     这里用 \n 累加（不覆盖前文），确保两步都有内容时全显示。
+          //     如果 reasoning 事件已经先于 stage 完成到达，reasoning handler 已经写过
+          //     reasoningChunks[key] 数组（O(1) push，不再 O(n²) 拼字符串）；
+          //     这里 join chunks 内容 + 后端 _reasoning，确保流式 + 摘要都在。
           const stageReasoning = (data._reasoning as string) || '';
+          const stageKeyLocal = stageKey;
           return {
             stages: state.stages.map(s => {
-              if (`${s.agent}|${s.reviewRound || 0}` !== stageKey) return s;
-              const prev = (s.reasoning as string) || '';
-              const merged = stageReasoning
-                ? (prev ? `${prev}\n${stageReasoning}` : stageReasoning)
-                : prev;
+              if (`${s.agent}|${s.reviewRound || 0}` !== stageKeyLocal) return s;
+              // 从 reasoningChunks 拿流式累积内容（O(1) 读，避免 store 里再拼字符串）
+              const chunks = state.reasoningChunks[stageKeyLocal] || [];
+              const streamText = chunks.map(c => c.content).join('');
+              const parts: string[] = [];
+              if (streamText) parts.push(streamText);
+              if (stageReasoning && stageReasoning !== streamText) parts.push(stageReasoning);
               return {
                 ...s,
                 status: 'completed' as const,
                 duration: data.duration as number,
-                reasoning: merged,
+                reasoning: parts.join('\n'),
               };
             }),
             currentStage: state.currentStage === agent ? null : state.currentStage,
@@ -674,6 +882,9 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
 
     processor.on('result', async (event) => {
       flushChunks();
+      // P21: result 到达时强制 flush updateMsg 的 timer + 残留内容，
+      //      否则 50ms throttle 窗口内的最后一段 chunk 会因 timer 没机会触发而丢失。
+      flushMsgUpdate();
 
       // ── v2 schema: SSE 下发的 result 已是收敛后的"业务产物"
       // 不携带运行时缓冲字段（_stages / _thinkingSteps / _llmChunks /
@@ -717,13 +928,42 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
         _draftContent: backendDraft,
       };
 
-      // 流式内容已在 llm_chunk 阶段通过 50ms throttle 写入了 message.content，
-      // result 只补 metadata（result）。不更新 content 避免覆盖真实流式内容。
+      // P21: result 事件本身的 content 应该等于最终流式累积（已经过 flushMsgUpdate 写入），
+      //      但 result 事件里也带 output.full_text 后端权威值，优先用后端值覆盖以避免
+      //      极端情况下流式拼接错位（多 stream / reconnection 后顺序错乱）。
+      const fullText = getAccumulated()
+        || (output?.full_text as string | undefined)
+        || (output?.content as string | undefined)
+        || '';
+      // 修复 BUG-C3：标记 result 已提交，后续 late text_delta 不再覆盖 message.content
+      _resultCommitted = true;
       conversationStore.updateMessage(msgIdRef.current, {
         status: 'completed',
-        // content 保持不变（由 llm_chunk 流式累积 + done 最终注入）
+        content: fullText,
         result: resultForUi,
       });
+      // 修复 BUG-C2：把完整 text 同步到对应 parts（流式过程 text_delta 走
+      //     accumulatedChunks → message.content，但 parts[] 里只写了空 text part 起点；
+      //     NewMessageBubble 渲染时若 parts 里有空 text part 会展示空白，
+      //     而 fallback content 路径只在 parts.length === 0 时触发。
+      //     此处把完整 fullText 写入最后一个 state='streaming' 的 text part，
+      //     并把状态切到 done，保证 Parts 渲染与 content 一致。）
+      try {
+        const cur = useConversationStore.getState();
+        const curMsg = cur.messages.find((m) => m.id === msgIdRef.current);
+        if (curMsg && Array.isArray(curMsg.parts) && curMsg.parts.length > 0) {
+          const syncedParts = curMsg.parts.map((p) =>
+            p.type === 'text' && p.state === 'streaming'
+              ? { ...p, content: fullText, state: 'done' as const }
+              : p
+          );
+          if (syncedParts !== curMsg.parts) {
+            cur.updateMessage(msgIdRef.current, { parts: syncedParts } as Parameters<typeof cur.updateMessage>[1]);
+          }
+        }
+      } catch {
+        // 静默：parts 同步失败不影响主流程（content 已写入）
+      }
       // store 状态更新：保留运行时缓冲（运行中的 store 仍要持有）
       set((s) => ({
         currentResult: resultForUi,
@@ -746,6 +986,9 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
 
     processor.on('error', (event) => {
       flushChunks();
+      // P21: 同 result handler——强制 flush updateMsg 的残留，
+      //      保留错误信息前用户已经看到的流式内容（即使后面会覆盖为 errorMessage）。
+      flushMsgUpdate();
       // 第四批修复回归：flush reasoning/thinking 残留，避免流结束后 thinkingSteps 少最后几条
       flushReasoning();
       flushThinking();
@@ -827,16 +1070,23 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
         return;
       }
 
-      // P8: body channel 不再 push 到 pendingChunks——body chunk 已经通过
-    //     accumulated + updateMsg 实时反映到 message.content，StageTimeline 折叠态
-    //     也只会显示 chunk[WritingAgent]，与消息体内容重复。
-    //     仅 review / search / reasoning channel 进 pendingChunks（这些 StageTimeline
-    //     折叠预览才需要）。
+      // body channel：让 StageTimeline 折叠预览也能读到 body chunk 的前 120 字符
+    // （之前 body 不进 llmChunks，"创作初稿中" 折叠预览为空）。
+    // flushChunks 120ms 节流统一写入 s.llmChunks，避免每 chunk 都触发 React 重渲染。
+    // message.content 仍由 accumulatedChunks + updateMsg 单独走，不重复存一份字符串。
     const isBodyChannel = channel === 'body' || !channel; // 默认 body
     if (isBodyChannel) {
       // P20: 数组 push 而非字符串拼接，长任务（>10k tokens）O(n) 而非 O(n²)
       accumulatedChunks.push(content);
       updateMsg(getAccumulated());
+      // 让 StageTimeline 折叠态也能读到 body 预览（120ms 节流统一写 s.llmChunks）
+      pendingChunks.push({ agent, content });
+      if (!chunkBatchTimer) {
+        chunkBatchTimer = setTimeout(() => {
+          chunkBatchTimer = null;
+          flushChunks();
+        }, _CHUNK_UPDATE_INTERVAL);
+      }
       return;
     }
 
@@ -852,15 +1102,17 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
 
     processor.on('done', (event) => {
       flushChunks();
+      // P21: 同 result handler——强制 flush updateMsg timer，避免最后一段 chunk 丢失。
+      flushMsgUpdate();
       // 第四批修复回归：flush reasoning/thinking 残留，避免流结束后 thinkingSteps 少最后几条
       flushReasoning();
       flushThinking();
       if (errorOccurred) return;
-      const conversationStore = useConversationStore.getState();
-      const msg = conversationStore.messages.find(m => m.id === msgIdRef.current);
-      const alreadySet = msg && msg.content && msg.content.length > 0 && get().currentResult;
-      // P20: 用数组长度判断代替字符串 truthy check
-      if (accumulatedChunks.length > 0 && !alreadySet) {
+      // P21: 去掉 !alreadySet 短路。原实现依赖 currentResult 作为"已完成"信号，
+      //      但 result handler 已经 set 了 currentResult，导致 alreadySet 几乎总是 true，
+      //      done 的"最终注入累积内容"分支永远不执行——最后一段 chunk 丢失。
+      //      这里只判断"还有未写入的内容"即可。
+      if (accumulatedChunks.length > 0) {
         conversationStore.updateMessage(msgIdRef.current, { content: getAccumulated() });
       }
 
@@ -943,7 +1195,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     const [connectError] = await Promise.all([
       (async (): Promise<string | null> => {
         let err: string | null = null;
-        await processor.connect(agentApi.streamV2Url(), {
+        await processor.connect(agentApi.streamV3Url(), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -1077,6 +1329,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       streamEvents: [],
       _abortController: null,
       _streamingProcessor: null,
+      streamingMessageId: null,
     });
   },
 
@@ -1112,6 +1365,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       hasFirstEventReceived: false,
       _abortController: null,
       _streamingProcessor: null,
+      streamingMessageId: null,
       // 预览相关：本 store 持有 previewContent/previewPlatform/previewContentType
       // 用户切换账号时也应清空，避免上一个用户的内容泄露
       previewContent: null,

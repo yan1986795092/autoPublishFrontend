@@ -98,10 +98,17 @@ function StageRow({ stage, index, totalStages, expanded, onToggle, chunks, hasDe
               'flex items-center gap-1.5 min-h-[26px]',
               hasDetail && 'cursor-pointer',
             )}
-            onClick={onToggle}
+            onClick={() => {
+              // P22: 之前在 rowClickHandlers 里 hard-guard "running 不响应"，
+              //      那是稳定 handler 的代价。改在 StageRow 内判断，避免把
+              //      llmChunks/reasoningChunks 放进 useMemo 依赖。
+              if (!hasDetail || isCurrent) return;
+              onToggle();
+            }}
             onKeyDown={hasDetail ? (e) => {
               if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
+                if (isCurrent) return;
                 onToggle();
               }
             } : undefined}
@@ -238,21 +245,19 @@ export function StageTimeline({ stages, isRunning, llmChunks, reasoningChunks, c
 
   const completedCount = stages.filter(s => s.status === 'completed').length;
 
-  // Memoize click handlers so StageRow re-renders only when data actually changes
+  // P22: rowClickHandlers 不要再把 llmChunks/reasoningChunks 放进依赖，
+  //      否则这两个对象每次 flushReasoning（30ms）/ flushChunks（120ms）
+  //      都会换引用，导致 useMemo 重算、所有 StageRow 失效、hover 抖动。
+  //      真正的"是否有 detail"判断放到 StageRow 渲染处用最新的 chunks 计算，
+  //      但 handler 自身的引用保持稳定（toggleExpanded 已经是 useCallback）。
   const rowClickHandlers = useMemo(() => {
     const handlers: Record<string, () => void> = {};
     for (const stage of stages) {
       const uniqueKey = `${stage.agent}|${stage.reviewRound || 0}`;
-      const stageChunks = llmChunks?.[stage.agent] || reasoningChunks?.[uniqueKey];
-      const hasDetail = (stageChunks || []).length > 0;
-      const isCurrent = stage.status === 'running';
-      handlers[uniqueKey] = () => {
-        if (!hasDetail || isCurrent) return;
-        toggleExpanded(uniqueKey);
-      };
+      handlers[uniqueKey] = () => toggleExpanded(uniqueKey);
     }
     return handlers;
-  }, [stages, llmChunks, reasoningChunks, toggleExpanded]);
+  }, [stages, toggleExpanded]);
 
   return (
     <div className="my-3" aria-label="创作阶段进度">

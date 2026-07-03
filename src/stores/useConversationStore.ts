@@ -202,6 +202,10 @@ export const useConversationStore = create<ConversationState>()(
         const { conversations, limit, searchQuery, hasMore, isLoadingMore } = get();
         if (!hasMore || isLoadingMore) return;
 
+        // 修复 BUG-18：快照当前搜索词 / 列表长度，用于响应回来时校验是否过期
+        const snapshotSearchQuery = searchQuery;
+        const snapshotConversationsLen = conversations.length;
+
         set((s) => { s.isLoadingMore = true; });
 
         try {
@@ -210,6 +214,17 @@ export const useConversationStore = create<ConversationState>()(
             offset: conversations.length,
             q: searchQuery || undefined,
           });
+
+          // 修复 BUG-18：如果期间用户改了搜索词 / 调用了 reset / 列表已重置，
+          // 丢弃此分页响应（避免 append 到错误的列表上）
+          const now = get();
+          if (
+            now.searchQuery !== snapshotSearchQuery ||
+            now.conversations.length < snapshotConversationsLen
+          ) {
+            set((s) => { s.isLoadingMore = false; });
+            return;
+          }
 
           if (response.data.success && response.data.data) {
             const data = response.data.data;
@@ -345,6 +360,10 @@ export const useConversationStore = create<ConversationState>()(
         const conversation = state.conversations.find(c => c.id === id);
         if (!conversation) return false;
 
+        // 修复 BUG-5 + BUG-7：捕获回滚所需的原始 state（messages / conversationId）
+        const originalMessages = state.messages;
+        const originalConversationId = state.conversationId;
+
         // 乐观更新：立即从列表移除
         let switchedTo: string | null = null;
         set((s) => {
@@ -361,16 +380,33 @@ export const useConversationStore = create<ConversationState>()(
           }
         });
 
-        // 修复：如果删除的是当前对话，切换后清掉预览字段
-        if (switchedTo !== null || state.conversationId === id) {
+        // 修复 BUG-B：如果切换到了另一个对话，重新加载其消息（否则 messages = []
+        // 导致看到空白内容，直到下次手动切换才触发 switchConversation）
+        let switchedPromise: Promise<void> | null = null;
+        if (switchedTo !== null) {
+          switchedPromise = get().switchConversation(switchedTo);
+        } else if (state.conversationId === id) {
+          // 没有其他对话可切换，清空预览字段
           clearAgentPreviewFields();
         }
 
         try {
           const response = await chatApi.deleteConversation(id);
+          // 等切换完成（如果存在）
+          if (switchedPromise) await switchedPromise;
           return response.data.success;
         } catch (e) {
           console.error('[deleteConversation] failed:', e);
+          // 取消正在进行的 switchConversation 切换（如果已发起），把消息恢复原状
+          // 否则会出现"服务端删除失败 + 前端切换到另一对话 + 看到空白"的复合错误
+          if (switchedPromise) {
+            // 取消切换：把 conversationId 和 messages 还原
+            set((s) => {
+              s.conversationId = originalConversationId;
+              s.messages = originalMessages;
+            });
+          }
+
           // 网络失败时回滚：恢复对话到列表头部
           set((s) => {
             s.conversations = [conversation, ...s.conversations];
@@ -379,8 +415,13 @@ export const useConversationStore = create<ConversationState>()(
             if (s.conversationId === null) {
               // 用户当时在已删对话上，回滚后回到该对话（消息用户会重新加载）
               s.conversationId = id;
+              s.messages = originalMessages; // 修复 BUG-5：恢复原始消息
             }
           });
+
+          // 修复 BUG-7：同步 localStorage（乐观更新阶段已经改过 currentId）
+          saveToStorage({ currentId: get().conversationId });
+
           options?.showErrorToast?.('删除失败，请重试');
           return false;
         }
@@ -388,6 +429,10 @@ export const useConversationStore = create<ConversationState>()(
 
       // ============ 置顶/取消置顶 ============
       pinConversation: async (id, pinned, options) => {
+        // 修复 BUG-2：记录原始 updated_at 用于失败回滚
+        const original = get().conversations.find(c => c.id === id);
+        const originalUpdatedAt = original?.updated_at;
+
         // 乐观更新
         set((s) => {
           const conv = s.conversations.find(c => c.id === id);
@@ -404,15 +449,38 @@ export const useConversationStore = create<ConversationState>()(
 
         try {
           const response = await chatApi.pinConversation(id, pinned);
-          return response.data.success;
+          // 修复 BUG-13：用服务端返回值校准本地状态
+          if (response.data.success && response.data.data) {
+            const serverConv = response.data.data;
+            set((s) => {
+              const conv = s.conversations.find(c => c.id === id);
+              if (conv) {
+                conv.is_pinned = serverConv.is_pinned;
+                conv.updated_at = serverConv.updated_at;
+              }
+              s.conversations.sort((a, b) => {
+                if (a.is_pinned !== b.is_pinned) return a.is_pinned ? -1 : 1;
+                return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+              });
+            });
+            return true;
+          }
+          throw new Error('pinConversation server success=false');
         } catch (e) {
           console.error('[pinConversation] failed:', e);
-          // 回滚
+          // 修复 BUG-2：回滚 is_pinned 和 updated_at
           set((s) => {
             const conv = s.conversations.find(c => c.id === id);
             if (conv) {
               conv.is_pinned = !pinned;
+              if (originalUpdatedAt !== undefined) {
+                conv.updated_at = originalUpdatedAt;
+              }
             }
+            s.conversations.sort((a, b) => {
+              if (a.is_pinned !== b.is_pinned) return a.is_pinned ? -1 : 1;
+              return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+            });
           });
           options?.showErrorToast?.(pinned ? '置顶失败' : '取消置顶失败');
           return false;
@@ -421,6 +489,11 @@ export const useConversationStore = create<ConversationState>()(
 
       // ============ 更新标题 ============
       updateTitle: async (id, title, options) => {
+        // 修复 BUG-1：捕获原始 title/updated_at 用于失败回滚
+        const original = get().conversations.find(c => c.id === id);
+        const originalTitle = original?.title;
+        const originalUpdatedAt = original?.updated_at;
+
         // 乐观更新
         set((s) => {
           const conv = s.conversations.find(c => c.id === id);
@@ -432,9 +505,32 @@ export const useConversationStore = create<ConversationState>()(
 
         try {
           const response = await chatApi.updateConversation(id, { title });
-          return response.data.success;
+          // 修复 BUG-13：用服务端返回值校准本地状态（避免与服务端时间漂移）
+          if (response.data.success && response.data.data) {
+            const serverConv = response.data.data;
+            set((s) => {
+              const conv = s.conversations.find(c => c.id === id);
+              if (conv) {
+                conv.title = serverConv.title;
+                conv.updated_at = serverConv.updated_at;
+              }
+            });
+            return true;
+          }
+          // success: false 走回滚路径
+          throw new Error('updateTitle server success=false');
         } catch (e) {
           console.error('[updateTitle] failed:', e);
+          // 修复 BUG-1：回滚 title / updated_at
+          if (originalTitle !== undefined && originalUpdatedAt !== undefined) {
+            set((s) => {
+              const conv = s.conversations.find(c => c.id === id);
+              if (conv) {
+                conv.title = originalTitle;
+                conv.updated_at = originalUpdatedAt;
+              }
+            });
+          }
           options?.showErrorToast?.('更新标题失败');
           return false;
         }
@@ -443,6 +539,16 @@ export const useConversationStore = create<ConversationState>()(
       // ============ 消息操作 ============
       addMessage: (msg) => set((s) => {
         s.messages.push(msg);
+        // 同步更新 conversations 列表中当前对话的 message_count / updated_at
+        // 避免"列表里的 count 与实际 messages 长度不一致"导致 UI 误判
+        // （例如：加号按钮误把已发送消息的对话当成空对话，仍然切换回去而不是新建）
+        // 注意：last_message 不在此处更新——它依赖服务端 _build_message_response 的 UI 字段
+        // （kind/render_mode/parts 等），本地重建不准确。下次 loadConversations 时会刷新。
+        const conv = s.conversations.find(c => c.id === s.conversationId);
+        if (conv) {
+          conv.message_count = s.messages.length;
+          conv.updated_at = new Date(msg.timestamp).toISOString();
+        }
       }),
 
   updateMessage: (id, updates) => set((s) => {

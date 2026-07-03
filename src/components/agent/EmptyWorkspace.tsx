@@ -80,9 +80,11 @@ interface EmptyWorkspaceProps {
   selectedPlatform: string | null;
   onSelectPlatform: (id: string | null) => void;
   onSelect: (s: string) => void;
+  /** 主 CTA 按钮点击时触发：填入 prompt 后立即提交 */
+  onCtaClick?: (prompt: string) => void;
 }
 
-export function EmptyWorkspace({ selectedPlatform, onSelectPlatform, onSelect }: EmptyWorkspaceProps) {
+export function EmptyWorkspace({ selectedPlatform, onSelectPlatform, onSelect, onCtaClick }: EmptyWorkspaceProps) {
   const handleSelect = (prompt: string, platformId: string | null) => {
     onSelect(prompt);
     // 修复 #11：把空字符串统一规范成 null，避免组件层看到 selectedPlatform === ''
@@ -161,9 +163,13 @@ export function EmptyWorkspace({ selectedPlatform, onSelectPlatform, onSelect }:
         <Button
           variant="gradient"
           size="xl"
-          onClick={() => handleSelect('写一篇关于 ', null)}
+          onClick={() => {
+            const ctaPrompt = '写一篇关于 ';
+            onSelect(ctaPrompt);
+            onCtaClick?.(ctaPrompt);
+          }}
           className="w-full justify-between px-5 group"
-          aria-label="从示例 prompt 开始：点击后将示例文本放入输入框"
+          aria-label="从示例 prompt 开始：点击后将示例文本放入输入框并自动提交"
         >
           <span className="flex items-center gap-2">
             <Sparkles className="w-4 h-4" />

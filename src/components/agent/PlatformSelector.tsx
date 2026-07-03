@@ -51,6 +51,7 @@ export const PLATFORM_GROUPS: { key: Platform['category']; label: string; badge:
       { id: 'tech-doc', label: '技术文档', icon: '📘', category: 'professional', hint: '结构清晰 · 术语规范 · 示例' },
       { id: 'tutorial', label: '教程指南', icon: '📗', category: 'professional', hint: '循序渐进 · 步骤清晰 · 学练' },
       { id: 'email', label: '邮件营销', icon: '📧', category: 'professional', hint: '问候语 · 价值内容 · CTA' },
+      { id: 'seo', label: 'SEO 优化', icon: '🔍', category: 'professional', hint: '关键词策略 · 搜索引擎排名 · 优化' },
     ],
   },
 ];

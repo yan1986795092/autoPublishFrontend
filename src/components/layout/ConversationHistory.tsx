@@ -21,6 +21,11 @@ interface ConversationGroup {
   items: ChatConversationSummary[];
 }
 
+function parseDate(dateStr: string): number {
+  const d = new Date(dateStr).getTime();
+  return isNaN(d) ? 0 : d;
+}
+
 function groupByDate(conversations: ChatConversationSummary[]): ConversationGroup[] {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
@@ -39,21 +44,21 @@ function groupByDate(conversations: ChatConversationSummary[]): ConversationGrou
     groups.push({ label: '置顶', items: pinnedItems });
   }
 
-  // 非置顶按时间分组
-  const todayItems = unpinnedItems.filter(m => new Date(m.updated_at).getTime() >= today);
+  // 非置顶按时间分组（invalid date 归入"更早"组，避免静默丢弃）
+  const todayItems = unpinnedItems.filter(m => parseDate(m.updated_at) >= today);
   const yesterdayItems = unpinnedItems.filter(m => {
-    const t = new Date(m.updated_at).getTime();
+    const t = parseDate(m.updated_at);
     return t >= yesterday && t < today;
   });
   const weekItems = unpinnedItems.filter(m => {
-    const t = new Date(m.updated_at).getTime();
+    const t = parseDate(m.updated_at);
     return t >= thisWeek && t < yesterday;
   });
   const monthItems = unpinnedItems.filter(m => {
-    const t = new Date(m.updated_at).getTime();
+    const t = parseDate(m.updated_at);
     return t >= thisMonth && t < thisWeek;
   });
-  const olderItems = unpinnedItems.filter(m => new Date(m.updated_at).getTime() < thisMonth);
+  const olderItems = unpinnedItems.filter(m => parseDate(m.updated_at) < thisMonth);
 
   if (todayItems.length) groups.push({ label: '今天', items: todayItems });
   if (yesterdayItems.length) groups.push({ label: '昨天', items: yesterdayItems });
@@ -82,6 +87,13 @@ export function ConversationHistory({
   const pinConversation = useConversationStore((s) => s.pinConversation);
   const setSearchQuery = useConversationStore((s) => s.setSearchQuery);
 
+  // 找到已存在的最早空对话（DeepSeek 风格：始终只保留一个空对话槽位）
+  const existingEmptyConversation = useMemo(() => {
+    return conversations
+      .filter(c => (c.message_count ?? 0) === 0)
+      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())[0];
+  }, [conversations]);
+
   const showToast = useUIStore((s) => s.showToast);
 
   const [localSearchQuery, setLocalSearchQuery] = useState(searchQuery);
@@ -95,11 +107,11 @@ export function ConversationHistory({
   // 初始加载 + 监听用户切换重新加载（防止切换账号后看到上一个用户的对话列表）
   const currentUserId = useAuthStore((s) => s.user?.id ?? null);
   useEffect(() => {
-    // 用户切换时，重置本地搜索框状态（避免残留上一个用户的搜索词）
+    // 用户切换时，同时重置 store 和本地的搜索状态
     setLocalSearchQuery('');
+    setSearchQuery('');
     loadConversations();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentUserId]);
+  }, [currentUserId, setLocalSearchQuery, setSearchQuery, loadConversations]);
 
   // 防抖搜索
   useEffect(() => {
@@ -150,8 +162,15 @@ export function ConversationHistory({
   }, [onSelectSession]);
 
   const handleNewConversation = useCallback(() => {
+    // DeepSeek 风格：点击加号不创建新对话，而是切换到已存在的空对话
+    if (existingEmptyConversation) {
+      // 已在空对话上时，切换到自己 = no-op，避免重复调用 switchConversation API
+      if (existingEmptyConversation.id === conversationId) return;
+      onSelectSession(existingEmptyConversation.id);
+      return;
+    }
     onNewSession();
-  }, [onNewSession]);
+  }, [existingEmptyConversation, conversationId, onSelectSession, onNewSession]);
 
   const handlePin = useCallback(async (e: React.MouseEvent, id: string, currentPinned: boolean) => {
     e.stopPropagation();
@@ -312,7 +331,7 @@ export function ConversationHistory({
                     <button
                       onClick={(e) => handlePin(e, conv.id, conv.is_pinned)}
                       className={cn(
-                        'w-6 h-6 rounded flex items-center justify-center transition-colors',
+                        'w-6 h-6 rounded flex items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500',
                         conv.is_pinned
                           ? 'text-amber-500 hover:bg-amber-500/20'
                           : 'text-app-text-tertiary hover:text-amber-500 hover:bg-amber-500/10'
@@ -329,7 +348,7 @@ export function ConversationHistory({
                     {/* 删除 */}
                     <button
                       onClick={(e) => handleDelete(e, conv.id)}
-                      className="w-6 h-6 rounded flex items-center justify-center text-app-text-tertiary hover:text-red-500 hover:bg-red-500/10 transition-colors"
+                      className="w-6 h-6 rounded flex items-center justify-center text-app-text-tertiary hover:text-red-500 hover:bg-red-500/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
                       title="删除"
                     >
                       <Trash2 className="w-3 h-3" />
@@ -364,15 +383,6 @@ export function ConversationHistory({
           </div>
         )}
       </div>
-
-      {/* Empty state hint */}
-      {conversations.length === 0 && !localSearchQuery && !isLoading && (
-        <div className="flex-shrink-0 px-4 py-3 border-t border-app-border">
-          <p className="text-[10px] text-app-text-tertiary text-center">
-            发送消息开始新的对话
-          </p>
-        </div>
-      )}
     </aside>
   );
 }

@@ -143,6 +143,7 @@ export function MessageBubble({
   llmChunks,
   reasoningChunks,
 }: MessageBubbleProps) {
+  console.log('[DEBUG MessageBubble]', { id: message.id, role: message.role, kind: message.kind, hasParts: Boolean(message.parts), partsLen: message.parts?.length ?? 0, contentLen: message.content?.length ?? 0, status: message.status });
   // ── Parts 模型渲染路径（spec 2026-07-02 §4.4）
   // 当 message 有 parts[] 时，使用新渲染器（替代 StageTimeline / llmChunks / reasoningChunks）
   if (message.parts && message.parts.length > 0) {

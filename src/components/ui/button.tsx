@@ -2,7 +2,6 @@ import * as React from 'react';
 import { Slot } from '@radix-ui/react-slot';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '../../utils/helpers';
-import { RippleEffect } from './ripple';
 
 const buttonVariants = cva(
   `inline-flex items-center justify-center gap-1.5 whitespace-nowrap font-medium font-sans
@@ -49,16 +48,18 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     const { 'aria-label': ariaLabel, ...restProps } = props;
     const Comp = asChild ? Slot : 'button';
     return (
-      <RippleEffect disabled={disabled} className="inline-flex">
-        <Comp
-          className={cn(buttonVariants({ variant, size, className }))}
-          ref={ref}
-          onClick={onClick}
-          disabled={disabled}
-          aria-label={ariaLabel}
-          {...restProps}
-        />
-      </RippleEffect>
+      // 修复: 去掉 RippleEffect wrapper。RippleEffect 外层 div 的 onClick 在某些
+      // React + Radix Slot 组合下可能导致 button 的 onClick 事件链不完整（尤其是
+      // macOS Safari 的事件模型），从而出现"点击按钮无效"的 bug。
+      // ripple 效果是纯视觉装饰，去掉不影响按钮核心功能。
+      <Comp
+        className={cn(buttonVariants({ variant, size, className }))}
+        ref={ref}
+        onClick={onClick}
+        disabled={disabled}
+        aria-label={ariaLabel}
+        {...restProps}
+      />
     );
   }
 );

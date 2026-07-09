@@ -294,8 +294,6 @@ export function Workspace({
   }, [prompt, isBusy, setPrompt, sendChatMessage, selectedPlatform, creativity, contentLength, tone, audience]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    // 修复 BUG-14：第二个 if 缺少 !e.shiftKey 防御，
-    // 导致 Cmd/Ctrl+Shift+Enter 也会意外提交。统一用 !e.shiftKey 区分"换行 vs 提交"。
     if (e.key === 'Enter' && !e.shiftKey && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       handleSubmit();
@@ -392,19 +390,12 @@ export function Workspace({
                         // 优先用原 user prompt，避免 content 是 placeholder
                         const promptToUse = prevUserMsg?.content || _prompt;
                         if (!promptToUse) return;
-                        // 取消当前任务并用原 prompt 重新生成
-                        // engine.handleStop 会停 SSE + 断 WS
+                        // 停掉当前 SSE + Agent，走完整对话→生成链路
                         engine.handleStop();
-                        // 异步重新发请求（让 abort 先走完）
+                        abortChat();
                         setTimeout(() => {
-                          // runStreaming 在 useAgentStore 上，不在 engine 上
-                          // 保留 platform + 参数，与原生成一致
-                          useAgentStore.getState().runStreaming(
-                            promptToUse,
-                            retryPlatform,
-                            { creativity, length: contentLength, tone, audience },
-                          );
-                        }, 50);
+                          handleSubmit(promptToUse);
+                        }, 100);
                       };
                       return (
                         <MessageBubbleMemo

@@ -5,8 +5,8 @@ import { useUIStore } from '../stores/useUIStore';
 import { conversationApi } from '../services/api';
 import { SSEProcessor } from '../services/sse-processor';
 import { useAuthStore } from '../stores/useAuthStore';
-import type { ConversationTrigger } from '../types';
-import type { ChatMessage } from '../types/agent';
+// ConversationTrigger type no longer needed (v4, direct agent pipeline)
+import type { ChatMessage, ExecutionPlan } from '../types/agent';
 import { PUBLISHABLE_PLATFORMS, CONTENT_STYLES, PROFESSIONAL_STYLES } from '../components/agent/PlatformSelector';
 
 interface Preferences {
@@ -63,21 +63,16 @@ export function useConversationChat(): UseConversationChatReturn {
   // 跟踪本次对话的用户消息 ID，用于对话阶段把 user 消息持久化到后端
   const userMsgIdRef = useRef<string | null>(null);
   const persistTokenRef = useRef(0); // 自增：每次 send 自增；abort / 失败时用快照判断
-  // P21: 用 ref 让 abort() 能 finalize 当前活跃的 assistant placeholder，
-  //     避免 SSE 被 abort 后 placeholder 永远 stuck 在 status='running'。
-  //     accumulatedText 同步镜像在此，让 abort 路径能拿到最后一次内容。
   const activeAssistantIdRef = useRef<string | null>(null);
   const activeAccumulatedRef = useRef<string>('');
-  // 修复 #3（isChatting 竞态）：用 ref 做操作守卫，避免 React 闭包过时导致双击穿透
   const isChattingRef = useRef(false);
-  // 修复 #8（对话超时）：对话阶段 60 秒无 done/error 则自动 abort
+  
   const chatTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const addMessage = useConversationStore((s) => s.addMessage);
   const updateMessage = useConversationStore((s) => s.updateMessage);
   const conversationId = useConversationStore((s) => s.conversationId);
 
-  const runStreaming = useAgentStore((s) => s.runStreaming);
   const stopAgentStreaming = useAgentStore((s) => s.stopStreaming);
   const showToast = useUIStore((s) => s.showToast);
 
@@ -170,9 +165,10 @@ export function useConversationChat(): UseConversationChatReturn {
 
     // 3. SSE 处理
     let accumulatedText = '';
-    let triggerData: ConversationTrigger | null = null;
-    let triggerPromise: Promise<void> | null = null;
     let settled = false;
+    // 生成消息跟踪（后端直连 Agent Pipeline 后，所有事件走同一条 SSE）
+    const genMsgIdRef: { current: string | null } = { current: null };
+    let genAccumulatedText = '';
 
     const finalize = (status: 'completed' | 'failed', content: string) => {
       if (settled) return;
@@ -247,109 +243,231 @@ export function useConversationChat(): UseConversationChatReturn {
       updateMessage(assistantId, { content: accumulatedText });
     });
 
-    // 修复 #4：trigger 处理移到 on('trigger')，on('done') 只 await 它完成
-    processor.on('trigger', (event) => {
-      triggerData = event.data as unknown as ConversationTrigger;
-      if (!triggerData?._prompt) return;
+    processor.on('message_start', (event) => {
+      const data = event.data as Record<string, unknown>;
+      const msgId = data.message_id as string;
+      console.log('[DEBUG message_start]', { backendMsgId: msgId, assistantId });
+      if (!msgId) return;
+      genMsgIdRef.current = assistantId;
+      genAccumulatedText = '';
+      // 升级 placeholder 为 generation 卡片——Agent Pipeline 开始后，所有
+      // text_delta / artifact 内容都是生成产物，必须走 generation_card 分支。
+      // MessageBubble 用 _isGeneration（kind/renderMode）判断渲染为生成卡片还是对话气泡，
+      // 保留 kind='conversation' 会让流式内容错误地显示在对话气泡里。
+      updateMessage(assistantId, { kind: 'generation', renderMode: 'generation_card' });
+      useAgentStore.setState({
+        stages: [],
+        currentStage: null,
+        reasoningChunks: {},
+        thinkingSteps: [],
+        streamEvents: [],
+        hasFirstEventReceived: true,
+        currentPlan: null,
+        isRunning: true,
+      });
+      // streamingMessageId 指向 assistantId，让 applyStreamEvent 把后续
+      // stage/plan/reasoning 事件路由到这条 message 的 parts[]。
+      useAgentStore.setState({ streamingMessageId: assistantId } as Partial<ReturnType<typeof useAgentStore.getState>>);
+    });
 
-      triggerPromise = (async () => {
-        // P17: 用模块级 PLATFORM_LABEL_TO_CODE（不再每次重建 3 个 hash）
-        let resolvedPlatform = triggerData!.platform || null;
-        if (!resolvedPlatform && text) {
-          const m = text.match(PLATFORM_HINT_RE);
-          if (m) {
-            resolvedPlatform = PLATFORM_LABEL_TO_CODE[m[1].trim()] || null;
-          }
-        }
+    processor.on('plan', (event) => {
+      // v3 parts 模型：plan 事件 → applyStreamEvent 路由到 message.parts[]
+      const { applyStreamEvent } = useAgentStore.getState();
+      applyStreamEvent(event.data as import('../types/partReducer').StreamEventV3);
+      // 兼容旧路径：保留 currentPlan 供 resultToTimelineEvents / 预览面板使用
+      const data = event.data as Record<string, unknown>;
+      if (data.goal) {
+        useAgentStore.setState({ currentPlan: data as unknown as ExecutionPlan });
+      }
+    });
 
-        if (myToken !== persistTokenRef.current) return;
-
-        showToast('开始创作...', 'info');
-        try {
-          await runStreaming(
-            triggerData!._prompt || triggerData!.topic || '',
-            resolvedPlatform || triggerData!.platform || undefined,
-            {
-              action: triggerData!.action,
-              topic: triggerData!.topic,
-              platform: resolvedPlatform || triggerData!.platform,
-              style: triggerData!.style,
-              tone: triggerData!.tone,
-              audience: triggerData!.audience,
-              keywords: triggerData!.keywords,
-              length: triggerData!.length,
-              revision_focus: triggerData!.revision_focus,
-              // 把后端 trigger.parameters（来自 preferences）也透传
-              ...(triggerData as any).parameters,
+    processor.on('text_delta', (event) => {
+      const data = event.data as { part_id?: string; delta?: string; agent?: string };
+      const delta = data.delta || '';
+      if (!delta || !genMsgIdRef.current) return;
+      genAccumulatedText += delta;
+      updateMessage(genMsgIdRef.current, { content: genAccumulatedText });
+      // 把 delta 也写入 llmChunks[agent]，让 StageTimeline 能实时显示中间产物
+      // （StageTimeline 通过 llmChunks[stage.agent] 取 chunks）
+      const agent = data.agent;
+      if (agent) {
+        useAgentStore.setState((state) => {
+          const existing = state.llmChunks[agent] || [];
+          return {
+            llmChunks: {
+              ...state.llmChunks,
+              [agent]: [...existing, { agent, content: delta, timestamp: Date.now() }],
             },
-            triggerData as any,
+          };
+        });
+      }
+      // 路由到 parts 模型，让 chat/MessageBubble 在 parts 模式下也能流式渲染文本
+      const { applyStreamEvent } = useAgentStore.getState();
+      applyStreamEvent(event.data as import('../types/partReducer').StreamEventV3);
+    });
+
+    processor.on('reasoning_delta', (event) => {
+      const data = event.data as Record<string, unknown>;
+      const agent = data.agent as string;
+      const delta = (data.delta as string) || '';
+      console.log('[DEBUG reasoning_delta]', { agent, delta: delta.slice(0, 20), streamingMsgId: useAgentStore.getState().streamingMessageId });
+      // 修复 #11：兼容两种 round 字段命名 —— 后端 stream_core.py 用 'round'，
+      //     nodes.py 用 '_review_round'。优先取 'round'，缺失则退化。
+      const round = (data.round as number | undefined)
+        ?? (data._review_round as number | undefined)
+        ?? 0;
+      if (!delta || !agent) return;
+      // 写入 reasoningChunks（StageTimeline 展开态用）
+      const key = `${agent}|${round}`;
+      const currentState = useAgentStore.getState();
+      const existing = currentState.reasoningChunks[key] || [];
+      useAgentStore.setState({
+        reasoningChunks: {
+          ...currentState.reasoningChunks,
+          [key]: [...existing, { agent, content: delta, timestamp: Date.now() }],
+        },
+      });
+      // 同时路由到 parts 模型，让 chat/MessageBubble 在 parts 模式下渲染 reasoning part
+      const { applyStreamEvent } = useAgentStore.getState();
+      applyStreamEvent(event.data as import('../types/partReducer').StreamEventV3);
+    });
+
+    processor.on('stage', (event) => {
+      const data = event.data as Record<string, unknown>;
+      const agent = data.agent as string;
+      const label = (data.label as string) || '';
+      const icon = (data.icon as string) || '⚙️';
+      const status = data.status as string;
+      console.log('[DEBUG stage]', { agent, label, status, streamingMsgId: useAgentStore.getState().streamingMessageId });
+      // 修复 #11：后端字段命名漂移 —— stream_core.py 写 'round'，
+      //     nodes.py 写 '_review_round'。兼容两种。
+      const round = (data.round as number | undefined)
+        ?? (data._review_round as number | undefined)
+        ?? 0;
+      const durationMs = data.duration_ms as number | undefined;
+      const errorMsg = data.error as string | undefined;
+      const stageKey = `${agent}|${round}`;
+
+  
+      const { applyStreamEvent } = useAgentStore.getState();
+      applyStreamEvent(event.data as import('../types/partReducer').StreamEventV3);
+
+      useAgentStore.setState((state) => {
+     
+        if (status === 'started' || status === 'running') {
+          const exists = state.stages.find(
+            (s) => `${s.agent}|${s.reviewRound || 0}` === stageKey
           );
-        } catch (e) {
-          console.error('runStreaming failed:', e);
-          showToast('生成启动失败', 'error');
+          if (!exists) {
+            return {
+              stages: [
+                ...state.stages,
+                {
+                  agent,
+                  label,
+                  icon,
+                  status: 'running' as const,
+                  substeps: [],
+                  reviewRound: round,
+                },
+              ],
+              currentStage: agent,
+            };
+          }
+          return {
+            stages: state.stages.map((s) =>
+              `${s.agent}|${s.reviewRound || 0}` === stageKey
+                ? { ...s, status: 'running' as const }
+                : s
+            ),
+            currentStage: agent,
+          };
         }
-      })();
+
+        if (status === 'completed' || status === 'done') {
+          return {
+            stages: state.stages.map((s) => {
+              if (`${s.agent}|${s.reviewRound || 0}` !== stageKey) return s;
+              const chunks = state.reasoningChunks[stageKey] || [];
+              return {
+                ...s,
+                status: 'completed' as const,
+                duration: durationMs,
+                reasoning: chunks.map((c) => c.content).join(''),
+              };
+            }),
+            currentStage: state.currentStage === agent ? null : state.currentStage,
+          };
+        }
+
+        if (status === 'error') {
+          return {
+            stages: state.stages.map((s) =>
+              `${s.agent}|${s.reviewRound || 0}` === stageKey
+                ? { ...s, status: 'failed' as const, duration: durationMs, error: errorMsg }
+                : s
+            ),
+          };
+        }
+
+        return {};
+      });
+    });
+    processor.on('artifact', (event) => {
+      const data = event.data as Record<string, unknown>;
+      const body = (data.body as string) || '';
+      const msgId = genMsgIdRef.current;
+      console.log('[DEBUG artifact]', { bodyLen: body.length, msgId, msgCount: useConversationStore.getState().messages.length });
+      if (!msgId) return;
+      // 路由到 parts 模型（chat/MessageBubble 用）
+      const { applyStreamEvent } = useAgentStore.getState();
+      applyStreamEvent(event.data as import('../types/partReducer').StreamEventV3);
+      // artifact 到达时，后端已生成最终产物
+      if (body) {
+        genAccumulatedText = body;
+        updateMessage(msgId, { content: body });
+      }
+    });
+
+    processor.on('message_end', (event) => {
+      const data = event.data as Record<string, unknown>;
+      const msgId = genMsgIdRef.current;
+      console.log('[DEBUG message_end]', { msgId, genAccumulatedLen: genAccumulatedText.length, msgCount: useConversationStore.getState().messages.length });
+      if (msgId) {
+        const status = (data.status === 'failed') ? 'failed' : 'completed';
+        updateMessage(msgId, {
+          status,
+          content: genAccumulatedText || undefined,
+        });
+        genMsgIdRef.current = null;
+      }
+      // 路由到 parts 模型（让 message_end 关闭所有 streaming part）
+      const { applyStreamEvent } = useAgentStore.getState();
+      applyStreamEvent(event.data as import('../types/partReducer').StreamEventV3);
+    
+      useAgentStore.setState({
+        isRunning: false,
+        hasFirstEventReceived: false,
+        streamingMessageId: null,
+      } as Partial<ReturnType<typeof useAgentStore.getState>>);
     });
 
     processor.on('done', async (event) => {
-      // P22: 后端返回的 conversation_id 可能与前端不同（新对话已自动创建），
-      //       此处把 store.conversationId 同步到真实 ID，避免后续切走对话
-      //       导致 placeholder 找不到归宿。message_id 暂不映射（前端已用临时 UUID）。
       try {
         const data = (event?.data ?? {}) as SseDoneEvent;
         if (data.conversation_id) {
           const convState = useConversationStore.getState();
           if (convState.conversationId !== data.conversation_id) {
-            // 注意：只在当前 store 的 conversationId 为空（首次发消息场景）时同步
-            // 已存在的对话不动（避免把用户切走的新对话又拉回来）
+      
             if (!convState.conversationId) {
               useConversationStore.setState({ conversationId: data.conversation_id });
             }
           }
         }
       } catch {
-        // 静默：done 事件格式异常不应阻塞 finalize
+    
       }
 
-      // 等 trigger 链处理完，避免 done 先 finalize 把 isChatting 置回 false
-      // 但 trigger 流跑 agent 是分钟级，最终 isChatting 由 agent 阶段结束或 abort 控制
-      // 这里只 finalize 对话阶段（已完成），让 isChatting=false
-      // trigger 阶段用 isGenerating 跟踪
-      if (triggerPromise) {
-        // 不 await，让 done 不被阻塞；triggerPromise 在后台继续
-        // 但如果 triggerPromise 抛错，要避免 unhandled rejection
-        triggerPromise.catch(() => {});
-      } else if (typeof window !== 'undefined') {
-        // 前端兜底：done 到达时若没收到 trigger 事件，且 LLM 输出包含"开始创作"
-        // 等明确信号词 + 用户消息含生成关键词，主动用本地 platform/content_type/preferences
-        // 触发生成（防止后端 trigger 解析失败 / SSE 漏发导致用户卡住）
-        const _llmText = (accumulatedText || '').trim();
-        const _readySignals = ['开始创作', '信息够了', '开始生成', '准备好了', '开始吧'];
-        const _userText = (text || '').toLowerCase();
-        const _genKeywords = ['写', '生成', '重新生成', '重写', '再来一份', '写一份', '生成一份', '来一份'];
-        const _wantsGen = _genKeywords.some((kw) => _userText.includes(kw.toLowerCase()));
-        const _looksReady = _readySignals.some((s) => _llmText.includes(s));
-        if (_looksReady && _wantsGen && !useAgentStore.getState().isRunning) {
-          try {
-            // 提取用户原文（剥离 [目标平台：xxx]\n 前缀）
-            const _stripHint = _userText.replace(/^\[目标平台：[^\]]+\]\s*\n?/i, '');
-            const _platform = platform || undefined;
-            await runStreaming(_stripHint, _platform, {
-              action: 'create',
-              topic: _stripHint,
-              platform: _platform,
-              tone: preferences?.tone,
-              length: preferences?.length,
-              audience: preferences?.audience,
-              ...(contentType ? { style: contentType } : {}),
-            } as Record<string, unknown>);
-            showToast('已开始创作', 'success');
-          } catch (e) {
-            console.error('[fallback runStreaming] failed:', e);
-          }
-        }
-      }
-      // P21: flush throttle 残留，确保 placeholder 显示最终文本（不被 throttle 缓冲吞掉）
       if (chatTextTimer.current) {
         clearTimeout(chatTextTimer.current);
         flushChatText();
@@ -360,7 +478,14 @@ export function useConversationChat(): UseConversationChatReturn {
     processor.on('error', (event) => {
       const data = event.data as SseErrorEvent;
       const msg = data.message || '对话出错';
-      // P21: flush throttle 残留后 finalize，避免 placeholder stuck 在生成中
+      // 路由到 parts 模型（chat/MessageBubble 用）
+      const { applyStreamEvent } = useAgentStore.getState();
+      applyStreamEvent(event.data as import('../types/partReducer').StreamEventV3);
+      useAgentStore.setState({
+        isRunning: false,
+        hasFirstEventReceived: false,
+        streamingMessageId: null,
+      } as Partial<ReturnType<typeof useAgentStore.getState>>);
       if (chatTextTimer.current) {
         clearTimeout(chatTextTimer.current);
         flushChatText();
@@ -369,7 +494,6 @@ export function useConversationChat(): UseConversationChatReturn {
       showToast(msg, 'error');
     });
 
-    // 修复 #8（对话超时）：60 秒无 done/error 则自动 abort
     chatTimeoutRef.current = setTimeout(() => {
       if (!settled) {
         abortController.abort();
@@ -377,7 +501,7 @@ export function useConversationChat(): UseConversationChatReturn {
         finalize('failed', '对话回复超时，请重试');
         showToast('对话回复超时，请重试', 'error');
       }
-    }, 60_000);
+    }, 600_000);
 
     try {
       await processor.connect(conversationApi.chatUrl(), {
@@ -398,7 +522,7 @@ export function useConversationChat(): UseConversationChatReturn {
           finalize('failed', accumulatedText || errorMsg);
           showToast(errorMsg, 'error');
         },
-      }, abortController.signal, 60_000);
+      }, abortController.signal, 600_000);
     } catch (e: unknown) {
       const err = e as { name?: string };
       // 修复 #8：清理超时定时器
@@ -409,18 +533,17 @@ export function useConversationChat(): UseConversationChatReturn {
       if (err?.name !== 'AbortError') {
         finalize('failed', '连接对话服务失败');
         showToast('连接对话服务失败', 'error');
-      } else {
-        setIsChatting(false);
       }
     } finally {
+      // 始终重置 isChattingRef，防止 SSE 异常断开后按钮卡住
+      isChattingRef.current = false;
       queueMicrotask(() => {
         if (!settled) {
-          isChattingRef.current = false;
           setIsChatting(false);
         }
       });
     }
-  }, [isChatting, addMessage, updateMessage, conversationId, runStreaming, showToast, persistAssistantMessage]);
+  }, [isChatting, addMessage, updateMessage, conversationId, showToast, persistAssistantMessage]);
 
   useEffect(() => {
     return () => {
@@ -446,9 +569,6 @@ export function useConversationChat(): UseConversationChatReturn {
         }
         activeAssistantIdRef.current = null;
       }
-      // 注：throttle 定时器是 sendChatMessage 的 closure-local，外部无法触达，
-      //     但其 flush 只会调 updateMessage（写入 msg.content），而下一步 finalize
-      //     已把 placeholder 置为 failed——定时器最多迟到一次空 write，无副作用。
       isChattingRef.current = false; // 修复 #3
       if (isChatting) setIsChatting(false);
     };
@@ -457,18 +577,14 @@ export function useConversationChat(): UseConversationChatReturn {
   }, [isChatting]);
 
   const abort = useCallback(() => {
-    // 自增 token，让所有进行中的持久化和 trigger 链作废
     persistTokenRef.current += 1;
-    // 修复 #8：清理对话超时定时器
     if (chatTimeoutRef.current) {
       clearTimeout(chatTimeoutRef.current);
       chatTimeoutRef.current = null;
     }
     processorRef.current?.abort();
     abortControllerRef.current?.abort();
-    // 同时停 agent 流
     stopAgentStreaming();
-    // P21: finalize 当前 placeholder，避免 status='running' 残留
     const aid = activeAssistantIdRef.current;
     if (aid) {
       const convState = useConversationStore.getState();

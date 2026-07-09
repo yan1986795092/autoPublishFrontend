@@ -25,7 +25,6 @@ const PROMPT_TEMPLATES: Record<string, string> = {
   'tech-doc':  '为 Vue 3 的 Composition API 写一份技术设计文档',
   tutorial:    '写一篇完整的 React Hooks 入门教程，从 useState 到 useEffect',
   email:       '写一封季末促销邮件，引导用户续费年度会员',
-  seo:         '针对「如何选择机械键盘」这个关键词，写一篇 SEO 友好的文章',
 };
 
 // ── 动画配置 ──

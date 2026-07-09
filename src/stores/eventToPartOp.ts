@@ -83,9 +83,16 @@ export function eventToPartOp(
       const e = event as Extract<StreamEventV3, { type: 'stage' }>;
       if (e.data.status !== 'started') {
         // completed → state_transition
+        // 修复 #11：与 tool_input_delta / tool_result 一样，需要先在 currentParts
+        //     里查 server_id，避免 reduceParts 拿 op.id 与 part.id 直接比对失效
+        //     （stage 首次 append 用 crypto.randomUUID() 作 part.id，
+        //     part_id 落到 server_id；完成事件只有 part_id，没有 client id）。
+        const existing = currentParts?.find(
+          (p) => p.id === e.data.part_id || p.server_id === e.data.part_id,
+        );
         return {
           op: 'state_transition',
-          id: e.data.part_id,
+          id: existing ? existing.id : e.data.part_id,
           state: e.data.error ? 'error' : 'done',
         };
       }
@@ -163,10 +170,12 @@ export function eventToPartOp(
           } as MessagePart,
         };
       }
+      // 修复：累加 delta，而非覆盖。
+      const prevContent = (existing.content as string) || '';
       return {
         op: 'update',
         id: existing.id,
-        patch: { content: e.data.delta },
+        patch: { content: prevContent + e.data.delta },
       };
     }
 
@@ -192,10 +201,13 @@ export function eventToPartOp(
           } as MessagePart,
         };
       }
+      // 修复：累加 delta，而非覆盖。否则 text_delta 流式时 part.content
+      // 永远只显示最后一段 delta，整个流式产物看不到中间过程。
+      const prev = (existing.content as string) || '';
       return {
         op: 'update',
         id: existing.id,
-        patch: { content: e.data.delta },
+        patch: { content: prev + e.data.delta },
       };
     }
 

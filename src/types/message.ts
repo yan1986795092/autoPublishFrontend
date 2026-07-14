@@ -35,8 +35,9 @@ export interface TextPart extends PartBase {
 export interface ReasoningPart extends PartBase {
   type: 'reasoning';
   content: string;
+  /** Agent 来源（必填，Task 1 schema 对齐） */
+  agent: string;
   collapsed_by_default: boolean;
-  agent?: string;
   round?: number;
 }
 
@@ -64,7 +65,7 @@ export interface PlatformStructuredData {
 /** 最终产物 part（取代 result.output） */
 export interface ArtifactPart extends PartBase {
   type: 'artifact';
-  artifact_type: 'blog' | 'code' | 'image' | 'tutorial' | 'social_post';
+  artifact_type: 'blog' | 'code' | 'image' | 'tutorial' | 'social_post' | 'copywriting';
   body: string;
   title?: string;
   platform?: string;
@@ -102,6 +103,29 @@ export type MessagePart =
   | ArtifactPart
   | PlanPart
   | ErrorPart;
+
+// ===================== Type Guards =====================
+// 对应后端 message_part_schema.py 的 from_dict() discriminator
+// Task 1: 前后端 schema 统一，前端用 type guard 做运行时判别
+
+export function isTextPart(p: MessagePart): p is TextPart {
+  return p.type === 'text';
+}
+export function isReasoningPart(p: MessagePart): p is ReasoningPart {
+  return p.type === 'reasoning';
+}
+export function isToolCallPart(p: MessagePart): p is ToolCallPart {
+  return p.type === 'tool_call';
+}
+export function isArtifactPart(p: MessagePart): p is ArtifactPart {
+  return p.type === 'artifact';
+}
+export function isPlanPart(p: MessagePart): p is PlanPart {
+  return p.type === 'plan';
+}
+export function isErrorPart(p: MessagePart): p is ErrorPart {
+  return p.type === 'error';
+}
 
 export type MessageRole = 'user' | 'assistant';
 

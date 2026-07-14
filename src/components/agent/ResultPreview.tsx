@@ -87,6 +87,8 @@ export function ResultPreview({
 // ── 从真实结果提取标题 ──
 function extractRealTitle(result: AgentResult): string | null {
   const output = result.output as Record<string, unknown>;
+  // P0: preview_sync 推过来的 title（TitleAgent 的权威产出）
+  if (typeof output?.title === 'string' && output.title.trim()) return output.title.trim();
   if (typeof output?.topic === 'string' && output.topic.trim()) return output.topic.trim();
   const text = (output?.full_text as string) || (output?.content as string) || '';
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
@@ -101,12 +103,12 @@ function extractRealTitle(result: AgentResult): string | null {
 }
 
 // ── 从真实结果提取标签 ──
+// P0: 标签必须严格来自 TagAgent 的产物（output.tags），
+//     禁止从正文里 match(/#xxx/g) 来推——正文中 # 第一章 / # 标题 等是 Markdown 标题，不是标签。
 function extractRealTags(result: AgentResult): string[] {
   const output = result.output as Record<string, unknown>;
-  if (Array.isArray(output?.tags)) return output.tags as string[];
-  const text = (output?.full_text as string) || (output?.content as string) || '';
-  const tags = text.match(/#[^#\s]+/g) ?? [];
-  return tags.slice(0, 4);
+  if (Array.isArray(output?.tags)) return (output.tags as unknown[]).filter((t): t is string => typeof t === 'string' && t.length > 0);
+  return [];
 }
 
 // ── 统一手机壳 ──

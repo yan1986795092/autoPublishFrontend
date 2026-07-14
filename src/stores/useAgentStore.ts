@@ -71,6 +71,10 @@ interface AgentState {
   // 右侧预览
   previewContent: string | null;
   setPreviewContent: (content: string | null) => void;
+  previewTitle: string | null;
+  setPreviewTitle: (title: string | null) => void;
+  previewTags: string[];
+  setPreviewTags: (tags: string[]) => void;
   previewPlatform: string | null;
   setPreviewPlatform: (platform: string | null) => void;
   previewContentType: string | null;
@@ -132,11 +136,15 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
   appliedSkill: null,
   appliedSkillFull: null,
   previewContent: null,
+  previewTitle: null,
+  previewTags: [],
   previewPlatform: null,
   previewContentType: null,
 
   setAppliedSkill: (applied, full) => set({ appliedSkill: applied, appliedSkillFull: full }),
   setPreviewContent: (content) => set({ previewContent: content }),
+  setPreviewTitle: (title) => set({ previewTitle: title }),
+  setPreviewTags: (tags) => set({ previewTags: tags }),
   setPreviewPlatform: (platform) => set({ previewPlatform: platform }),
   setPreviewContentType: (contentType) => set({ previewContentType: contentType }),
 
@@ -599,9 +607,76 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     });
 
     processor.on('stage', (event) => {
-      // v3: stage → update/add tool_call part
+      // flushChunks() 确保 pending llmChunks/reasoningChunks 在 stage 更新前已写入 store
+      // 这样 completion 时读 state.reasoningChunks 能拿到最新的流式内容
+      flushChunks();
+      // flushReasoning() 同上：30ms debounce 的 reasoning delta 也要 flush，
+      // 否则 stage:completed 时读 state.reasoningChunks 会丢失最后一批 delta
+      flushReasoning();
+      const data = event.data as any;
+      const agent = data.agent as string;
+      const status = data.status as string;
+      // 支持两种命名：后端 SSE 发 reviewRound（v3），旧数据或兼容路径用 _review_round
+      const reviewRound = (data.reviewRound as number) ?? (data._review_round as number) ?? 0;
+      const stageKey = `${agent}|${reviewRound}`;
+
+      // v3: stage → 更新 parts 数组（供 NewMessageBubble 渲染）
       const { applyStreamEvent } = get();
       applyStreamEvent(event.data as import('../types/partReducer').StreamEventV3);
+
+      // 同时更新 useAgentStore.stages/currentStage（供 MessageBubble System C 渲染路径使用）
+      // 合并两个 handler 的逻辑，避免重复注册导致状态写两遍
+      set((state) => {
+        if (status === 'started') {
+          const existing = state.stages.find(s => `${s.agent}|${s.reviewRound || 0}` === stageKey);
+          const baseStages = state.stages.filter(s => s.agent !== 'preparing');
+          if (!existing) {
+            return {
+              stages: [...baseStages, {
+                agent,
+                label: (data.label as string) || '处理中',
+                icon: (data.icon as string) || '⚙️',
+                status: 'running' as const,
+                substeps: [],
+                conflicts: data.conflicts as IntentConflict[] | undefined,
+                reviewRound,
+              }],
+              currentStage: agent,
+              intentConflicts: (data.conflicts as IntentConflict[]) || state.intentConflicts,
+            };
+          }
+          return {
+            stages: state.stages.map(s =>
+              `${s.agent}|${s.reviewRound || 0}` === stageKey ? { ...s, status: 'running' as const } : s
+            ),
+            currentStage: agent,
+          };
+        }
+
+        if (status === 'completed') {
+          const stageReasoning = (data._reasoning as string) || '';
+          const stageKeyLocal = stageKey;
+          return {
+            stages: state.stages.map(s => {
+              if (`${s.agent}|${s.reviewRound || 0}` !== stageKeyLocal) return s;
+              const chunks = state.reasoningChunks[stageKeyLocal] || [];
+              const streamText = chunks.map(c => c.content).join('');
+              const parts: string[] = [];
+              if (streamText) parts.push(streamText);
+              if (stageReasoning && stageReasoning !== streamText) parts.push(stageReasoning);
+              return {
+                ...s,
+                status: 'completed' as const,
+                duration: data.duration as number,
+                reasoning: parts.join('\n'),
+              };
+            }),
+            currentStage: state.currentStage === agent ? null : state.currentStage,
+          };
+        }
+
+        return state;
+      });
     });
 
     processor.on('tool_input_delta', (event) => {
@@ -644,6 +719,15 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     processor.on('task_created', (event) => {
       const data = event.data as { task_id?: string };
       set({ currentTaskId: data.task_id || null });
+    });
+
+    // ── preview_sync → 实时更新右侧预览面板（标题、标签、正文） ──
+    processor.on('preview_sync', (event) => {
+      const data = event.data as { title?: string; tags?: string[]; body?: string };
+      const store = useAgentStore.getState();
+      if (data.title) store.setPreviewTitle(data.title);
+      if (data.tags) store.setPreviewTags(data.tags);
+      if (data.body) store.setPreviewContent(data.body);
     });
 
     // ── Legacy v2 handlers (kept for compatibility during migration)
@@ -753,7 +837,8 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     processor.on('reasoning', (event) => {
       const data = event.data as Record<string, unknown>;
       const agent = (data.agent as string) || 'Unknown';
-      const content = (data.content as string) || '';
+      // 后端 SSE v2 发 content 字段，v3 / eventToPartOp 可能用 delta
+      const content = (data.content as string) || (data.delta as string) || '';
       const reviewRound = (data._review_round as number) || 0;
       _pendingReasoningBatch.push({ data, agent, content, reviewRound });
       scheduleReasoningFlush();
@@ -813,75 +898,10 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       }
     });
 
-    processor.on('stage', (event) => {
-      flushChunks();
-      const data = event.data as any;
-      const agent = data.agent as string;
-      const status = data.status as string;
-      const reviewRound = data._review_round as number | undefined;
-      const stageKey = `${agent}|${reviewRound || 0}`;
-
-      set((state) => {
-        if (status === 'started') {
-          const existing = state.stages.find(s => `${s.agent}|${s.reviewRound || 0}` === stageKey);
-          const baseStages = state.stages.filter(s => s.agent !== 'preparing');
-          if (!existing) {
-            return {
-              stages: [...baseStages, {
-                agent,
-                label: (data.label as string) || '处理中',
-                icon: (data.icon as string) || '⚙️',
-                status: 'running' as const,
-                substeps: [],
-                conflicts: data.conflicts as IntentConflict[] | undefined,
-                reviewRound,
-              }],
-              currentStage: agent,
-              intentConflicts: (data.conflicts as IntentConflict[]) || state.intentConflicts,
-            };
-          }
-          return {
-            stages: state.stages.map(s =>
-              `${s.agent}|${s.reviewRound || 0}` === stageKey ? { ...s, status: 'running' as const } : s
-            ),
-            currentStage: agent,
-          };
-        }
-
-        if (status === 'completed') {
-          // 第四批修复：提取后端 stage:completed 携带的 _reasoning 字段，
-          //     绑定到对应 stage.reasoning，让 StageTimeline 展开态显示决策摘要。
-          //     如果 reasoning 事件已经先于 stage 完成到达，reasoning handler 已经写过
-          //     reasoningChunks[key] 数组（O(1) push，不再 O(n²) 拼字符串）；
-          //     这里 join chunks 内容 + 后端 _reasoning，确保流式 + 摘要都在。
-          const stageReasoning = (data._reasoning as string) || '';
-          const stageKeyLocal = stageKey;
-          return {
-            stages: state.stages.map(s => {
-              if (`${s.agent}|${s.reviewRound || 0}` !== stageKeyLocal) return s;
-              // 从 reasoningChunks 拿流式累积内容（O(1) 读，避免 store 里再拼字符串）
-              const chunks = state.reasoningChunks[stageKeyLocal] || [];
-              const streamText = chunks.map(c => c.content).join('');
-              const parts: string[] = [];
-              if (streamText) parts.push(streamText);
-              if (stageReasoning && stageReasoning !== streamText) parts.push(stageReasoning);
-              return {
-                ...s,
-                status: 'completed' as const,
-                duration: data.duration as number,
-                reasoning: parts.join('\n'),
-              };
-            }),
-            currentStage: state.currentStage === agent ? null : state.currentStage,
-          };
-        }
-
-        return state;
-      });
-    });
-
     processor.on('result', async (event) => {
       flushChunks();
+      // flushReasoning 确保 result 入库时 _reasoningChunks 完整（stage:completed 读它）
+      flushReasoning();
       // P21: result 到达时强制 flush updateMsg 的 timer + 残留内容，
       //      否则 50ms throttle 窗口内的最后一段 chunk 会因 timer 没机会触发而丢失。
       flushMsgUpdate();
@@ -1045,13 +1065,15 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       const reviewRound = (data._review_round as number) || 0;
 
       if (channel === 'review') {
+        // 修复：review channel 的内容写 llmChunks（而非 reasoningChunks），
+        // 这样 stage:completed 时 stageReasoning 能从 llmChunks 读到审核评分内容
         const key = `${agent}|${reviewRound}`;
         set((s) => {
-          const existing = s.reasoningChunks[key] || [];
+          const existing = s.llmChunks[key] || [];
           return {
-            reasoningChunks: { ...s.reasoningChunks, [key]: [...existing, { agent, content, timestamp: Date.now() }] },
+            llmChunks: { ...s.llmChunks, [key]: [...existing, { agent, content, timestamp: Date.now() }] },
             streamEvents: get()._pushStreamEvent(s.streamEvents, {
-              id: `review-${Date.now()}-${key}`, type: 'reasoning', timestamp: Date.now(),
+              id: `review-${Date.now()}-${key}`, type: 'llm_chunk', timestamp: Date.now(),
               data: event.data, agent, content,
             }),
           };
@@ -1330,6 +1352,9 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       _abortController: null,
       _streamingProcessor: null,
       streamingMessageId: null,
+      previewContent: null,
+      previewTitle: null,
+      previewTags: [],
     });
   },
 
@@ -1366,9 +1391,11 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       _abortController: null,
       _streamingProcessor: null,
       streamingMessageId: null,
-      // 预览相关：本 store 持有 previewContent/previewPlatform/previewContentType
+      // 预览相关：本 store 持有 previewContent/previewTitle/previewTags/previewPlatform/previewContentType
       // 用户切换账号时也应清空，避免上一个用户的内容泄露
       previewContent: null,
+      previewTitle: null,
+      previewTags: [],
       previewPlatform: null,
       previewContentType: null,
       // 技能选择：跨账号不应该保留（不同用户的技能库可能不同）

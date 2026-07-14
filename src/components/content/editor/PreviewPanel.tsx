@@ -1,6 +1,8 @@
+import { useMemo } from 'react';
 import { Eye } from 'lucide-react';
 import { PLATFORM_MAP } from '../../agent/PlatformSelector';
-import { getPreviewComponent } from '../../preview/index';
+import { getPreviewComponent, type AdapterData } from '../../preview/index';
+import { fillMockData } from '../../preview/mockDataFactory';
 
 export interface PreviewPanelProps {
   platformCode?: string;
@@ -24,9 +26,38 @@ function resolvePreviewMode(platformCode?: string): PreviewMode {
   return 'document';
 }
 
+// ── 前端版 strip_leading_title_block（与 backend/src/agent/nodes.py 同步） ──
+// 历史 Content 行可能残留 FixAgent 加的 `**标题：xxx**` 前缀（数据库已存）；
+// 平台预览组件已经从 data.title 拿到真标题，但正文里同时出现这段粗体强调会显得重复。
+// 这里在喂给平台组件前再剥一次，仅作用于预览渲染，不动 contentMd 原文。
+const LEADING_TITLE_BLOCK_RE = /^\s*(?:\*\*\s*(?:标题|Title)\s*[：:]\s*.{1,80}?\s*\*\*\s*\n+|#{1,3}\s+[^\n#]{1,80}\n+)/m;
+
+function stripLeadingTitleBlock(content: string): string {
+  if (!content) return content;
+  const head = content.slice(0, 400);
+  const m = head.match(LEADING_TITLE_BLOCK_RE);
+  if (!m) return content;
+  return content.slice(m[0].length).replace(/^\n+/, '');
+}
+
 export function PreviewPanel({ platformCode, title, contentMd, tags }: PreviewPanelProps) {
   const platformLabel = platformCode ? PLATFORM_MAP.get(platformCode)?.label || platformCode : '';
   const mode = resolvePreviewMode(platformCode);
+
+  // ── P0: 把产物（content.title / content.tags）注入到 AdapterData ──
+  // 平台预览组件（如 WechatPreview/XiaohongshuPreview）都通过 data.title / data.tags 渲染标题/标签，
+  // 不传 data 时只能从 markdown 正文里硬猜（导致标题重复或标签丢失）。
+  // fillMockData 用来补齐元数据骨架（author/cover/metrics），title/tags 走真实产物值。
+  const cleanedContent = useMemo(() => stripLeadingTitleBlock(contentMd), [contentMd]);
+  const data: AdapterData | undefined = useMemo(() => {
+    if (!platformCode) return undefined;
+    const base = fillMockData(platformCode, cleanedContent || 'preview');
+    return {
+      ...base,
+      title: title || base.title,
+      tags: tags.length > 0 ? tags : base.tags,
+    };
+  }, [platformCode, title, tags, cleanedContent]);
 
   return (
     <div className="w-[380px] shrink-0 border-l border-app-border bg-app-elevated p-4 hidden lg:block sticky top-0 self-start max-h-screen overflow-y-auto">
@@ -52,14 +83,14 @@ export function PreviewPanel({ platformCode, title, contentMd, tags }: PreviewPa
             <MobileFrame>
               {(() => {
                 const PC = getPreviewComponent(platformCode);
-                return <PC content={contentMd || ''} />;
+                return <PC content={cleanedContent || ''} data={data} />;
               })()}
             </MobileFrame>
           ) : (
             <DocumentFrame>
               {(() => {
                 const PC = getPreviewComponent(platformCode);
-                return <PC content={contentMd || ''} />;
+                return <PC content={cleanedContent || ''} data={data} />;
               })()}
             </DocumentFrame>
           )}

@@ -54,6 +54,41 @@ function clearAgentPreviewFields() {
   }
 }
 
+/**
+ * 修复会话切换一致性问题：清空 useAgentStore 中所有与"生成过程"相关的状态。
+ *
+ * 问题根因：switchConversation 时没有清理 stages/llmChunks/reasoningChunks/think
+ * ingSteps/streamEvents，
+ * 导致切到历史会话后 Workspace 仍可能读到上一个会话的残留状态，造成：
+ *   1. 生成流程卡片内容与实际会话不匹配（中间过程显示的是旧会话的 stages）
+ *   2. 切换后 stages 为空或显示错误的 agent 阶段
+ *
+ * 包含字段：isRunning, streamingMessageId, thinkingSteps, streamEvents,
+ * llmChunks, reasoningChunks, stages, currentStage, intentConflicts,
+ * hasFirstEventReceived
+ *
+ * 注意：不重置 currentTaskId / currentResult / currentTask —— 这些是任务级别的，
+ * 不属于会话级别的生成流状态。
+ */
+function clearAgentGenerationState() {
+  try {
+    useAgentStore.setState({
+      isRunning: false,
+      streamingMessageId: null,
+      thinkingSteps: [],
+      streamEvents: [],
+      llmChunks: {},
+      reasoningChunks: {},
+      stages: [],
+      currentStage: null,
+      intentConflicts: [],
+      hasFirstEventReceived: false,
+    });
+  } catch {
+    // useAgentStore 未初始化，忽略
+  }
+}
+
 // ============ 类型定义 ============
 
 interface ConversationState {
@@ -81,6 +116,7 @@ interface ConversationState {
   // 请求追踪（用于竞态处理）
   _inflightLoadId: string | null;
   _requestId: number;
+  _loadConvRequestKey: string | null; // 请求级去重：'{offset}-{q}'
 
   // Actions - 对话列表
   loadConversations: (options?: {
@@ -145,16 +181,21 @@ export const useConversationStore = create<ConversationState>()(
       searchQuery: '',
       _inflightLoadId: null,
       _requestId: 0,
+      _loadConvRequestKey: null,
 
       // ============ 对话列表加载 ============
       loadConversations: async (options) => {
         const { searchQuery } = get();
+        // 请求级去重：如果已有相同 offset+q 的请求在飞，直接跳过
+        const requestKey = `0-${searchQuery || ''}`;
+        if (get()._loadConvRequestKey === requestKey) return;
         // 请求 ID 竞态防护：每次新请求前递增，处理"切换账号时旧请求污染 store"的问题
         // 注意：immer 包装下 state 是只读的，必须通过 set() 修改
         let myRequestId = 0;
         set((s) => {
           s._requestId += 1;
           myRequestId = s._requestId;
+          s._loadConvRequestKey = requestKey;
           s.isLoadingConversations = true;
           s.error = null;
         });
@@ -260,9 +301,13 @@ export const useConversationStore = create<ConversationState>()(
           useAgentStore.getState().disconnectWebSocket();
           // 同步清预览（保证下一行 set 之前 preview 字段已 null）
           clearAgentPreviewFields();
+          // 修复会话切换一致性问题：清空所有生成流状态（stages/llmChunks/reasoningChunks 等），
+          // 避免切到历史会话后 Workspace 仍显示上一个会话的残留 stages
+          clearAgentGenerationState();
         } catch {
-          // 即便 useAgentStore 未初始化或抛错，也保证清预览——独立 try
+          // 即便 useAgentStore 未初始化或抛错，也保证清预览和生成状态
           clearAgentPreviewFields();
+          clearAgentGenerationState();
         }
         // 注意：useConversationChat 的 abort 必须在 useConversationChat 的 hook 内调用
         // 这里通过全局事件广播，让 hook 监听后自停
@@ -311,6 +356,8 @@ export const useConversationStore = create<ConversationState>()(
               renderMode: m.render_mode,
               renderPayload: m.render_payload,
               generationMeta: m.generation_meta,
+              parts: m.parts,
+              is_generation: m.is_generation,
             }));
 
             set((s) => {
@@ -587,6 +634,7 @@ export const useConversationStore = create<ConversationState>()(
           searchQuery: '',
           _inflightLoadId: null,
           _requestId: 0,
+          _loadConvRequestKey: null,
         });
         saveToStorage({ currentId: null });
       },

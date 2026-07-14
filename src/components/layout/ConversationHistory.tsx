@@ -104,23 +104,23 @@ export function ConversationHistory({
   const loadMoreConversationsRef = useRef(loadMoreConversations);
   useEffect(() => { loadMoreConversationsRef.current = loadMoreConversations; }, [loadMoreConversations]);
 
-  // 初始加载 + 监听用户切换重新加载（防止切换账号后看到上一个用户的对话列表）
+  // 监听用户切换 — 重置搜索状态（不再触发 loadConversations，由 HomePage 集中调用）
   const currentUserId = useAuthStore((s) => s.user?.id ?? null);
   useEffect(() => {
-    // 用户切换时，同时重置 store 和本地的搜索状态
     setLocalSearchQuery('');
     setSearchQuery('');
-    loadConversations();
-  }, [currentUserId, setLocalSearchQuery, setSearchQuery, loadConversations]);
+  }, [currentUserId, setLocalSearchQuery, setSearchQuery]);
 
-  // 防抖搜索
+  // 防抖搜索 — 仅当有搜索词时调用 API，空字符串时跳过（由 HomePage 集中处理初始加载）
   useEffect(() => {
     if (searchTimeoutRef.current) {
       clearTimeout(searchTimeoutRef.current);
     }
     searchTimeoutRef.current = setTimeout(() => {
       setSearchQuery(localSearchQuery);
-      loadConversations({ searchQuery: localSearchQuery });
+      if (localSearchQuery) {
+        loadConversations({ searchQuery: localSearchQuery });
+      }
     }, 300);
 
     return () => {

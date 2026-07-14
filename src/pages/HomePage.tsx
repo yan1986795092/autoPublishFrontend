@@ -2,6 +2,7 @@ import { useRef, useState, useCallback, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useConversationStore } from '../stores/useConversationStore';
+import { useAuthStore } from '../stores/useAuthStore';
 import { useUIStore } from '../stores/useUIStore';
 import { ConversationHistory } from '../components/layout/ConversationHistory';
 import { Workspace } from '../components/agent/Workspace';
@@ -13,6 +14,7 @@ export function HomePage() {
   const switchConversation = useConversationStore((s) => s.switchConversation);
   const createConversation = useConversationStore((s) => s.createConversation);
   const clearMessages = useConversationStore((s) => s.clearMessages);
+  const loadConversations = useConversationStore((s) => s.loadConversations);
   const showToast = useUIStore((s) => s.showToast);
 
   // 三档布局状态
@@ -32,6 +34,14 @@ export function HomePage() {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [mobileSidebarOpen]);
+
+  // 集中触发一次对话列表加载（而非在 ConversationHistory 内部调用，避免移动端抽屉与桌面侧栏重复触发）
+  const currentUserId = useAuthStore((s) => s.user?.id ?? null);
+  const loadConvRef = useRef(loadConversations);
+  useEffect(() => { loadConvRef.current = loadConversations; }, [loadConversations]);
+  useEffect(() => {
+    if (currentUserId) loadConvRef.current();
+  }, [currentUserId]);
 
   // 修复 #9（URL 深链接）：页面加载时从 `?c=` 读取对话 ID 并切换
   // 用 ref 标记已处理，避免 StrictMode 下 effect 重复执行导致 switchConversation 重复触发
@@ -99,7 +109,7 @@ export function HomePage() {
         />
       </div>
 
-      {/* 修复 BUG-11：mobile (<md) 浮层抽屉 — 此前窄屏完全无入口 */}
+      {/* 修复 BUG-11：mobile (<md) 浮层抽屉 — 此此前窄屏完全无入口 */}
       <AnimatePresence>
         {mobileSidebarOpen && (
           <>

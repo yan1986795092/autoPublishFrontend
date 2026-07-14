@@ -196,6 +196,8 @@ export interface ChatMessage {
   renderMode?: 'bubble' | 'generation_card';
   renderPayload?: RenderPayload | null;
   generationMeta?: GenerationMeta | null;
+  /** 后端显式标记的生成消息（phase 4），优先于 kind 字段探测 */
+  is_generation?: boolean;
   /** Parts 模型数组（spec 2026-07-02 §3.1）：替代 result_json / stages / llmChunks 等 */
   parts?: import('./message').MessagePart[];
 }
@@ -302,12 +304,19 @@ export const AGENT_STAGE_MAP: Record<string, { label: string; icon: string }> = 
   PlannerAgent:  { label: '规划任务中', icon: '📋' },
   WebSearch:     { label: '搜索资料中', icon: '🔍' },
   URLCrawler:    { label: '搜索资料中', icon: '🔍' },
+  SearchAnalyzer:{ label: '搜索分析中', icon: '🔎' },
   WritingAgent:  { label: '创作初稿中', icon: '✍️' },
+  TitleAgent:    { label: '标题生成中', icon: '🏷️' },
+  TagAgent:      { label: '标签生成中', icon: '🏷️' },
   ReviewAgent:   { label: '评审优化中', icon: '📋' },
   FixAgent:      { label: '润色优化中', icon: '✨' },
   CodeAgent:     { label: '代码生成中', icon: '💻' },
   DiagramAgent:  { label: '图表生成中', icon: '📊' },
   HotTopicAgent: { label: '整合分析中', icon: '🔬' },
+  // PreviewSync 是后端聚合节点（不调用 LLM），仅负责把 TitleAgent/TagAgent/FixAgent
+  // 的产物同步到右侧预览面板。用户希望在 timeline 中也看到这个节点，
+  // 且展示中文 label/icon，而不是 raw agent name。
+  PreviewSync:   { label: '预览同步中', icon: '📄' },
 };
 
 export type ContentType = 'blog' | 'social_post' | 'copywriting' | 'script' | 'newsletter' | 'report' | 'auto';

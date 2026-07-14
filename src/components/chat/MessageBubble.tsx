@@ -44,7 +44,7 @@ interface MessageBubbleProps {
 function MessageBubbleInner({ message, onRetry }: MessageBubbleProps) {
   // Ref to the last part for memo comparison
   const lastPartRef = useRef<MessagePart | null>(null);
-  const lastPart = message.parts[message.parts.length - 1] ?? null;
+  const lastPart = message.parts?.[message.parts.length - 1] ?? null;
   lastPartRef.current = lastPart;
 
   // ── User message ────────────────────────────────────────────────────────────
@@ -69,12 +69,14 @@ function MessageBubbleInner({ message, onRetry }: MessageBubbleProps) {
 
   // ── Assistant message — parts-based rendering ───────────────────────────────
   if (message.role === 'assistant') {
+    // 安全兜底：旧数据可能没有 parts
+    const parts = message.parts || [];
     // Split parts into text/artifact/etc vs tool_call
     // per spec §4.4: "tool_call 不按时间穿插，全部折叠成 ToolCallGroup"
-    const textAndArtifact = message.parts.filter(
+    const textAndArtifact = parts.filter(
       (p) => p.type !== 'tool_call',
     );
-    const toolCalls = message.parts.filter(
+    const toolCalls = parts.filter(
       (p) => p.type === 'tool_call',
     ) as MessagePart[];
 
@@ -88,7 +90,7 @@ function MessageBubbleInner({ message, onRetry }: MessageBubbleProps) {
       >
         <div className="max-w-[85%] rounded-2xl rounded-tl-sm border border-app-border/40 bg-app-elevated px-4 py-2.5">
           {/* Empty / streaming placeholder */}
-          {message.parts.length === 0 && !message.content && (
+          {parts.length === 0 && !message.content && (
             <div className="flex items-center gap-1.5 py-1">
               <Bot className="w-4 h-4 text-primary-400 animate-pulse" />
               <span className="text-sm text-app-text-secondary">思考中</span>
@@ -138,7 +140,7 @@ function MessageBubbleInner({ message, onRetry }: MessageBubbleProps) {
           })}
 
           {/* Fallback text content (for legacy messages that don't have parts yet) */}
-          {message.parts.length === 0 && message.content && (
+          {parts.length === 0 && message.content && (
             <p className="text-sm text-app-text whitespace-pre-wrap leading-relaxed">
               {message.content}
               {isStreaming && (
@@ -151,9 +153,9 @@ function MessageBubbleInner({ message, onRetry }: MessageBubbleProps) {
             </p>
           )}
 
-          {/* 2. Tool calls — all collapsed into a single ToolCallGroup (spec §4.4) */}
+          {/* 2. Tool calls — 运行时展开，完成后悔自动折叠为卡片 */}
           {toolCalls.length > 0 && (
-            <ToolCallGroup parts={toolCalls as any} />
+            <ToolCallGroup parts={toolCalls as any} autoExpand={isStreaming} />
           )}
 
           {/* Timestamp */}
@@ -184,13 +186,14 @@ export const MessageBubble = memo(
   MessageBubbleInner,
   (prev, next) => {
     if (prev.message.status !== next.message.status) return false;
-    if (prev.message.parts.length !== next.message.parts.length)
-      return false;
+    const prevParts = prev.message.parts || [];
+    const nextParts = next.message.parts || [];
+    if (prevParts.length !== nextParts.length) return false;
     if (prev.lastPartRef !== next.lastPartRef) return false;
     if (prev.onRetry !== next.onRetry) return false;
     // Also check the last part's content/state for streaming updates
-    const prevLast = prev.message.parts[prev.message.parts.length - 1];
-    const nextLast = next.message.parts[next.message.parts.length - 1];
+    const prevLast = prevParts[prevParts.length - 1];
+    const nextLast = nextParts[nextParts.length - 1];
     if (prevLast !== nextLast) {
       // Allow last part to differ — this is the streaming update case
       // Still return false to allow the individual TextPart to handle it

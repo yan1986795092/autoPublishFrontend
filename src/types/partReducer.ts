@@ -26,6 +26,7 @@ export type SSEEventType =
   | 'stage'
   | 'tool_input_delta'
   | 'tool_result'
+  | 'agent_event'   // [修复] WritingAgent 等中间产物日志
   | 'reasoning_delta'
   | 'text_delta'
   | 'artifact'
@@ -38,6 +39,7 @@ export type StreamEventV3 =
   | { type: 'stage'; data: { part_id: string; agent: string; label: string; icon: string; status: 'started' | 'completed'; duration_ms?: number; round?: number; _reasoning?: string; error?: string } }
   | { type: 'tool_input_delta'; data: { part_id: string; delta_json: string } }
   | { type: 'tool_result'; data: { part_id: string; output?: Record<string, unknown>; duration_ms?: number; error?: string } }
+  | { type: 'agent_event'; data: { part_id: string; agent: string; content: string } }  // [修复] 中间产物日志
   | { type: 'reasoning_delta'; data: { part_id: string; agent: string; round?: number; delta: string } }
   | { type: 'text_delta'; data: { part_id: string; delta: string } }
   | { type: 'artifact'; data: { part_id: string; artifact_type: 'blog' | 'code' | 'image' | 'tutorial' | 'social_post'; body: string; title?: string; platform?: string; structured?: Record<string, unknown> } }

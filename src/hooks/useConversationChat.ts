@@ -176,8 +176,6 @@ export function useConversationChat(): UseConversationChatReturn {
       isChattingRef.current = false; // 修复 #3：ref 与 state 同步
       updateMessage(assistantId, { status, content });
       setIsChatting(false);
-      // 持久化对话回复（#3：刷新页面不丢）
-      void persistAssistantMessage(myToken, content, conversationIdAtSend);
       // 修复 #8：清理超时定时器
       if (chatTimeoutRef.current) {
         clearTimeout(chatTimeoutRef.current);
@@ -282,21 +280,28 @@ export function useConversationChat(): UseConversationChatReturn {
     });
 
     processor.on('text_delta', (event) => {
-      const data = event.data as { part_id?: string; delta?: string; agent?: string };
+      const data = event.data as { part_id?: string; delta?: string; agent?: string; channel?: string };
       const delta = data.delta || '';
       if (!delta || !genMsgIdRef.current) return;
-      genAccumulatedText += delta;
-      updateMessage(genMsgIdRef.current, { content: genAccumulatedText });
-      // 把 delta 也写入 llmChunks[agent]，让 StageTimeline 能实时显示中间产物
-      // （StageTimeline 通过 llmChunks[stage.agent] 取 chunks）
+      // body/search channel 累进消息正文（review channel 不进，避免审核意见混入正文）
+      const channel = data.channel || 'body';
+      if (channel === 'body' || channel === 'search') {
+        genAccumulatedText += delta;
+        updateMessage(genMsgIdRef.current, { content: genAccumulatedText });
+      }
+      // 把 delta 也写入 llmChunks，让 StageTimeline 能实时显示中间产物
+      // 修复 BUG-19: key 命名必须与 reasoning_delta 一致（`${agent}|${round}`），
+      // 否则 StageTimeline 用 stageKey 查找时永远查不到 text_delta 的 chunks。
       const agent = data.agent;
       if (agent) {
+        const round = (data as any).round ?? (data as any)._review_round ?? 0;
+        const key = `${agent}|${round}`;
         useAgentStore.setState((state) => {
-          const existing = state.llmChunks[agent] || [];
+          const existing = state.llmChunks[key] || [];
           return {
             llmChunks: {
               ...state.llmChunks,
-              [agent]: [...existing, { agent, content: delta, timestamp: Date.now() }],
+              [key]: [...existing, { agent, content: delta, timestamp: Date.now() }],
             },
           };
         });
@@ -413,6 +418,31 @@ export function useConversationChat(): UseConversationChatReturn {
         return {};
       });
     });
+    // [修复 Bug 2] agent_event → 中间产物日志（WritingAgent 工具结果、agent 完成状态）
+    // 后端透传 "📎 工具结果" / "✅ 完成" 等日志到 SSE
+    processor.on('agent_event', (event) => {
+      const data = event.data as { part_id?: string; agent?: string; content?: string };
+      console.log('[DEBUG agent_event]', { agent: data.agent, content: (data.content || '').slice(0, 80) });
+      const msgId = genMsgIdRef.current;
+      if (!msgId) return;
+      // agent_event 内容累加到正文预览（message_end 前用户能看到每个 agent 的产物）
+      if (data.content) {
+        genAccumulatedText += '\n' + data.content;
+        updateMessage(msgId, { content: genAccumulatedText });
+      }
+    });
+
+    // [修复 Bug 3] tool_result → agent 工具输出（供 GenerationTimeline 显示）
+    processor.on('tool_result', (event) => {
+      const data = event.data as Record<string, unknown>;
+      console.log('[DEBUG tool_result]', { part_id: data.part_id, hasOutput: Boolean(data.output) });
+      const msgId = genMsgIdRef.current;
+      if (!msgId) return;
+      // 路由到 parts 模型（tool_call state → done/error）
+      const { applyStreamEvent } = useAgentStore.getState();
+      applyStreamEvent(event.data as import('../types/partReducer').StreamEventV3);
+    });
+
     processor.on('artifact', (event) => {
       const data = event.data as Record<string, unknown>;
       const body = (data.body as string) || '';
@@ -434,17 +464,26 @@ export function useConversationChat(): UseConversationChatReturn {
       const msgId = genMsgIdRef.current;
       console.log('[DEBUG message_end]', { msgId, genAccumulatedLen: genAccumulatedText.length, msgCount: useConversationStore.getState().messages.length });
       if (msgId) {
+        // 在 isRunning 变 false 前，把运行时 stages 保存到 message.result
+        // 否则 agent/MessageBubble 的 displayStages 会变空
+        const agentState = useAgentStore.getState();
         const status = (data.status === 'failed') ? 'failed' : 'completed';
         updateMessage(msgId, {
           status,
           content: genAccumulatedText || undefined,
+          result: {
+            _stages: agentState.stages,
+            _thinkingSteps: agentState.thinkingSteps,
+            _llmChunks: agentState.llmChunks,
+            _reasoningChunks: agentState.reasoningChunks,
+          } as any,
         });
         genMsgIdRef.current = null;
       }
       // 路由到 parts 模型（让 message_end 关闭所有 streaming part）
       const { applyStreamEvent } = useAgentStore.getState();
       applyStreamEvent(event.data as import('../types/partReducer').StreamEventV3);
-    
+
       useAgentStore.setState({
         isRunning: false,
         hasFirstEventReceived: false,
@@ -472,7 +511,8 @@ export function useConversationChat(): UseConversationChatReturn {
         clearTimeout(chatTextTimer.current);
         flushChatText();
       }
-      finalize('completed', accumulatedText);
+      // done 时优先取 pipeline 产物，没有 pipeline 则回退到对话回复
+      finalize('completed', genAccumulatedText || accumulatedText);
     });
 
     processor.on('error', (event) => {

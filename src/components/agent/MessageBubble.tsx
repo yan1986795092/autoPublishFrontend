@@ -11,9 +11,6 @@ import { formatTime, formatDuration } from '../../utils/format';
 import { AGENT_STAGE_MAP } from '../../types';
 import type { StageInfo, LLMChunk, ReasoningChunk } from '../../types';
 
-import { MessageBubble as NewMessageBubble } from '../chat/MessageBubble';
-import type { MessagePart } from '../../types/message';
-
 interface MessageBubbleProps {
   message: {
     id: string;
@@ -25,6 +22,9 @@ interface MessageBubbleProps {
     renderMode?: string;
     renderPayload?: any;
     result?: any;
+    /** [Task 5 / Phase 4] 后端显式标记，不再靠 kind 字段探测 */
+    is_generation?: boolean;
+    is_conversation?: boolean;
     /** Parts 模型数组（spec 2026-07-02 §3.1）— 存在时优先用新渲染器 */
     parts?: MessagePart[];
   };
@@ -121,6 +121,65 @@ function _synthesizeStages(result: any, content: string): StageInfo[] {
   return [];
 }
 
+function _partsToStages(parts: any[]): StageInfo[] {
+  if (!Array.isArray(parts)) return [];
+  const stages: StageInfo[] = [];
+  for (const p of parts) {
+    if (p.type === 'tool_call' && p.tool_name) {
+      const existing = stages.findIndex(s => s.agent === p.tool_name && s.reviewRound === (p.round || 0));
+      if (existing >= 0) {
+        stages[existing] = { ...stages[existing], status: (p.state === 'done' ? 'completed' : p.state) as any };
+      } else {
+        stages.push({
+          agent: p.tool_name,
+          label: p.display_name || p.tool_name,
+          icon: p.icon || '⚙️',
+          status: (p.state === 'done' ? 'completed' : p.state === 'error' ? 'failed' : 'running') as any,
+          reviewRound: p.round || 0,
+        });
+      }
+    }
+  }
+  return stages;
+}
+
+/**
+ * 从 parts[] 提取 reasoningChunks（历史消息时 result._reasoningChunks 可能为空，
+ * 但 parts 中有 reasoning 类型的 part，提取后可以让 StageTimeline 展开显示思考过程）
+ */
+function _partsToReasoningChunks(parts: any[]): Record<string, Array<{agent: string; content: string; timestamp: number}>> {
+  if (!Array.isArray(parts)) return {};
+  const chunks: Record<string, Array<{agent: string; content: string; timestamp: number}>> = {};
+  for (const p of parts) {
+    if (p.type === 'reasoning' && p.content) {
+      // agent 优先取 payload，回退到 server_id（格式：reasoning_AgentName_round_timestamp）
+      const agent = p.agent || (p.server_id ? p.server_id.replace(/^reasoning_/, '').split(/_\d+$/)[0] : 'unknown');
+      const round = p.round || 0;
+      const key = `${agent}|${round}`;
+      if (!chunks[key]) chunks[key] = [];
+      chunks[key].push({ agent, content: p.content, timestamp: Date.now() });
+    }
+  }
+  return chunks;
+}
+
+/**
+ * 从 parts[] 提取 llmChunks（text part → {agent: [{agent, content, timestamp}]}）
+ */
+function _partsToLlmChunks(parts: any[]): Record<string, Array<{agent: string; content: string; timestamp: number}>> {
+  if (!Array.isArray(parts)) return {};
+  const chunks: Record<string, Array<{agent: string; content: string; timestamp: number}>> = {};
+  for (const p of parts) {
+    if (p.type === 'text' && p.content) {
+      // agent 优先取 payload，回退到 server_id（格式：text_AgentName_round）
+      const agent = p.agent || (p.server_id ? p.server_id.split('_')[1] || 'unknown' : 'unknown');
+      if (!chunks[agent]) chunks[agent] = [];
+      chunks[agent].push({ agent, content: p.content, timestamp: Date.now() });
+    }
+  }
+  return chunks;
+}
+
 function _extractErrorDetail(message: any): { message: string; code?: string } | null {
   // 兼容多种错误字段：result.error / result.message / error / message
   const result = message?.result;
@@ -129,6 +188,33 @@ function _extractErrorDetail(message: any): { message: string; code?: string } |
   if (!messageText) return null;
   const code = result.error_code || result.code || undefined;
   return { message: messageText, code };
+}
+
+/**
+ * 把 `_reasoningChunks` / `_llmChunks` 的 key（agent 名）规范化为 `{Agent}|{round}` 格式，
+ * 这样才能跟 `_partsToStages`/`_synthesizeStages` 生成的 uniqueKey（`${agent}|${reviewRound}`）匹配上，
+ * 让 StageTimeline 正确展开显示中间推理内容。
+ * 历史消息里 _stages.label 是 "思考分析中"，_reasoningChunks key 是 "ManagerAgent"，
+ * 不转换则 hasDetail 永远为 false，用户看不到任何中间过程。
+ */
+function _normalizeChunkKeys(
+  chunks: Record<string, Array<{ agent: string; content: string; timestamp: number }>> | undefined,
+): Record<string, Array<{ agent: string; content: string; timestamp: number }>> {
+  if (!chunks || typeof chunks !== 'object') return {};
+  const result: Record<string, Array<{ agent: string; content: string; timestamp: number }>> = {};
+  for (const [key, values] of Object.entries(chunks)) {
+    // 如果 key 已经是 "Agent|round" 格式，直接保留
+    if (key.includes('|')) {
+      result[key] = values;
+      continue;
+    }
+    // key 是纯 agent 名，映射到 AGENT_STAGE_MAP 的 key（agent 名）
+    const normalized = key.startsWith('ManagerAgent')
+      ? 'ManagerAgent|0'
+      : `${key}|0`;
+    result[normalized] = values;
+  }
+  return result;
 }
 
 export function MessageBubble({
@@ -144,23 +230,7 @@ export function MessageBubble({
   reasoningChunks,
 }: MessageBubbleProps) {
   console.log('[DEBUG MessageBubble]', { id: message.id, role: message.role, kind: message.kind, hasParts: Boolean(message.parts), partsLen: message.parts?.length ?? 0, contentLen: message.content?.length ?? 0, status: message.status });
-  // ── Parts 模型渲染路径（spec 2026-07-02 §4.4）
-  // 当 message 有 parts[] 时，使用新渲染器（替代 StageTimeline / llmChunks / reasoningChunks）
-  if (message.parts && message.parts.length > 0) {
-    return (
-      <NewMessageBubble
-        message={{
-          id: message.id,
-          role: message.role as 'user' | 'assistant',
-          status: (message.status || 'completed') as 'sending' | 'streaming' | 'completed' | 'failed' | 'cancelled',
-          timestamp: message.timestamp,
-          content: message.content || '',
-          parts: message.parts,
-        }}
-        onRetry={onRetry ? (id: string) => onRetry(id, message.content || '') : undefined}
-      />
-    );
-  }
+
   // 优先用业务 schema 的纯文本作为复制/预览源（在 handlePreview 前定义，闭包清晰）
   const copyableContent = _resolveCopyContent(message);
   const copySource = copyableContent || message.content || '';
@@ -210,7 +280,9 @@ export function MessageBubble({
   }
 
   if (message.role === 'assistant') {
+    // ── [Task 5 / Phase 4] 优先用 is_generation 字段，回退到 kind 字段探测 ──
     const _isGeneration =
+      message.is_generation === true ||
       message.kind === 'generation' ||
       message.renderMode === 'generation_card' ||
       (message.status === 'running' && message.kind !== 'conversation');
@@ -260,15 +332,31 @@ export function MessageBubble({
 
     const msgResult = message.result as any;
     const storedStages = Array.isArray(msgResult?._stages) ? msgResult._stages : [];
-    const fallbackStages = storedStages.length === 0 ? _synthesizeStages(msgResult, displayContent) : storedStages;
+    const partsStages = storedStages.length === 0 ? _partsToStages(message.parts) : [];
+    const fallbackStages = storedStages.length === 0
+      ? (partsStages.length > 0 ? partsStages : _synthesizeStages(msgResult, displayContent))
+      : storedStages;
     const displayStages = isRunning ? (stages || []) : fallbackStages;
+    // AGENT_STAGE_MAP 补全 icon/label + 同 agent 去重（保留最后一个）
+    const normalizedDisplayStages = displayStages.reduce<StageInfo[]>((acc, s) => {
+      const normalized = (() => {
+        if (s.label && s.icon && s.icon !== '⚙️') return s;
+        const mapEntry = AGENT_STAGE_MAP[s.agent as keyof typeof AGENT_STAGE_MAP];
+        if (!mapEntry) return { ...s, label: s.label || s.agent, icon: s.icon || '⚙️' };
+        return { ...s, label: s.label || mapEntry.label, icon: (s.icon && s.icon !== '⚙️') ? s.icon : mapEntry.icon };
+      })();
+      const idx = acc.findIndex(a => a.agent === normalized.agent);
+      if (idx >= 0) acc[idx] = normalized;
+      else acc.push(normalized);
+      return acc;
+    }, [] as StageInfo[]);
     const displayCurrentStage = isRunning ? (currentStage || null) : null;
     const displayLlmChunks = isRunning
       ? (llmChunks || {})
-      : (msgResult?._llmChunks || _fallbackLlmChunks(msgResult, displayContent));
+      : _normalizeChunkKeys(msgResult?._llmChunks) || _fallbackLlmChunks(msgResult, displayContent) || _partsToLlmChunks(message.parts);
     const displayReasoning = isRunning
       ? (reasoningChunks || {})
-      : (msgResult?._reasoningChunks || {});
+      : _normalizeChunkKeys(msgResult?._reasoningChunks);
     const displayThinkingSteps = isRunning
       ? (thinkingSteps || [])
       : (msgResult?._thinkingSteps || []);
@@ -339,9 +427,9 @@ export function MessageBubble({
           )}
 
           {/* Stage timeline */}
-          {displayStages.length > 0 && (
+          {normalizedDisplayStages.length > 0 && (
             <StageTimeline
-              stages={displayStages}
+              stages={normalizedDisplayStages}
               currentStage={displayCurrentStage}
               isRunning={isRunning}
               llmChunks={displayLlmChunks}
@@ -505,6 +593,33 @@ export const MessageBubbleMemo = Object.assign(
     if (pm.renderMode !== nm.renderMode) return false;
     if (pm.result !== nm.result) return false;
     if (pm.timestamp !== nm.timestamp) return false;
+
+    // ── [Task 4 / Bug C 修复] parts 深度比较 ──
+    // 场景：切换对话时，新 message 有 parts[], 旧 message parts=undefined
+    //      或者 parts 引用没变但内容变了（流式）
+    const prevParts = (pm as any).parts as unknown[] | undefined;
+    const nextParts = (nm as any).parts as unknown[] | undefined;
+    if (prevParts === nextParts) {
+      // 引用相同，无需深比
+    } else if (!prevParts || !nextParts) {
+      // 一边为空一边非空 → 变了
+      return false;
+    } else if (prevParts.length !== nextParts.length) {
+      return false;
+    } else {
+      // 长度相同，逐个比关键字段
+      for (let i = 0; i < prevParts.length; i++) {
+        const p1 = prevParts[i] as Record<string, unknown>;
+        const p2 = nextParts[i] as Record<string, unknown>;
+        if (p1.id !== p2.id) return false;
+        if (p1.type !== p2.type) return false;
+        if (p1.state !== p2.state) return false;
+        // content / body 是大字段，但流式场景必须比
+        if (p1.content !== p2.content) return false;
+        if (p1.body !== p2.body) return false;
+      }
+    }
+
     // 仅在真正运行时才对比 stages，避免无意义重渲染
     if (pm.status === 'running' || nm.status === 'running') {
       if (prev.stages !== next.stages) return false;

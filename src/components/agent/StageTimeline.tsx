@@ -263,7 +263,9 @@ export function StageTimeline({ stages, isRunning, llmChunks, reasoningChunks, c
     <div className="my-3" aria-label="创作阶段进度">
       {stages.map((stage, i) => {
         const uniqueKey = `${stage.agent}|${stage.reviewRound || 0}`;
-        const stageChunks = llmChunks?.[stage.agent] || reasoningChunks?.[uniqueKey];
+        // 读取 key 需与写入（runStreaming llm_chunk handler）保持一致，
+        // review channel 写 llmChunks[uniqueKey]，reasoning delta 写 reasoningChunks[uniqueKey]
+        const stageChunks = llmChunks?.[uniqueKey] || reasoningChunks?.[uniqueKey];
         const chunks = stageChunks || [];
         // 推理内容：优先用 stage.reasoning（随 stage:completed 事件绑定），
         // 没有则用 reasoningChunks 里查找

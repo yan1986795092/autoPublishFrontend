@@ -40,12 +40,14 @@ interface AdvancedPanelProps {
 
 export function AdvancedPanel({ selectedPlatform, onCollapse }: AdvancedPanelProps) {
   // Agent Store：运行状态、结果、thinking、预览设置
-  const { isRunning, currentResult, thinkingSteps, previewContent, previewPlatform, previewContentType }
+  const { isRunning, currentResult, thinkingSteps, previewContent, previewTitle, previewTags, previewPlatform, previewContentType }
     = useAgentStore(useShallow((s) => ({
       isRunning: s.isRunning,
       currentResult: s.currentResult,
       thinkingSteps: s.thinkingSteps,
       previewContent: s.previewContent,
+      previewTitle: s.previewTitle,
+      previewTags: s.previewTags,
       previewPlatform: s.previewPlatform,
       previewContentType: s.previewContentType,
     })));
@@ -153,6 +155,8 @@ export function AdvancedPanel({ selectedPlatform, onCollapse }: AdvancedPanelPro
                         output: {
                           full_text: previewContent,
                           content: previewContent,
+                          title: previewTitle || undefined,
+                          tags: previewTags.length > 0 ? previewTags : undefined,
                           content_type: previewContentType || undefined,
                           platform: key || undefined,
                         },

@@ -1,4 +1,4 @@
-# AutoPublish Frontend
+# 墨掌柜 Frontend
 
 AI 内容生产与发布工具前端，基于 React 19 + TypeScript + Vite 构建。
 

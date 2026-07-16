@@ -435,7 +435,6 @@ export function useConversationChat(): UseConversationChatReturn {
     // [修复 Bug 3] tool_result → agent 工具输出（供 GenerationTimeline 显示）
     processor.on('tool_result', (event) => {
       const data = event.data as Record<string, unknown>;
-      console.log('[DEBUG tool_result]', { part_id: data.part_id, hasOutput: Boolean(data.output) });
       const msgId = genMsgIdRef.current;
       if (!msgId) return;
       // 路由到 parts 模型（tool_call state → done/error）
@@ -447,15 +446,34 @@ export function useConversationChat(): UseConversationChatReturn {
       const data = event.data as Record<string, unknown>;
       const body = (data.body as string) || '';
       const msgId = genMsgIdRef.current;
-      console.log('[DEBUG artifact]', { bodyLen: body.length, msgId, msgCount: useConversationStore.getState().messages.length });
+      console.log('[DEBUG artifact]', { msgId, hasBody: !!body, title: data.title, tags: data.tags });
       if (!msgId) return;
       // 路由到 parts 模型（chat/MessageBubble 用）
-      const { applyStreamEvent } = useAgentStore.getState();
+      const { applyStreamEvent, syncPreview, setCurrentResult } = useAgentStore.getState();
       applyStreamEvent(event.data as import('../types/partReducer').StreamEventV3);
       // artifact 到达时，后端已生成最终产物
       if (body) {
         genAccumulatedText = body;
         updateMessage(msgId, { content: body });
+      }
+      // ── 同步标题/标签/正文到右侧预览面板 ──
+      // 后端 artifact 事件携带结构化 title 和 tags（如 TitleAgent / TagAgent 的产物），
+      // 直接通过 syncPreview 写入 useAgentStore，AdvancedPanel 读取后渲染到模板对应位置。
+      // 同时设置 currentResult 供预览面板的合并逻辑使用。
+      const title = (data.title as string) || null;
+      const tags = Array.isArray(data.tags) ? (data.tags as string[]) : [];
+      syncPreview({ content: body, title, tags });
+      if (body || title || tags.length > 0) {
+        setCurrentResult({
+          output: {
+            content: body,
+            full_text: body,
+            title,
+            tags,
+            platform: data.platform,
+            content_type: data.artifact_type,
+          },
+        } as any);
       }
     });
 
@@ -480,6 +498,39 @@ export function useConversationChat(): UseConversationChatReturn {
         });
         genMsgIdRef.current = null;
       }
+      // ── 兜底同步：若 artifact 事件未触发或未携带 title/tags，
+      // 从 genAccumulatedText 正文中提取标题和标签，同步到右侧预览面板 ──
+      const agentStoreState = useAgentStore.getState();
+      if (genAccumulatedText && (!agentStoreState.previewContent || !agentStoreState.previewTitle)) {
+        // 从正文提取标题（第一段非空行，# 开头的 heading 或前 4-60 字）
+        const bodyLines = genAccumulatedText.split('\n').map(l => l.trim()).filter(Boolean);
+        let fallbackTitle: string | null = null;
+        if (bodyLines.length > 0) {
+          const first = bodyLines[0].replace(/^#{1,3}\s+/, '').replace(/^\*\*\s*(?:标题|Title)\s*[：:]\s*/, '').replace(/\s*\*\*$/, '');
+          if (first.length >= 2 && first.length <= 60) {
+            fallbackTitle = first;
+          } else if (bodyLines.length > 1) {
+            const second = bodyLines[1].replace(/^#{1,3}\s+/, '');
+            if (second.length >= 2 && second.length <= 60) {
+              fallbackTitle = second;
+            }
+          }
+        }
+        // 从正文提取标签（#tag 模式）
+        const inlineTags = [...new Set(
+          (genAccumulatedText.match(/#[^#\s\n]+/g) || [])
+            .map(t => t.replace(/^#/, '').trim())
+            .filter(Boolean)
+        )].slice(0, 8);
+
+        const finalTitle = agentStoreState.previewTitle || fallbackTitle;
+        const finalTags = agentStoreState.previewTags.length > 0 ? agentStoreState.previewTags : inlineTags;
+        agentStoreState.syncPreview({ content: genAccumulatedText, title: finalTitle, tags: finalTags });
+        agentStoreState.setCurrentResult({
+          output: { content: genAccumulatedText, full_text: genAccumulatedText, title: finalTitle, tags: finalTags },
+        } as any);
+      }
+
       // 路由到 parts 模型（让 message_end 关闭所有 streaming part）
       const { applyStreamEvent } = useAgentStore.getState();
       applyStreamEvent(event.data as import('../types/partReducer').StreamEventV3);

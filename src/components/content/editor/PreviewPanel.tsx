@@ -52,17 +52,23 @@ export function PreviewPanel({ platformCode, title, contentMd, tags }: PreviewPa
   const data: AdapterData | undefined = useMemo(() => {
     if (!platformCode) return undefined;
     const base = fillMockData(platformCode, cleanedContent || 'preview');
+    // 关键：title/tags 严格走产物值（Content.title / Content.tags），不再回退到 mock。
+    // fillMockData 提供元数据骨架（author/cover/metrics），不再伪造"温暖治愈/生活美学"等
+    // 占位标签——产物没有标签就让平台壳里不显示标签，让用户看到真实状态。
     return {
       ...base,
-      title: title || base.title,
-      tags: tags.length > 0 ? tags : base.tags,
+      title: title || null,
+      tags: tags.length > 0 ? tags : [],
     };
   }, [platformCode, title, tags, cleanedContent]);
 
   return (
-    <div className="w-[380px] shrink-0 border-l border-app-border bg-app-elevated p-4 hidden lg:block sticky top-0 self-start max-h-screen overflow-y-auto">
-      <div className="flex flex-col h-full">
-        <div className="flex items-center gap-2 mb-3 shrink-0">
+    // 修复 Firefox 警告：原结构是 sticky top-0 和 overflow-y-auto 在同一元素，
+    // 这相当于「元素 sticky 参考于自己」，Firefox 报 "scroll-linked positioning effect"。
+    // 拆成两层：外层负责 sticky 定位 + 不滚动，内层负责滚动。
+    <div className="w-[380px] shrink-0 border-l border-app-border bg-app-elevated hidden lg:flex flex-col sticky top-0 self-start max-h-screen">
+      <div className="sticky top-0 z-10 bg-app-elevated p-4 pb-0 shrink-0">
+        <div className="flex items-center gap-2 mb-3">
           <Eye className="w-4 h-4 text-primary-400" />
           <span className="text-xs font-semibold text-app-text">实时预览</span>
           {platformLabel && (
@@ -71,14 +77,16 @@ export function PreviewPanel({ platformCode, title, contentMd, tags }: PreviewPa
         </div>
 
         {title && (
-          <div className="shrink-0 text-center mb-2">
+          <div className="text-center mb-2">
             <div className="text-sm font-semibold text-app-text leading-snug line-clamp-1 px-2">
               {title}
             </div>
           </div>
         )}
+      </div>
 
-        <div className="flex-1 flex justify-center min-h-0">
+      <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
+        <div className="flex flex-col justify-center min-h-full">
           {mode === 'mobile' ? (
             <MobileFrame>
               {(() => {
@@ -95,9 +103,10 @@ export function PreviewPanel({ platformCode, title, contentMd, tags }: PreviewPa
             </DocumentFrame>
           )}
         </div>
+      </div>
 
         {tags.length > 0 && (
-          <div className="shrink-0 mt-2 flex justify-center flex-wrap gap-1">
+          <div className="mt-2 flex justify-center flex-wrap gap-1">
             {tags.map((tag, i) => (
               <span key={i} className="text-[10px] px-2 py-0.5 rounded-full bg-primary-500/10 text-primary-400 border border-primary-500/20">
                 #{tag}
@@ -105,7 +114,6 @@ export function PreviewPanel({ platformCode, title, contentMd, tags }: PreviewPa
             ))}
           </div>
         )}
-      </div>
     </div>
   );
 }

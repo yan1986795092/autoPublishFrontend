@@ -70,7 +70,7 @@ function _synthesizeStages(result: any, content: string): StageInfo[] {
   );
 
   if (generatedAgents.length > 0) {
-    return generatedAgents.map((agent) => {
+    const stages: StageInfo[] = generatedAgents.map((agent) => {
       const mapEntry = AGENT_STAGE_MAP[agent] || { label: '生成中', icon: '✍️' };
       return {
         agent,
@@ -79,6 +79,40 @@ function _synthesizeStages(result: any, content: string): StageInfo[] {
         status: 'completed' as const,
       };
     });
+
+    // 从 _llmChunks 的 review channel 中提取 ReviewAgent 各轮次
+    // key 格式：初审 "ReviewAgent"（无 |），复审+ "ReviewAgent|1"、"ReviewAgent|2"
+    if (llmChunks) {
+      // 初审：key 是纯 agent 名（round 0）
+      if (llmChunks['ReviewAgent']?.length) {
+        const mapEntry = AGENT_STAGE_MAP.ReviewAgent || { label: '评审优化中', icon: '📋' };
+        stages.push({
+          agent: 'ReviewAgent',
+          label: mapEntry.label,
+          icon: mapEntry.icon,
+          status: 'completed' as const,
+        });
+      }
+      // 复审+：key 带 |round 后缀
+      const reviewKeys = Object.keys(llmChunks).filter(k => k.startsWith('ReviewAgent|'));
+      const seenRounds = new Set<number>();
+      for (const key of reviewKeys) {
+        const round = parseInt(key.split('|')[1], 10);
+        if (isNaN(round) || seenRounds.has(round)) continue;
+        seenRounds.add(round);
+        const mapEntry = AGENT_STAGE_MAP.ReviewAgent || { label: '评审优化中', icon: '📋' };
+        stages.push({
+          agent: 'ReviewAgent',
+          label: mapEntry.label,
+          icon: mapEntry.icon,
+          status: 'completed' as const,
+          ...(round > 0 ? { reviewRound: round } : {}),
+        });
+      }
+    }
+
+    // 按出现顺序排序：llmChunks key 的插入顺序就是执行顺序
+    return stages;
   }
 
   const draftContent = result?._draftContent || result?.output?.draft_content;
@@ -99,7 +133,7 @@ function _synthesizeStages(result: any, content: string): StageInfo[] {
     // P24: 用 (agent, reviewRound) 二元组去重，保留多轮 review 的轮次信息。
     //      之前的 uniqueAgents 只按 agent 去重，第 2/3 轮 review 的 stage 会丢。
     const seen = new Set<string>();
-    const stages: StageInfo[] = [];
+    const stageMap = new Map<string, StageInfo>();
     for (const s of steps) {
       if (!s.agent) continue;
       const rr = s._review_round || 0;
@@ -107,7 +141,7 @@ function _synthesizeStages(result: any, content: string): StageInfo[] {
       if (seen.has(key)) continue;
       seen.add(key);
       const mapEntry = AGENT_STAGE_MAP[s.agent as keyof typeof AGENT_STAGE_MAP] || { label: s.agent, icon: '⚙️' };
-      stages.push({
+      stageMap.set(key, {
         agent: s.agent,
         label: mapEntry.label,
         icon: mapEntry.icon,
@@ -115,7 +149,7 @@ function _synthesizeStages(result: any, content: string): StageInfo[] {
         ...(rr > 0 ? { reviewRound: rr } : {}),
       });
     }
-    if (stages.length > 0) return stages;
+    if (stageMap.size > 0) return Array.from(stageMap.values());
   }
 
   return [];
@@ -239,6 +273,18 @@ export function MessageBubble({
     if (!copySource) return;
     const store = useAgentStore.getState();
     store.setPreviewContent(copySource);
+    // 单一来源：直接从 message.result.output 读 TitleAgent / TagAgent 产物。
+    // merge_and_finish 现在已经把 title/tags 写到 final_output.structured 顶层，
+    // 任何"从前端猜来源"的 fallback 都是隐藏耦合——直接拿 result.output 即可。
+    const output = (message as any).result?.output ?? {};
+    const title = typeof output.title === 'string' && output.title.trim()
+      ? output.title.trim()
+      : null;
+    const tags: string[] = Array.isArray(output.tags)
+      ? (output.tags as unknown[]).filter((t): t is string => typeof t === 'string' && t.trim().length > 0)
+      : [];
+    store.setPreviewTitle(title);
+    store.setPreviewTags(tags);
     const platform =
       (message as any).renderPayload?.platform ||
       (message as any).generationMeta?.platform ||
@@ -345,7 +391,7 @@ export function MessageBubble({
         if (!mapEntry) return { ...s, label: s.label || s.agent, icon: s.icon || '⚙️' };
         return { ...s, label: s.label || mapEntry.label, icon: (s.icon && s.icon !== '⚙️') ? s.icon : mapEntry.icon };
       })();
-      const idx = acc.findIndex(a => a.agent === normalized.agent);
+      const idx = acc.findIndex(a => a.agent === normalized.agent && (a.reviewRound || 0) === (normalized.reviewRound || 0));
       if (idx >= 0) acc[idx] = normalized;
       else acc.push(normalized);
       return acc;

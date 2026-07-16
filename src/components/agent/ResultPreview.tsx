@@ -1,7 +1,7 @@
 import { Eye } from 'lucide-react';
 import type { AgentResult } from '../../types';
 import { getPreviewComponent } from '../preview/index';
-import { fillMockData } from '../preview/mockDataFactory';
+import { fillMockData, DEFAULT_MOCK_CONTENT_RAW } from '../preview/mockDataFactory';
 import type { AdapterData } from '../preview/index';
 
 interface ResultPreviewProps {
@@ -43,25 +43,27 @@ export function ResultPreview({
       JSON.stringify(result.output, null, 2)
     : '';
 
-  // 始终用 mock 数据作为 base（包含完整的作者/互动数/标签）
+  // mock 数据 base：占位态用 DEFAULT_MOCK_CONTENT_RAW 当内容，传给 fillMockData，
+  // 这样 mockContent 字段保留完整的默认正文，而不是被 'default' 这种哨兵字符串覆盖。
+  const mockSeedContent = content || DEFAULT_MOCK_CONTENT_RAW;
   let data: AdapterData | undefined;
   if (selectedPlatform) {
-    data = fillMockData(selectedPlatform, content || 'default');
+    data = fillMockData(selectedPlatform, mockSeedContent);
   } else {
     data = undefined;
   }
 
-  // 合并真实数据：有真实结果时用真实数据覆盖，否则保留完整 mock
+  // 合并真实数据：title/tags 严格走 AgentResult.output（即 TitleAgent / TagAgent 产物）。
+  // tags 为空数组时直接传空——不在前端"如果是空就回退到 mock 默认"，避免
+  // 出现"产物明明没标签却显示占位标签"的误导。前端唯一职责是把后端产物原样呈现。
   if (result && data) {
     const realTitle = extractRealTitle(result);
     const realTags = extractRealTags(result);
-    if (realTitle || realTags.length > 0) {
-      data = {
-        ...data,
-        title: realTitle || data.title,
-        tags: realTags.length > 0 ? realTags : data.tags,
-      };
-    }
+    data = {
+      ...data,
+      title: realTitle,
+      tags: realTags,
+    };
   }
 
   // content：优先真实，没有时用 mockContent
@@ -85,20 +87,12 @@ export function ResultPreview({
 }
 
 // ── 从真实结果提取标题 ──
+// P0: 标题必须严格来自 TitleAgent 的产物（output.title）。
+// 不再做"首行兜底 / output.topic 兜底"——那些会让用户在历史产物 Content.title 为空时
+// 看到正文首行（甚至 Markdown 强调行 `**标题：xxx**`）误以为是真标题。
 function extractRealTitle(result: AgentResult): string | null {
   const output = result.output as Record<string, unknown>;
-  // P0: preview_sync 推过来的 title（TitleAgent 的权威产出）
   if (typeof output?.title === 'string' && output.title.trim()) return output.title.trim();
-  if (typeof output?.topic === 'string' && output.topic.trim()) return output.topic.trim();
-  const text = (output?.full_text as string) || (output?.content as string) || '';
-  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-  if (lines.length === 0) return null;
-  const first = lines[0].replace(/^#+\s*/, '');
-  if (first.length >= 4 && first.length <= 60) return first;
-  if (lines[1]) {
-    const second = lines[1].replace(/^#+\s*/, '');
-    if (second.length >= 4 && second.length <= 60) return second;
-  }
   return null;
 }
 

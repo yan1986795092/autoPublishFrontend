@@ -3,12 +3,15 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Sparkles } from 'lucide-react';
 import type { ArtifactPart } from './types';
+import { SearchResultsPart } from './SearchResultsPart';
 
 interface ArtifactPartProps {
   part: ArtifactPart;
 }
 
 function ArtifactPartInner({ part }: ArtifactPartProps) {
+  const hasSearchResults = part.structured?.search_results?.results?.length > 0;
+
   return (
     <div className="mt-3 rounded-lg border border-app-border/50 bg-app-elevated overflow-hidden">
       {/* Header */}
@@ -25,11 +28,18 @@ function ArtifactPartInner({ part }: ArtifactPartProps) {
       </div>
 
       {/* Body — markdown rendered */}
-      <div className="px-3 py-2 text-sm text-app-text whitespace-pre-wrap leading-relaxed max-h-[60vh] overflow-y-auto">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-          {part.body}
-        </ReactMarkdown>
-      </div>
+      {part.body && (
+        <div className="px-3 py-2 text-sm text-app-text whitespace-pre-wrap leading-relaxed max-h-[60vh] overflow-y-auto">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            {part.body}
+          </ReactMarkdown>
+        </div>
+      )}
+
+      {/* Search Results — formatted display */}
+      {hasSearchResults && (
+        <SearchResultsPart searchData={part.structured!.search_results!} />
+      )}
     </div>
   );
 }
@@ -41,7 +51,8 @@ export const ArtifactPart = memo(ArtifactPartInner, (prev, next) => {
     prev.part.title === next.part.title &&
     prev.part.state === next.part.state &&
     prev.part.artifact_type === next.part.artifact_type &&
-    prev.part.platform === next.part.platform
+    prev.part.platform === next.part.platform &&
+    JSON.stringify(prev.part.structured) === JSON.stringify(next.part.structured)
   );
 });
 

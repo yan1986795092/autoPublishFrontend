@@ -38,7 +38,7 @@ const MOCK_PLATFORMS = [
     color: '#07c160',
     connected: true,
     lastSynced: '2024-06-24T10:30:00',
-    account: 'AutoPublish Official',
+    account: '墨掌柜官方',
   },
   {
     id: 'xiaohongshu',

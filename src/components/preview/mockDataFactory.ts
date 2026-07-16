@@ -36,7 +36,9 @@ function pick<T>(rng: () => number, arr: T[]): T {
 
 // ── 平台调色板（每个平台生成对应的视觉氛围） ──
 // ── 平台默认正文（末尾包含标签行，供 extractTags 分离） ──
-const DEFAULT_MOCK_CONTENT_RAW = `生活最美的样子，就是遇见更好的自己
+// 模板自带占位正文：当 result.output.full_text 为空时（占位态），用此字符串
+// 作为 fillMockData 的 content 入参，保证 mockContent 不是 'default' 这种哨兵。
+export const DEFAULT_MOCK_CONTENT_RAW = `生活最美的样子，就是遇见更好的自己
 
 在这个快节奏的时代，我们常常忘了停下来好好感受生活。其实幸福很简单，可能是清晨的一杯热咖啡，是傍晚的一场日落，是陌生人一个善意的微笑。
 
@@ -44,7 +46,9 @@ const DEFAULT_MOCK_CONTENT_RAW = `生活最美的样子，就是遇见更好的�
 
 愿你眼里有光，心里有爱，把每一天都过成想要的样子。
 
-#温暖治愈 #生活美学 #晚安文案 #人间值得`;
+[#示例标签]`;
+
+const PLACEHOLDER_TAGS = ['示例标签'];
 
 const PLATFORM_THEMES = {
   xiaohongshu: {
@@ -122,7 +126,10 @@ const AVATAR_COLORS: Array<[string, string]> = [
 ];
 
 // ── 主入口：为指定平台生成完整 mock AdapterData ──
-// 无论是否已有 existing 数据，始终返回完整的模拟数据
+//
+// 注意：tags **默认返回空数组**。
+// 占位标签（`[#示例标签]` / `温暖治愈/生活美学/晚安文案/人间值得`）是 mock 视觉骨架，
+// 不应该被当作产物数据的兜底——产物没标签时必须留空，由上层 UI 决定是否提示"未设置"。
 export function fillMockData(
   platform: string | null | undefined,
   content: string,
@@ -142,7 +149,35 @@ export function fillMockData(
   };
 
   const title = existingTitle(content) || theme.defaultTitle;
-  const { tags, content: contentWithoutTags } = extractTags(DEFAULT_MOCK_CONTENT_RAW);
+// 注意：tags 是模板自带的"占位标签"（从正文 hash 派生），
+// 不是产物数据。产物真实 tags 由调用方通过 AdapterData.tags 传入并覆盖；
+// 这里只补齐元数据骨架，给用户一个"看起来正常"的初始视觉。
+// 用 hash 派生是为了不同 prompt 跑出来的默认标签不一样，避免所有产物
+// 都显示同一批"温暖治愈/生活美学/晚安文案/人间值得"。
+const tags: string[] = (() => {
+  // 32 个通用占位标签池（按 hash 稳定抽样 2-4 个）
+  const pool = [
+    '日常分享', '生活记录', '随笔', '点滴感悟',
+    '午后时光', '城市漫步', '窗边随想', '周末心情',
+    '笔记整理', '心得体会', '读书摘抄', '片段记录',
+    '思考碎片', '经验分享', '方法总结', '踩坑记录',
+    '成长日记', '自我提升', '习惯养成', '计划复盘',
+    '工作随笔', '创作灵感', '设计笔记', '产品思考',
+    '学习心得', '技能进阶', '工具心得', '效率实践',
+    '生活美学', '灵感速写', '心情碎片', '夜读笔记',
+  ];
+  const seedRng = makeRng(hashStr(`tags::${platform ?? 'unknown'}::${content.slice(0, 120)}`));
+  const count = 2 + Math.floor(seedRng() * 3); // 2~4 个
+  const picked: string[] = [];
+  const used = new Set<number>();
+  while (picked.length < count && used.size < pool.length) {
+    let idx = Math.floor(seedRng() * pool.length);
+    while (used.has(idx)) idx = (idx + 1) % pool.length;
+    used.add(idx);
+    picked.push(pool[idx]);
+  }
+  return picked;
+})();
   const publishTime = 'timeAgo' in theme ? pick(rng, [...theme.timeAgo]) : null;
 
   return {
@@ -156,7 +191,7 @@ export function fillMockData(
       verified: platform === 'weibo' || platform === 'wechat' ? rng() > 0.3 : rng() > 0.7,
     },
     publishTime,
-    mockContent: contentWithoutTags,
+    mockContent: content || DEFAULT_MOCK_CONTENT_RAW,
   };
 }
 
@@ -180,13 +215,16 @@ function pickMetric(rng: () => number, _key: string, base: number, spread: numbe
 }
 
 function extractTags(content: string): { tags: string[]; content: string } {
-  const tagPattern = /^#[^\s#]+(\s+#[^\s#]+)*\s*$/;
+  // 支持 #xxx #yyy、#xxx  或单 tag 占位 [#示例标签]
+  const tagPattern = /^\s*(?:#[^\s#]+(?:\s+#[^\s#]+)*|\[#?[^\]]+\])\s*$/;
   const lines = content.split('\n');
   const tagLines: string[] = [];
   const bodyLines: string[] = [];
   for (const line of lines) {
-    if (tagPattern.test(line.trim())) {
-      tagLines.push(...line.trim().split(/\s+/).map(t => t.replace(/^#/, '')));
+    if (tagPattern.test(line)) {
+      const raw = line.trim().replace(/^\[|\]$/g, '');
+      const tokens = raw.split(/\s+/).map(t => t.replace(/^#/, '').trim()).filter(Boolean);
+      tagLines.push(...tokens);
     } else {
       bodyLines.push(line);
     }

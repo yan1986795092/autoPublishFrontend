@@ -46,7 +46,7 @@ export function TopNav() {
           <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
             <PenLine className="w-3.5 h-3.5 text-white" />
           </div>
-          <span className="text-sm font-bold text-app-text hidden sm:inline">AutoPublish</span>
+          <span className="text-sm font-bold text-app-text hidden sm:inline">墨掌柜</span>
         </div>
 
         {/* Nav links */}

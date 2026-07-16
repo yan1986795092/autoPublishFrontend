@@ -54,8 +54,10 @@ function StageRow({ stage, index, totalStages, expanded, onToggle, chunks, hasDe
   const isCompleted = stage.status === 'completed';
 
   // 多轮复审/润色显示轮次
+  // reviewRound 从 1 开始计数（0 = 初审，1 = 第一次复审，2 = 第二次复审）
+  // 显示时 +1 避免"第1轮"与初审混淆
   const roundLabel = stage.reviewRound && stage.reviewRound > 0
-    ? `（第${stage.reviewRound}轮）`
+    ? `（第${stage.reviewRound + 1}轮）`
     : '';
   const displayLabel = `${stage.label}${roundLabel}`;
 
@@ -162,11 +164,38 @@ function StageRow({ stage, index, totalStages, expanded, onToggle, chunks, hasDe
                 transition={{ duration: 0.2, ease: 'easeInOut' }}
                 className="overflow-hidden"
               >
-                <div className="mt-1.5 space-y-1.5">
+                <div className="mt-1.5 space-y-2">
                   {/* 阶段产出内容 — 从 stage.reasoning 或 reasoningChunks 取 */}
                   {(stageReasoning || (chunks && chunks.length > 0)) && (
-                    <div className="rounded-lg px-3 py-2.5 bg-app-surface/30 border border-app-border/30">
-                      <p className="text-xs text-app-text-secondary leading-relaxed whitespace-pre-wrap">
+                    <div className={cn(
+                      'rounded-lg px-3 py-2.5',
+                      'border text-xs leading-relaxed whitespace-pre-wrap',
+                      // 根据阶段类型着色
+                      stage.agent === 'ManagerAgent' || stage.agent === 'PlannerAgent'
+                        ? 'bg-blue-500/5 border-blue-500/20 text-blue-300'
+                        : stage.agent === 'SearchAnalyzer' || stage.agent === 'AnalysisAgent'
+                        ? 'bg-green-500/5 border-green-500/20 text-green-300'
+                        : stage.agent === 'ReviewAgent'
+                        ? 'bg-orange-500/5 border-orange-500/20 text-orange-300'
+                        : stage.agent === 'FixAgent'
+                        ? 'bg-red-500/5 border-red-500/20 text-red-300'
+                        : stage.agent === 'WritingAgent'
+                        ? 'bg-purple-500/5 border-purple-500/20 text-purple-300'
+                        : 'bg-app-surface/30 border-app-border/30 text-app-text-secondary',
+                    )}>
+                      {/* 显示推理来源标签 */}
+                      {stage.agent && (
+                        <div className="text-[10px] font-medium mb-1 opacity-70">
+                          {stage.agent === 'ManagerAgent' || stage.agent === 'PlannerAgent' ? '📋 规划'
+                            : stage.agent === 'SearchAnalyzer' ? '🔍 搜索分析'
+                            : stage.agent === 'AnalysisAgent' ? '📊 分析'
+                            : stage.agent === 'WritingAgent' ? '✍️ 创作'
+                            : stage.agent === 'ReviewAgent' ? '🔍 审核'
+                            : stage.agent === 'FixAgent' ? '🔧 修正'
+                            : stage.agent}
+                        </div>
+                      )}
+                      <p className="leading-relaxed">
                         {stageReasoning}
                         {isCurrent && (
                           <span className="inline-block w-[2px] h-[13px] bg-blue-400 ml-0.5 animate-pulse align-text-bottom" />

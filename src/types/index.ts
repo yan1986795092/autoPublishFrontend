@@ -11,6 +11,7 @@ export interface Platform {
   name: string;
   icon_url?: string;
   category: string;
+  content_genre: 'text' | 'video' | 'audio';  // 内容体裁
   is_mock: boolean;
   is_active: boolean;
 }
@@ -197,6 +198,7 @@ export type {
   ChatMessage,
   ContentType,
   ContentStyle,
+  ContentGenre,
   StreamEvent,
   LLMChunk,
   ReasoningChunk,
@@ -211,9 +213,10 @@ export type {
   StageInfo,
   IntentConflict,
   ConversationTrigger,
+  GenerationMeta,
 } from './agent';
 
-export { AGENT_STAGE_MAP } from './agent';
+export { AGENT_STAGE_MAP, CONTENT_GENRE_NAMES } from './agent';
 
 export type {
   Skill,

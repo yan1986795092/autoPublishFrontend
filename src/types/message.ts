@@ -54,11 +54,25 @@ export interface ToolCallPart extends PartBase {
   error_message?: string;
 }
 
-/** Platform-specific structured data（封面/标签/metrics 等） */
+/** Platform-specific structured data（封面/标签/metrics/搜索结果等） */
 export interface PlatformStructuredData {
   cover_image?: string;
   tags?: string[];
   metrics?: Record<string, unknown>;
+  /** 搜索结果数据（WebSearch agent 使用） */
+  search_results?: {
+    type: 'search_results';
+    query: string;
+    original_query: string;
+    source: string;
+    results: Array<{
+      title: string;
+      url: string;
+      snippet?: string;
+      [key: string]: unknown;
+    }>;
+    count: number;
+  };
   [key: string]: unknown;
 }
 
@@ -68,6 +82,7 @@ export interface ArtifactPart extends PartBase {
   artifact_type: 'blog' | 'code' | 'image' | 'tutorial' | 'social_post' | 'copywriting';
   body: string;
   title?: string;
+  tags?: string[];
   platform?: string;
   preview_text?: string;
   structured?: PlatformStructuredData;

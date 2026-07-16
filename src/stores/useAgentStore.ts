@@ -79,6 +79,10 @@ interface AgentState {
   setPreviewPlatform: (platform: string | null) => void;
   previewContentType: string | null;
   setPreviewContentType: (contentType: string | null) => void;
+  previewSyncTrigger: number;
+  triggerPreviewSync: () => void;
+  // 同步预览：将 preview_sync 事件的数据应用到预览面板（与 MessageBubble.handlePreview 逻辑一致）
+  syncPreview: (data: { content: string | null; title: string | null; tags: string[] }) => void;
 
   // Stream events
   addStreamEvent: (event: StreamEvent) => void;
@@ -140,6 +144,7 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
   previewTags: [],
   previewPlatform: null,
   previewContentType: null,
+  previewSyncTrigger: 0,
 
   setAppliedSkill: (applied, full) => set({ appliedSkill: applied, appliedSkillFull: full }),
   setPreviewContent: (content) => set({ previewContent: content }),
@@ -147,6 +152,14 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
   setPreviewTags: (tags) => set({ previewTags: tags }),
   setPreviewPlatform: (platform) => set({ previewPlatform: platform }),
   setPreviewContentType: (contentType) => set({ previewContentType: contentType }),
+  triggerPreviewSync: () => set((state) => ({ previewSyncTrigger: state.previewSyncTrigger + 1 })),
+  // 同步预览：将 preview_sync 事件的数据应用到预览面板
+  syncPreview: ({ content, title, tags }) => set((state) => ({
+    previewContent: content,
+    previewTitle: title,
+    previewTags: tags,
+    previewSyncTrigger: state.previewSyncTrigger + 1,
+  })),
 
   addStreamEvent: (event) => set((state) => ({ streamEvents: [...state.streamEvents, event] })),
 
@@ -616,8 +629,11 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
       const data = event.data as any;
       const agent = data.agent as string;
       const status = data.status as string;
+      // 调试：打印所有字段
+      console.log('[DEBUG stage event]', { data, keys: Object.keys(data) });
       // 支持两种命名：后端 SSE 发 reviewRound（v3），旧数据或兼容路径用 _review_round
-      const reviewRound = (data.reviewRound as number) ?? (data._review_round as number) ?? 0;
+      const reviewRound = (data.reviewRound as number) ?? (data._review_round as number) ?? (data.round as number) ?? 0;
+      console.log('[DEBUG stage event] reviewRound computed:', reviewRound);
       const stageKey = `${agent}|${reviewRound}`;
 
       // v3: stage → 更新 parts 数组（供 NewMessageBubble 渲染）
@@ -722,13 +738,8 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
     });
 
     // ── preview_sync → 实时更新右侧预览面板（标题、标签、正文） ──
-    processor.on('preview_sync', (event) => {
-      const data = event.data as { title?: string; tags?: string[]; body?: string };
-      const store = useAgentStore.getState();
-      if (data.title) store.setPreviewTitle(data.title);
-      if (data.tags) store.setPreviewTags(data.tags);
-      if (data.body) store.setPreviewContent(data.body);
-    });
+    // 注意：preview_sync 事件已在 graph v5 中移除，改由 result handler 直接同步预览数据
+    // 此 handler 保留用于向后兼容（避免历史消息加载时出错）
 
     // ── Legacy v2 handlers (kept for compatibility during migration)
     // Note: v3 SSE endpoint does NOT emit thinking_step / llm_chunk / reasoning events.
@@ -993,6 +1004,16 @@ export const useAgentStore = create<AgentState>()((set, get) => ({
         error: null,
         streamEvents: timelineEvents.length > 0 ? timelineEvents : s.streamEvents,
       }));
+
+      // ── 前端预览同步：result 事件已包含所有预览数据（title/tags/full_text）
+      //    直接在 result handler 里做，替代之前后端 preview_sync_node 的职责 ──
+      const store = get();
+      const previewTitle = (output?.title as string | undefined) || null;
+      const previewTags = Array.isArray(output?.tags) ? (output.tags as string[]) : [];
+      const previewBody = fullText || null;
+      if (previewBody || previewTitle) {
+        store.syncPreview({ content: previewBody, title: previewTitle, tags: previewTags });
+      }
 
       if (conversationId) {
         // D3: 用 safePersist 守门，避免切对话后脏写

@@ -429,24 +429,32 @@ export function Workspace({
                 {/* 回到最新按钮 */}
                 <AnimatePresence>
                   {isRunning && isUserPinned && (
-                    <motion.button
-                      key="scroll-to-bottom"
-                      type="button"
-                      onClick={() => scrollToBottom(true)}
-                      initial={{ opacity: 0, y: 8, scale: 0.9 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: 8, scale: 0.9 }}
-                      transition={{ duration: 0.15 }}
-                      className="sticky bottom-2 left-full -translate-x-2 ml-2 mt-2 inline-flex items-center gap-1.5 rounded-full bg-primary-500/90 hover:bg-primary-500 text-white px-3 py-1.5 text-xs font-medium shadow-lg shadow-primary-500/20 transition-colors"
+                    <div
+                      key="scroll-to-bottom-wrap"
+                      className="sticky bottom-2 mt-2 w-full flex justify-end pointer-events-none"
                     >
-                      <ArrowDown className="w-3.5 h-3.5" />
-                      回到最新
-                      {unreadCount > 0 && (
-                        <span className="ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-white/25 text-[10px] font-semibold">
-                          {unreadCount > 99 ? '99+' : unreadCount}
-                        </span>
-                      )}
-                    </motion.button>
+                      <motion.button
+                        key="scroll-to-bottom"
+                        type="button"
+                        onClick={() => scrollToBottom(true)}
+                        initial={{ opacity: 0, y: 8, scale: 0.9 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 8, scale: 0.9 }}
+                        transition={{ duration: 0.15 }}
+                        // 修复 Firefox 警告：sticky 元素本身不能有 transform (Framer Motion 默认 translate3d)，
+                        // 否则 Firefox 报 "scroll-linked positioning effect cannot be used with async transforms"。
+                        // 把 sticky 放到外层普通 div，motion.button 只做 opacity/scale 动画。
+                        className="pointer-events-auto inline-flex items-center gap-1.5 rounded-full bg-primary-500/90 hover:bg-primary-500 text-white px-3 py-1.5 text-xs font-medium shadow-lg shadow-primary-500/20 transition-colors"
+                      >
+                        <ArrowDown className="w-3.5 h-3.5" />
+                        回到最新
+                        {unreadCount > 0 && (
+                          <span className="ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-white/25 text-[10px] font-semibold">
+                            {unreadCount > 99 ? '99+' : unreadCount}
+                          </span>
+                        )}
+                      </motion.button>
+                    </div>
                   )}
                 </AnimatePresence>
               </div>

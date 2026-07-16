@@ -21,11 +21,11 @@ export const PLATFORM_GROUPS: { key: Platform['category']; label: string; badge:
     label: '社交平台',
     badge: '可发布',
     platforms: [
-      { id: 'xiaohongshu', label: '小红书', icon: '📕', category: 'publishable', hint: '种草笔记 · 口语化 · 短段落' },
-      { id: 'wechat', label: '公众号', icon: '📱', category: 'publishable', hint: '深度长文 · 专业温暖 · 小标题' },
-      { id: 'weibo', label: '微博', icon: '🔵', category: 'publishable', hint: '短平快 · 140字 · 话题标签' },
-      { id: 'douyin', label: '抖音', icon: '🎵', category: 'publishable', hint: '口播脚本 · 3秒钩子 · 节奏感' },
-      { id: 'bilibili', label: 'B站', icon: '🅱️', category: 'publishable', hint: 'UP主风格 · 弹幕文化 · 专业有趣' },
+      { id: 'xiaohongshu', label: '小红书', icon: '📕', category: 'publishable', hint: '图文种草，真实分享感最重要' },
+      { id: 'wechat', label: '公众号', icon: '📱', category: 'publishable', hint: '图文长文，有深度才能被转发' },
+      { id: 'weibo', label: '微博', icon: '🔵', category: 'publishable', hint: '观点鲜明，一针见血' },
+      { id: 'douyin', label: '抖音', icon: '🎵', category: 'publishable', hint: '图文笔记，信息密度要高' },
+      { id: 'bilibili', label: 'B站', icon: '🅱️', category: 'publishable', hint: '图文内容，干货硬核才有人收藏' },
     ],
   },
   // ═══════════════════════════════════════════════════════════════
@@ -36,11 +36,11 @@ export const PLATFORM_GROUPS: { key: Platform['category']; label: string; badge:
     label: '营销体裁',
     badge: '写作风格',
     platforms: [
-      { id: 'copywriting', label: '产品文案', icon: '📝', category: 'content', hint: '卖点清晰 · 价值主张 · CTA' },
-      { id: 'brand-story', label: '品牌故事', icon: '💼', category: 'content', hint: '叙事感 · 品牌调性 · 情感共鸣' },
-      { id: 'ad-copy', label: '广告文案', icon: '📢', category: 'content', hint: '标题党 · 转化导向 · 紧迫感' },
-      { id: 'fiction', label: '小说故事', icon: '📖', category: 'content', hint: '人物对白 · 情节节奏 · 叙事' },
-      { id: 'script', label: '剧本脚本', icon: '🎬', category: 'content', hint: '镜头语言 · 景别标注 · 对白' },
+      { id: 'copywriting', label: '产品文案', icon: '📝', category: 'content', hint: '卖点直接，看完就想买' },
+      { id: 'brand-story', label: '品牌故事', icon: '💼', category: 'content', hint: '情感共鸣，让人记住你' },
+      { id: 'ad-copy', label: '广告文案', icon: '📢', category: 'content', hint: '信息流风格，1秒定胜负' },
+      { id: 'fiction', label: '小说故事', icon: '📖', category: 'content', hint: '情节抓人，让人想一口气读完' },
+      { id: 'script', label: '剧本脚本', icon: '🎬', category: 'content', hint: '人物对白，场景还原' },
     ],
   },
   {
@@ -48,9 +48,9 @@ export const PLATFORM_GROUPS: { key: Platform['category']; label: string; badge:
     label: '专业文体',
     badge: '写作风格',
     platforms: [
-      { id: 'tech-doc', label: '技术文档', icon: '📘', category: 'professional', hint: '结构清晰 · 术语规范 · 示例' },
-      { id: 'tutorial', label: '教程指南', icon: '📗', category: 'professional', hint: '循序渐进 · 步骤清晰 · 学练' },
-      { id: 'email', label: '邮件营销', icon: '📧', category: 'professional', hint: '问候语 · 价值内容 · CTA' },
+      { id: 'tech-doc', label: '技术文档', icon: '📘', category: 'professional', hint: '看完就能跑通代码' },
+      { id: 'tutorial', label: '教程指南', icon: '📗', category: 'professional', hint: '零基础也能学会' },
+      { id: 'email', label: '邮件营销', icon: '📧', category: 'professional', hint: '打开率高，像朋友来信' },
     ],
   },
 ];

@@ -42,6 +42,6 @@ export type StreamEventV3 =
   | { type: 'agent_event'; data: { part_id: string; agent: string; content: string } }  // [修复] 中间产物日志
   | { type: 'reasoning_delta'; data: { part_id: string; agent: string; round?: number; delta: string } }
   | { type: 'text_delta'; data: { part_id: string; delta: string } }
-  | { type: 'artifact'; data: { part_id: string; artifact_type: 'blog' | 'code' | 'image' | 'tutorial' | 'social_post'; body: string; title?: string; platform?: string; structured?: Record<string, unknown> } }
+  | { type: 'artifact'; data: { part_id: string; artifact_type: 'blog' | 'code' | 'image' | 'tutorial' | 'social_post'; body: string; title?: string; tags?: string[]; platform?: string; structured?: Record<string, unknown> } }
   | { type: 'message_end'; data: { message_id: string; status: string; usage?: Record<string, unknown> } }
   | { type: 'error'; data: { code: string; message: string; details?: string; part_id?: string; retry_supported?: boolean } };

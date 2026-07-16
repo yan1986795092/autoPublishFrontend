@@ -3,6 +3,9 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import './styles/index.css';
+// 注意：必须在最顶部、其它任何模块之前导入，
+// 这样业务代码里的 console.log 才会被门控接管。
+import './logger-silencer';
 import App from './App';
 import { ToastProvider } from './components/ui/toast';
 

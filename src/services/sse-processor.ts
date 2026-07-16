@@ -28,18 +28,16 @@ export class SSEProcessor {
 
     for (const line of lines) {
       if (line.startsWith('event:')) {
-        // New event type starts — emit the previous event if valid
         if (eventType && dataLines.length > 0) {
           const rawData = dataLines.join('\n');
           try {
             const parsed = JSON.parse(rawData);
-            console.log('[DEBUG SSE parseSSE]', eventType, 'parsed OK', Object.keys(parsed));
             events.push({
               type: eventType,
               data: parsed as Record<string, unknown>,
             });
-          } catch (e) {
-            console.log('[DEBUG SSE parseSSE]', eventType, 'PARSE ERROR', rawData.slice(0, 100));
+          } catch {
+            // ignore parse errors
           }
         }
         eventType = line.slice(line.indexOf(':') + 1).trim();
@@ -49,18 +47,16 @@ export class SSEProcessor {
       }
     }
 
-    // Emit the last event in the block
     if (eventType && dataLines.length > 0) {
       const rawData = dataLines.join('\n');
       try {
         const parsed = JSON.parse(rawData);
-        console.log('[DEBUG SSE parseSSE LAST]', eventType, Object.keys(parsed));
         events.push({
           type: eventType,
           data: parsed as Record<string, unknown>,
         });
-      } catch (e) {
-        console.log('[DEBUG SSE parseSSE LAST]', eventType, 'PARSE ERROR', rawData.slice(0, 100));
+      } catch {
+        // ignore parse errors
       }
     }
 
@@ -177,10 +173,6 @@ export class SSEProcessor {
   }
 
   private dispatch(event: SSEEvent) {
-    // 全量日志：任何 SSE 事件都不漏，帮助定位 stage/reasoning_delta 是否到达前端
-    if (event.type !== 'heartbeat') {
-      console.log('[DEBUG SSE dispatch]', event.type, event.data);
-    }
     const handlers = this.handlers.get(event.type) || [];
     for (const handler of handlers) {
       handler(event);

@@ -162,6 +162,7 @@ export interface PlatformStructuredData {
 export interface GenerationMeta {
   action?: 'create' | 'revise' | 'expand';
   platform?: string;
+  content_genre?: 'text' | 'video' | 'audio';  // 内容体裁
   revision_focus?: string;
   topic?: string;
 }
@@ -303,7 +304,7 @@ export const AGENT_STAGE_MAP: Record<string, { label: string; icon: string }> = 
   ManagerAgent:  { label: '思考分析中', icon: '🧠' },
   PlannerAgent:  { label: '规划任务中', icon: '📋' },
   WebSearch:     { label: '搜索资料中', icon: '🔍' },
-  URLCrawler:    { label: '搜索资料中', icon: '🔍' },
+  // URLCrawler:    { label: '搜索资料中', icon: '🔍' },  // TEMP: disabled
   SearchAnalyzer:{ label: '搜索分析中', icon: '🔎' },
   WritingAgent:  { label: '创作初稿中', icon: '✍️' },
   TitleAgent:    { label: '标题生成中', icon: '🏷️' },
@@ -311,7 +312,7 @@ export const AGENT_STAGE_MAP: Record<string, { label: string; icon: string }> = 
   ReviewAgent:   { label: '评审优化中', icon: '📋' },
   FixAgent:      { label: '润色优化中', icon: '✨' },
   CodeAgent:     { label: '代码生成中', icon: '💻' },
-  DiagramAgent:  { label: '图表生成中', icon: '📊' },
+  // DiagramAgent:  { label: '图表生成中', icon: '📊' },  // TEMP: disabled
   HotTopicAgent: { label: '整合分析中', icon: '🔬' },
   // PreviewSync 是后端聚合节点（不调用 LLM），仅负责把 TitleAgent/TagAgent/FixAgent
   // 的产物同步到右侧预览面板。用户希望在 timeline 中也看到这个节点，
@@ -321,6 +322,16 @@ export const AGENT_STAGE_MAP: Record<string, { label: string; icon: string }> = 
 
 export type ContentType = 'blog' | 'social_post' | 'copywriting' | 'script' | 'newsletter' | 'report' | 'auto';
 export type ContentStyle = '技术' | '种草' | '干货' | '幽默' | '深度' | '教程' | '';
+
+/** 内容体裁类型 */
+export type ContentGenre = 'text' | 'video' | 'audio';
+
+/** 体裁中文名称映射 */
+export const CONTENT_GENRE_NAMES: Record<ContentGenre, string> = {
+  text: '图文',
+  video: '视频脚本',
+  audio: '音频脚本',
+};
 
 /** 系统监控指标 from GET /agent/metrics */
 export interface AgentMetrics {

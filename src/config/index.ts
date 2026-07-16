@@ -1,5 +1,5 @@
 export const APP_CONFIG = {
-  name: 'AutoPublish',
+  name: '墨掌柜',
   version: '2.0.0',
   defaultPlatform: 'xiaohongshu' as const,
   supportedPlatforms: ['xiaohongshu', 'wechat', 'fiction', 'storyboard', 'script', 'copywriting', 'newsletter', 'technical_doc', 'tutorial'] as const,

@@ -41,43 +41,43 @@ interface StyleSkin {
 
 const SKIN_MAP: Record<string, StyleSkin> = {
   copywriting: {
-    icon: '📝', label: '产品文案', description: '卖点 · 价值主张 · CTA',
+    icon: '📝', label: '产品文案', description: '卖点直接，看完就想买',
     headerBg: 'bg-blue-50', headerText: 'text-blue-700', borderColor: 'border-blue-200', emphasis: 'text-blue-600',
   },
   'brand-story': {
-    icon: '💼', label: '品牌故事', description: '叙事 · 品牌调性 · 情感共鸣',
+    icon: '💼', label: '品牌故事', description: '情感共鸣，让人记住你',
     headerBg: 'bg-purple-50', headerText: 'text-purple-700', borderColor: 'border-purple-200', emphasis: 'text-purple-600',
     fontFamily: 'Georgia, "Songti SC", serif',
   },
   'ad-copy': {
-    icon: '📢', label: '广告文案', description: '标题党 · 转化导向 · 紧迫感',
+    icon: '📢', label: '广告文案', description: '信息流风格，1秒定胜负',
     headerBg: 'bg-orange-50', headerText: 'text-orange-700', borderColor: 'border-orange-200', emphasis: 'text-orange-600',
   },
   fiction: {
-    icon: '📖', label: '小说故事', description: '人物对白 · 情节节奏 · 叙事',
+    icon: '📖', label: '小说故事', description: '情节抓人，让人想一口气读完',
     headerBg: 'bg-amber-50', headerText: 'text-amber-700', borderColor: 'border-amber-200', emphasis: 'text-amber-700',
     fontFamily: 'Georgia, "Songti SC", serif',
   },
   script: {
-    icon: '🎬', label: '剧本脚本', description: '镜头语言 · 景别标注 · 对白',
+    icon: '🎬', label: '剧本脚本', description: '人物对白，场景还原',
     headerBg: 'bg-red-50', headerText: 'text-red-700', borderColor: 'border-red-200', emphasis: 'text-red-600',
     fontFamily: 'Courier New, monospace',
   },
   'tech-doc': {
-    icon: '📘', label: '技术文档', description: '结构清晰 · 术语规范 · 示例',
+    icon: '📘', label: '技术文档', description: '看完就能跑通代码',
     headerBg: 'bg-slate-100', headerText: 'text-slate-700', borderColor: 'border-slate-300', emphasis: 'text-slate-700',
     fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
   },
   tutorial: {
-    icon: '📗', label: '教程指南', description: '循序渐进 · 步骤清晰 · 学练',
+    icon: '📗', label: '教程指南', description: '零基础也能学会',
     headerBg: 'bg-emerald-50', headerText: 'text-emerald-700', borderColor: 'border-emerald-200', emphasis: 'text-emerald-600',
   },
   email: {
-    icon: '📧', label: '邮件营销', description: '问候语 · 价值内容 · CTA',
+    icon: '📧', label: '邮件营销', description: '打开率高，像朋友来信',
     headerBg: 'bg-indigo-50', headerText: 'text-indigo-700', borderColor: 'border-indigo-200', emphasis: 'text-indigo-600',
   },
   seo: {
-    icon: '🔍', label: 'SEO 文章', description: '关键词 · 结构 · 可读性',
+    icon: '🔍', label: 'SEO 文章', description: '搜索排名好，读者也爱看',
     headerBg: 'bg-cyan-50', headerText: 'text-cyan-700', borderColor: 'border-cyan-200', emphasis: 'text-cyan-600',
   },
 };

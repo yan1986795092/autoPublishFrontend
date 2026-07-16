@@ -40,7 +40,7 @@ interface AdvancedPanelProps {
 
 export function AdvancedPanel({ selectedPlatform, onCollapse }: AdvancedPanelProps) {
   // Agent Store：运行状态、结果、thinking、预览设置
-  const { isRunning, currentResult, thinkingSteps, previewContent, previewTitle, previewTags, previewPlatform, previewContentType }
+  const { isRunning, currentResult, thinkingSteps, previewContent, previewTitle, previewTags, previewPlatform, previewContentType, previewSyncTrigger }
     = useAgentStore(useShallow((s) => ({
       isRunning: s.isRunning,
       currentResult: s.currentResult,
@@ -50,6 +50,7 @@ export function AdvancedPanel({ selectedPlatform, onCollapse }: AdvancedPanelPro
       previewTags: s.previewTags,
       previewPlatform: s.previewPlatform,
       previewContentType: s.previewContentType,
+      previewSyncTrigger: s.previewSyncTrigger,
     })));
 
   // Conversation Store：消息列表（已迁移到这里）
@@ -76,10 +77,40 @@ export function AdvancedPanel({ selectedPlatform, onCollapse }: AdvancedPanelPro
       [selectedPlatform, previewPlatform, previewContentType, currentResult],
     );
 
+  // ── P0: 合并 preview_sync 数据与 currentResult ──
+  // preview_sync 事件会先于 result 到达，此时只有 previewTitle/previewTags/previewContent
+  // 当 result 到达后，优先使用 preview_sync 的 title/tags/content（来自 PreviewSync 节点，更实时）
+  // previewSyncTrigger 用于强制刷新：当 preview_sync 事件到达时触发
+  const mergedResult = useMemo(() => {
+    // 如果没有 currentResult 但有 previewContent，直接构造一个 result 对象用于预览
+    if (!currentResult && previewContent) {
+      return {
+        output: {
+          full_text: previewContent,
+          content: previewContent,
+          title: previewTitle || undefined,
+          tags: previewTags.length > 0 ? previewTags : undefined,
+        },
+      } as typeof currentResult;
+    }
+    if (!currentResult) return null;
+    const output = (currentResult.output as Record<string, unknown>) || {};
+    return {
+      ...currentResult,
+      output: {
+        ...output,
+        // 优先使用 preview_sync 的正文（来自 PreviewSync 节点，更实时）
+        full_text: previewContent || output.full_text || output.content || '',
+        content: previewContent || output.full_text || output.content || '',
+        // 优先使用 preview_sync 的标题和标签（来自 PreviewSync 节点，更实时）
+        title: previewTitle || output.title,
+        tags: previewTags.length > 0 ? previewTags : (output.tags as string[] | undefined),
+      },
+    } as typeof currentResult;
+  }, [currentResult, previewTitle, previewTags, previewContent, previewSyncTrigger]);
+
   // 空闲时优先用左侧选中的平台
   const previewKey = isIdle ? selectedPlatform : (activePreviewKey || selectedPlatform);
-  // 注意：这里不在 render 中调用 getPreviewComponent，避免 react-hooks/static-components 规则报错
-  // 改为在 JSX 中 inline 调用，每个分支用 IIFE 包起来
 
   return (
     <div
@@ -126,7 +157,7 @@ export function AdvancedPanel({ selectedPlatform, onCollapse }: AdvancedPanelPro
         </div>
 
         {/* 内容区 */}
-        {isIdle && !previewKey ? (
+        {isIdle && !previewKey && !previewContent ? (
           <div className="relative flex-1 min-h-0">
             <div className="absolute inset-0 flex flex-col items-center justify-center px-8">
               <div className="relative w-20 h-20 mb-6">
@@ -145,6 +176,7 @@ export function AdvancedPanel({ selectedPlatform, onCollapse }: AdvancedPanelPro
           </div>
         ) : (
           <div className="flex-1 min-h-0 overflow-hidden">
+            {/* P0: preview_sync 事件的 content 优先级最高，即使 isRunning 仍在也显示 */}
             {previewContent ? (
               <div className="p-4">
                 {(() => {
@@ -163,24 +195,10 @@ export function AdvancedPanel({ selectedPlatform, onCollapse }: AdvancedPanelPro
                       } as any}
                       selectedPlatform={key}
                       selectedContentType={previewContentType || null}
-                      isPlaceholder
+                      isPlaceholder={false}
                     />
                   );
                 })()}
-              </div>
-            ) : isRunning && !currentResult ? (
-              // 修复 #7：运行时只显示"生成中"占位，专注留给左侧 Workspace
-              <div className="p-6 flex flex-col items-center justify-center text-center">
-                <div className="relative w-12 h-12 mb-3">
-                  <div className="absolute inset-0 rounded-full bg-primary-500/20 animate-ping" />
-                  <div className="absolute inset-2 rounded-full bg-primary-500/40" />
-                </div>
-                <p className="text-xs text-app-text-secondary mb-1">
-                  AI 正在为你创作…
-                </p>
-                <p className="text-[10px] text-app-text-tertiary">
-                  生成过程在左侧实时显示
-                </p>
               </div>
             ) : previewKey ? (
               <div className="p-4">
@@ -195,7 +213,7 @@ export function AdvancedPanel({ selectedPlatform, onCollapse }: AdvancedPanelPro
                 {/* P1: previewKey 但还没 currentResult 时，调用 ResultPreview 让组件按 isPlaceholder=true 走骨架占位
                     而非硬编码 '✨ 内容准备中...' 死字符串 */}
                 <ResultPreview
-                  result={currentResult}
+                  result={mergedResult}
                   selectedPlatform={resolvedPlatform}
                   selectedContentType={resolvedContentType}
                   isPlaceholder={!currentResult}
@@ -204,7 +222,7 @@ export function AdvancedPanel({ selectedPlatform, onCollapse }: AdvancedPanelPro
               </div>
             ) : currentResult ? (
               <div className="p-4 relative">
-                <ResultPreview result={currentResult} selectedPlatform={resolvedPlatform} selectedContentType={resolvedContentType} previewMode={previewMode} />
+                <ResultPreview result={mergedResult} selectedPlatform={resolvedPlatform} selectedContentType={resolvedContentType} previewMode={previewMode} />
               </div>
             ) : (
               <p className="text-xs text-app-text-tertiary text-center py-8">

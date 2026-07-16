@@ -151,6 +151,12 @@ export function eventToPartOp(
       // Append if this is the first chunk for this part_id, otherwise update.
       // Backend generates a new part_id per reasoning segment, so the first
       // chunk always gets an append. The check covers re-renders / out-of-order.
+
+      // 规划推理（ManagerAgent）默认展开，让用户能看到执行计划
+      const isPlanReasoning = e.data.agent === 'ManagerAgent';
+      // 搜索分析推理也默认展开，让用户能看到分析过程
+      const isSearchReasoning = e.data.agent === 'SearchAnalyzer' || e.data.agent === 'AnalysisAgent';
+
       const existing = currentParts?.find(
         (p) => p.id === e.data.part_id || p.server_id === e.data.part_id,
       );
@@ -164,7 +170,7 @@ export function eventToPartOp(
             state: 'streaming',
             created_at: now,
             content: e.data.delta,
-            collapsed_by_default: true,
+            collapsed_by_default: !isPlanReasoning && !isSearchReasoning,
             agent: e.data.agent,
             round: e.data.round,
           } as MessagePart,
@@ -224,6 +230,7 @@ export function eventToPartOp(
           artifact_type: e.data.artifact_type,
           body: e.data.body,
           title: e.data.title,
+          tags: e.data.tags,
           platform: e.data.platform,
           structured: e.data.structured,
         } as MessagePart,

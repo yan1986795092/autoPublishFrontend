@@ -92,12 +92,83 @@ const PLATFORM_THEMES = {
     tagPool: ['知识科普', '必看推荐', '硬核分享', '深度解读'],
     defaultTitle: '必看推荐',
   },
+  // ═══════════════════════════════════════════════════════════
+  // 营销体裁
+  // ═══════════════════════════════════════════════════════════
   copywriting: {
-    authors: ['品牌官方', '产品运营组'],
-    metricBase: { views: 0 },
-    spread: 1,
-    tagPool: ['限时优惠', '新品上市', '福利活动'],
-    defaultTitle: '限时优惠',
+    authors: ['品牌官方', '产品运营组', '市场部', '文案组小A', '增长黑客', '品牌策略部'],
+    timeAgo: ['今天', '昨天', '3 天前', '本周'],
+    metricBase: { likes: 0, comments: 0, views: 36000, shares: 0 },
+    spread: 2,
+    tagPool: ['限时优惠', '新品上市', '福利活动', '爆款推荐', '限时抢购', '买一送一', '首发特惠'],
+    defaultTitle: '限时特惠 · 错过等一年',
+  },
+  'brand-story': {
+    authors: ['品牌叙事组', '创始人说', '品牌观察', '故事研习社', '品牌战略部', '营销案例库'],
+    timeAgo: ['昨天', '3 天前', '上周', '本月'],
+    metricBase: { likes: 120, comments: 35, views: 28000, shares: 60 },
+    spread: 2.5,
+    tagPool: ['品牌故事', '创业历程', '品牌价值观', '创始人说', '匠心精神', '初心不改', '品牌升级'],
+    defaultTitle: '一个品牌的诞生',
+  },
+  'ad-copy': {
+    authors: ['广告创意组', '效果广告部', '增长团队', '投放优化师', '创意热店', '品牌营销中心'],
+    timeAgo: ['刚刚', '30 分钟前', '1 小时前', '今天'],
+    metricBase: { likes: 0, comments: 0, views: 125000, shares: 0 },
+    spread: 3,
+    tagPool: ['限时活动', '爆款直降', '新品首发', '限时秒杀', '独家优惠', '立即抢购'],
+    defaultTitle: '限时抢购 · 手慢无',
+  },
+  fiction: {
+    authors: ['深夜故事铺', '人间故事集', '短篇小说家', '故事收藏家', '文字造梦师', '虚构工坊', '故事猎人'],
+    timeAgo: ['2 小时前', '昨天', '3 天前', '上周', '5 天前'],
+    metricBase: { likes: 420, comments: 85, views: 16000, collects: 380, shares: 120 },
+    spread: 3,
+    tagPool: ['短篇小说', '人间故事', '虚构', '情感故事', '都市传说', '悬疑', '治愈故事', '睡前故事'],
+    defaultTitle: '未命名故事',
+  },
+  script: {
+    authors: ['编剧工坊', '剧本创作中心', '影视策划组', '故事板工作室', '编剧阿乐', '影视剧本库'],
+    timeAgo: ['昨天', '3 天前', '上周', '本月 8 日'],
+    metricBase: { likes: 0, comments: 0, views: 8500, shares: 0 },
+    spread: 2,
+    tagPool: ['剧本', '分镜', '影视改编', '短剧', '对白', '场景设计', '人物小传'],
+    defaultTitle: '场景一 · 日 · 室内',
+  },
+  // ═══════════════════════════════════════════════════════════
+  // 专业文体
+  // ═══════════════════════════════════════════════════════════
+  'tech-doc': {
+    authors: ['技术文档组', 'DevRel 团队', '开源社区', 'API 文档组', '产品技术部', '工程效率组'],
+    timeAgo: ['v2.1.0', 'v3.0.0', '2024 LTS', '最新版', 'v1.8.3', '2025 Q2 更新'],
+    metricBase: { likes: 0, comments: 0, views: 42000, shares: 0 },
+    spread: 2,
+    tagPool: ['API', '技术文档', '开发指南', '最佳实践', '架构设计', '系统设计', 'SDK'],
+    defaultTitle: '技术文档',
+  },
+  tutorial: {
+    authors: ['教程编写组', '教育团队', '学习中心', '知识分享组', '开发者体验部', '教学实验室'],
+    timeAgo: ['昨天', '3 天前', '上周', '本月更新', '最新版'],
+    metricBase: { likes: 180, comments: 45, views: 53000, collects: 320, shares: 90 },
+    spread: 2.5,
+    tagPool: ['教程', '入门指南', '新手必看', '最佳实践', '从零开始', '手把手教学', '进阶教程'],
+    defaultTitle: '从零开始 · 入门指南',
+  },
+  email: {
+    authors: ['邮件运营组', '用户增长部', '品牌营销中心', 'CRM 团队', '会员运营组'],
+    timeAgo: ['今天', '昨天', '本周', '第 3 期'],
+    metricBase: { likes: 0, comments: 0, views: 68000, shares: 0 },
+    spread: 2,
+    tagPool: ['会员专享', '限时福利', '每周精选', '产品更新', '用户故事', '独家内容'],
+    defaultTitle: '本周精选 · 不容错过',
+  },
+  seo: {
+    authors: ['SEO 内容组', '搜索优化团队', '内容编辑部', '流量增长组', '关键词研究组', '内容策略部'],
+    timeAgo: ['今天', '昨天', '3 天前', '上周'],
+    metricBase: { likes: 60, comments: 12, views: 86000, shares: 25 },
+    spread: 2.5,
+    tagPool: ['SEO', '搜索优化', '关键词研究', '内容策略', '流量增长', '搜索引擎', '排名优化'],
+    defaultTitle: '完整指南 · 2026 最新',
   },
   default: {
     authors: ['AI 创作者'],

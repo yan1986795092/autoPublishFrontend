@@ -127,10 +127,17 @@ export function StyleSkinPreview({ content, contentType, data, isPlaceholder }: 
           className="flex-1 px-5 py-5 max-h-[480px] overflow-y-auto"
           style={skin.fontFamily ? { fontFamily: skin.fontFamily } : undefined}
         >
-          {isPlaceholder ? (
+          {content ? (
+            <>
+              {data?.title && (
+                <h2 className="text-[15px] font-bold text-gray-900 mb-3 leading-snug">
+                  {data.title}
+                </h2>
+              )}
+              <ContentRenderer content={content} contentType={contentType} />
+            </>
+          ) : isPlaceholder ? (
             <PlaceholderSkeleton />
-          ) : content ? (
-            <ContentRenderer content={content} contentType={contentType} />
           ) : (
             <p className="text-sm text-gray-400 italic">（等待内容生成…）</p>
           )}
@@ -170,10 +177,18 @@ export function StyleSkinPreview({ content, contentType, data, isPlaceholder }: 
         className="px-5 py-5 max-h-[480px] overflow-y-auto"
         style={skin.fontFamily ? { fontFamily: skin.fontFamily } : undefined}
       >
-        {isPlaceholder ? (
+        {content ? (
+          <>
+            {/* 标题从 data.title（产物）获取，不从正文解析；标签仅平台展示 */}
+            {data?.title && (
+              <h2 className="text-[15px] font-bold text-gray-900 mb-3 leading-snug">
+                {data.title}
+              </h2>
+            )}
+            <ContentRenderer content={content} contentType={contentType} />
+          </>
+        ) : isPlaceholder ? (
           <PlaceholderSkeleton />
-        ) : content ? (
-          <ContentRenderer content={content} contentType={contentType} />
         ) : (
           <p className="text-sm text-gray-400 italic">（等待内容生成…）</p>
         )}

@@ -91,14 +91,14 @@ export function PreviewPanel({ platformCode, title, contentMd, tags }: PreviewPa
             <MobileFrame>
               {(() => {
                 const PC = getPreviewComponent(platformCode);
-                return <PC content={cleanedContent || ''} data={data} />;
+                return <PC content={cleanedContent || ''} data={data} contentType={platformCode} />;
               })()}
             </MobileFrame>
           ) : (
             <DocumentFrame>
               {(() => {
                 const PC = getPreviewComponent(platformCode);
-                return <PC content={cleanedContent || ''} data={data} />;
+                return <PC content={cleanedContent || ''} data={data} contentType={platformCode} />;
               })()}
             </DocumentFrame>
           )}
